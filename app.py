@@ -16,7 +16,7 @@ DEFAULT_TOKEN = "BURAYA_TOKEN_YAPIŞTIR"
 DEFAULT_CHAT_ID = "BURAYA_CHAT_ID_YAZ"
 # ==========================================
 
-st.set_page_config(layout="wide", page_title="Pro Trader V32 (Precision)")
+st.set_page_config(layout="wide", page_title="Pro Trader V33 (4H Loop)")
 
 st.markdown("""
     <style>
@@ -105,11 +105,10 @@ def process_data(df, src):
         return df, src
     return None, "Hata"
 
-# --- DESTEK / DİRENÇ HESAPLAMA ---
+# --- DESTEK / DİRENÇ ---
 def calculate_sr(df, timeframe):
     supports, resistances = [], []
     n = 5 if timeframe == "4h" else 15
-    # Son 300 mumu tara
     work_df = df.tail(300)
     for i in range(n, len(work_df)-n):
         l = work_df['Low'].iloc[i]
@@ -118,7 +117,7 @@ def calculate_sr(df, timeframe):
         if h == work_df['High'].iloc[i-n:i+n+1].max(): resistances.append(h)
     return sorted(list(set([round(x,2) for x in supports]))), sorted(list(set([round(x,2) for x in resistances])))
 
-# --- YENİ ORACLE SİNYAL MANTIĞI (HATA DÜZELTİLDİ) ---
+# --- ORACLE SİNYAL ---
 def calculate_oracle_signal_fixed(df, supports, resistances):
     if df is None: return "Veri Yok", "gray", ""
     
@@ -130,7 +129,6 @@ def calculate_oracle_signal_fixed(df, supports, resistances):
     
     target_msg = ""
     
-    # 1. ALIM BÖLGESİ ANALİZİ
     if rsi < 45:
         status = "AL (UCUZ)"
         color = "blue"
@@ -138,23 +136,18 @@ def calculate_oracle_signal_fixed(df, supports, resistances):
             status = "GÜÇLÜ AL (DİP)"
             color = "green"
         
-        # HEDEF MANTIĞI (Düzeltildi)
-        # Eğer fiyat Bollinger Alt bandının ALTINDAYSA, hedefi daha aşağıda aramalıyız.
         if price < bb_lower:
-            # Fiyat bandın da altına sarkmış, bir sonraki destek neresi?
             lower_supports = [s for s in supports if s < price]
             if lower_supports:
-                next_sup = max(lower_supports) # En yakın alt destek
+                next_sup = max(lower_supports)
                 diff = ((price - next_sup) / price) * 100
                 target_msg = f"📉 Sonraki Destek: {next_sup:,.2f} (-{diff:.1f}%)"
             else:
-                target_msg = "Dip belirsiz (Tarihi Dipte)"
+                target_msg = "Dip belirsiz (Tarihi Dip)"
         else:
-            # Normal durum: Fiyat banda doğru inebilir
             diff = ((price - bb_lower) / price) * 100
             target_msg = f"📉 Bollinger Dibi: {bb_lower:,.2f} (-{diff:.1f}%)"
 
-    # 2. SATIM BÖLGESİ ANALİZİ
     elif rsi > 55:
         status = "SAT (PAHALI)"
         color = "orange"
@@ -162,11 +155,10 @@ def calculate_oracle_signal_fixed(df, supports, resistances):
             status = "GÜÇLÜ SAT (TEPE)"
             color = "red"
             
-        # Eğer fiyat Bollinger Üst bandını kırdıysa hedef bir sonraki dirençtir
         if price > bb_upper:
             upper_resistances = [r for r in resistances if r > price]
             if upper_resistances:
-                next_res = min(upper_resistances) # En yakın üst direnç
+                next_res = min(upper_resistances)
                 diff = ((next_res - price) / price) * 100
                 target_msg = f"📈 Sonraki Direnç: {next_res:,.2f} (+{diff:.1f}%)"
             else:
@@ -174,7 +166,6 @@ def calculate_oracle_signal_fixed(df, supports, resistances):
         else:
             diff = ((bb_upper - price) / price) * 100
             target_msg = f"📈 Bollinger Tepesi: {bb_upper:,.2f} (+{diff:.1f}%)"
-            
     else:
         status = "NÖTR (İZLE)"
         color = "gray"
@@ -290,10 +281,7 @@ for tf, label in intervals.items():
     results[tf] = df
     
     if df is not None:
-        # Önce Destekleri Hesapla ki Oracle fonksiyonuna gönderebilelim
         s_list, r_list = calculate_sr(df, tf)
-        
-        # Yeni Oracle Fonksiyonu (Destekleri de parametre alıyor)
         status, color, target_msg = calculate_oracle_signal_fixed(df, s_list, r_list)
         
         st.sidebar.markdown(f"---")
@@ -303,7 +291,7 @@ for tf, label in intervals.items():
     else: 
         st.sidebar.warning(f"{label}: Bekleniyor...")
 
-st.title(f"📈 {sel_c} V32 (Precision)")
+st.title(f"📈 {sel_c} V33 (4H Loop)")
 c = "green" if "Binance" in active_src else ("blue" if "OKX" in active_src else "orange")
 st.markdown(f"**Veri Kaynağı:** <span style='color:{c}; font-weight:bold'>{active_src}</span>", unsafe_allow_html=True)
 
@@ -344,16 +332,12 @@ if df_view is not None:
                 elif i['type'] == 'icon':
                     fig.add_annotation(x=i['x'], y=i['y'], text=i['msg'], showarrow=False, yshift=15 if i.get('anchor')=='bottom' else -15)
 
-    # Destek Direnç Hesapla
     s_list, r_list = calculate_sr(df_view, view_tf)
-    
-    # Grafiğe Çiz
     for s in [x for x in s_list if x < curr][-3:]:
         fig.add_hline(y=s, line_dash="dash", line_color="#00FF00", annotation_text=f"Dst: {s}")
     for r in [x for x in r_list if x > curr][:3]:
         fig.add_hline(y=r, line_dash="dash", line_color="#FF0000", annotation_text=f"Dir: {r}")
 
-    # ZOOM AYARI (V30 Standardı)
     zoom_count = 30 if view_tf == "1wk" else (60 if view_tf == "1d" else 80)
     if len(df_view) > zoom_count:
         visible_df = df_view.tail(zoom_count)
@@ -365,7 +349,6 @@ if df_view is not None:
         y_min = df_view['Low'].min()
         y_max = df_view['High'].max()
 
-    # Gelecek boşluğu
     gap_multiplier = 2 if view_tf == "1wk" else 5
     if len(df_view) > 2:
         delta = df_view.index[-1] - df_view.index[-2]
@@ -409,3 +392,29 @@ if df_view is not None:
         st.metric("RSI", f"{df_view['RSI'].iloc[-1]:.1f}")
 
 else: st.error("Veri Alınamadı.")
+
+# --- OTOMATİK BOT DÖNGÜSÜ (4 SAATTE BİR) ---
+if st.session_state.get('auto_mode', False) or st.sidebar.checkbox("Otomatik Bot", key='auto_mode'):
+    tg_token = st.sidebar.text_input("Bot Token", value=DEFAULT_TOKEN, type="password")
+    tg_chat = st.sidebar.text_input("Chat ID", value=DEFAULT_CHAT_ID)
+    
+    msg = ""
+    for tf, res in results.items():
+        if res is not None:
+            # Her periyot için destekleri yeniden hesapla
+            s_l, r_l = calculate_sr(res, tf)
+            stat, _, target = calculate_oracle_signal_fixed(res, s_l, r_l)
+            if "GÜÇLÜ" in stat or "AL" in stat:
+                msg += f"\n⏰ {tf}: {stat} | {target}"
+    
+    if msg and tg_token and tg_chat:
+        full_msg = f"🚨 **{sel_c} OTOMATİK ANALİZ** 🚨\n{msg}\nFiyat: {curr:.2f}"
+        # Son mesajla aynı değilse gönder
+        if 'last_msg' not in st.session_state or st.session_state['last_msg'] != full_msg:
+            send_tg(tg_token, tg_chat, full_msg)
+            st.session_state['last_msg'] = full_msg
+            st.toast("Bildirim Gönderildi!")
+    
+    # --- İŞTE BURADA 4 SAAT BEKLİYOR ---
+    time.sleep(14400) 
+    st.rerun()
