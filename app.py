@@ -19,7 +19,7 @@ DEFAULT_CHAT_ID = "BURAYA_CHAT_ID_YAZ"
 PORTFOLIO_FILE = "portfolio.json"
 # ==========================================
 
-st.set_page_config(layout="wide", page_title="Pro Trader V43 (Cloud & Money)")
+st.set_page_config(layout="wide", page_title="Pro Trader V47 (Gold Edition)")
 
 st.markdown("""
     <style>
@@ -28,33 +28,42 @@ st.markdown("""
         .stMarkdown p { font-size: 14px; }
         .profit { color: #4CAF50; font-weight: bold; }
         .loss { color: #FF5252; font-weight: bold; }
-        /* Tablo Yazılarını Ortalama */
         .stDataFrame { text-align: center; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- VERİTABANI ---
+# --- VERİTABANI (YENİ YAPI) ---
 def load_portfolio():
     if os.path.exists(PORTFOLIO_FILE):
         try:
             with open(PORTFOLIO_FILE, "r") as f:
-                return json.load(f)
-        except: return []
-    return []
+                data = json.load(f)
+                # Eski yapıyı (liste) yeni yapıya (dict) dönüştür
+                if isinstance(data, list):
+                    return {"balance": 0.0, "positions": data}
+                return data
+        except: return {"balance": 1000.0, "positions": []}
+    return {"balance": 1000.0, "positions": []}
 
 def save_portfolio(data):
     with open(PORTFOLIO_FILE, "w") as f:
         json.dump(data, f)
 
-if 'portfolio' not in st.session_state:
-    st.session_state['portfolio'] = load_portfolio()
+if 'portfolio_data' not in st.session_state:
+    st.session_state['portfolio_data'] = load_portfolio()
 
-# --- COIN HARİTASI ---
+# --- COIN HARİTASI (GRAM ALTIN EKLENDİ) ---
 COIN_MAP = {
-    "Bitcoin (BTC)": "BTC-USD", "Ethereum (ETH)": "ETH-USD", 
-    "Solana (SOL)": "SOL-USD", "Ripple (XRP)": "XRP-USD", 
-    "Avax (AVAX)": "AVAX-USD", "Dogecoin (DOGE)": "DOGE-USD", 
-    "Pepe": "PEPE-USD", "ONS ALTIN": "XAU_GOLD", "EUR/USD": "EURUSD=X"
+    "Bitcoin (BTC)": "BTC-USD", 
+    "Ethereum (ETH)": "ETH-USD", 
+    "Solana (SOL)": "SOL-USD", 
+    "Ripple (XRP)": "XRP-USD", 
+    "Avax (AVAX)": "AVAX-USD", 
+    "Dogecoin (DOGE)": "DOGE-USD", 
+    "Pepe": "PEPE-USD", 
+    "ONS ALTIN ($)": "XAU_GOLD",    # ONS Altın
+    "GRAM ALTIN (TL)": "GRAM_TRY",  # Gram Altın (Hesaplamalı)
+    "EUR/USD": "EURUSD=X"
 }
 
 # --- EĞİTİM SÖZLÜĞÜ ---
@@ -66,20 +75,40 @@ PATTERN_INFO = {
     "Yutan Boğa": "🚀 **Yutan Boğa:** Güçlü alım."
 }
 
-# --- VERİ MOTORLARI (STABIL) ---
+# --- STANDART HEADERS (BOT ENGELİNİ AŞMAK İÇİN) ---
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+}
+
+# --- VERİ MOTORLARI (DÜZELTİLMİŞ VERSİYON) ---
+
+# Standart Tarayıcı Kimliği (Bot Engelini Aşmak İçin)
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+}
+
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_binance_simple(symbol, interval, limit=500):
+    # Sembol Düzeltme
     s_bin = symbol.replace("-", "").replace("USD", "USDT")
     url = "https://api.binance.com/api/v3/klines"
     params = {"symbol": s_bin, "interval": interval, "limit": limit}
+    
     try:
-        r = requests.get(url, params=params, timeout=5)
+        r = requests.get(url, params=params, headers=HEADERS, timeout=5)
         if r.status_code == 200:
-            df = pd.DataFrame(r.json(), columns=["OpT", "Open", "High", "Low", "Close", "Vol", "x", "x", "x", "x", "x", "x"])
+            data = r.json()
+            # API Hata kontrolü
+            if isinstance(data, dict) and 'code' in data: return None
+            
+            # DÜZELTME: 'Vol' yerine direkt 'Volume' yazdık
+            df = pd.DataFrame(data, columns=["OpT", "Open", "High", "Low", "Close", "Volume", "x", "x", "x", "x", "x", "x"])
             df["Date"] = pd.to_datetime(df["OpT"], unit='ms')
             df.set_index("Date", inplace=True)
             return df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
-    except: return None
+    except Exception as e:
+        print(f"Binance Error: {e}")
+        return None
     return None
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -88,76 +117,210 @@ def fetch_okx_simple(symbol, interval, limit=300):
     omap = {"4h": "4H", "1d": "1D", "1wk": "1W"}
     url = "https://www.okx.com/api/v5/market/candles"
     params = {"instId": s_okx, "bar": omap.get(interval, "1D"), "limit": limit}
+    
     try:
-        r = requests.get(url, params=params, timeout=5)
+        r = requests.get(url, params=params, headers=HEADERS, timeout=5)
         data = r.json()
-        if data['code'] == '0':
-            df = pd.DataFrame(data['data'], columns=["ts", "Open", "High", "Low", "Close", "Vol", "x", "x", "x"])
+        if data.get('code') == '0':
+            # OKX Sıralaması: ts, o, h, l, c, vol, ...
+            df = pd.DataFrame(data['data'], columns=["ts", "Open", "High", "Low", "Close", "Volume", "x", "x", "x"])
             df["Date"] = pd.to_datetime(df["ts"], unit='ms')
             df.set_index("Date", inplace=True)
             df = df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
             return df.sort_index()
-    except: return None
+    except Exception as e:
+        print(f"OKX Error: {e}")
+        return None
     return None
 
 def fetch_yahoo_safe(symbol, interval):
     try:
-        p = "max" if interval in ["1d", "1wk"] else "59d"
+        # Periyot ayarları
+        p = "2y" if interval == "1wk" else ("1y" if interval == "1d" else "1mo")
         i = "1h" if interval == "4h" else ("1d" if interval == "1d" else "1wk")
+        
+        # Yahoo'dan veri çek
         df = yf.download(symbol, period=p, interval=i, progress=False, auto_adjust=True)
+        
         if df.empty: return None
-        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
-        if df.index.tz is not None: df.index = df.index.tz_localize(None)
+
+        # DÜZELTME: MultiIndex sütunlarını temizle (örn: ('Close', 'BTC-USD') -> 'Close')
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+            
+        # Saat dilimini kaldır (Timezone-naive yap)
+        if df.index.tz is not None: 
+            df.index = df.index.tz_localize(None)
+            
+        # 4 Saatlik veriyi Yahoo vermez, 1 saatlik alıp biz birleştiriyoruz
         if interval == "4h":
             agg = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}
-            df = df.resample('4h', closed='left', label='left').agg(agg).dropna()
+            # Volume yoksa hata vermesin diye kontrol
+            if 'Volume' not in df.columns: 
+                df['Volume'] = 0
+            
+            df = df.resample('4h').agg(agg).dropna()
+            
         return df
-    except: return None
+    except Exception as e:
+        print(f"Yahoo Error ({symbol}): {e}")
+        return None
 
+# --- YARDIMCI: GÜVENLİ YAHOO ÇEKİCİ (YEDEKLİ) ---
+def fetch_yahoo_retry(tickers, interval):
+    """Verilen sembol listesini sırayla dener, hangisi çalışırsa onu döndürür."""
+    for sym in tickers:
+        df = fetch_yahoo_safe(sym, interval)
+        if df is not None and not df.empty and len(df) > 5:
+            return df
+    return None
+
+# --- GRAM ALTIN HESAPLAYICI (GÜÇLENDİRİLMİŞ) ---
+def fetch_gram_gold_calculated(interval):
+    """
+    Gram Altın (TL) = (ONS Altın ($) * USD/TRY) / 31.1035
+    Yedekli semboller kullanır (XAUUSD=X çalışmazsa GC=F devreye girer).
+    """
+    try:
+        # 1. ONS Verisini Çek (Spot Altın -> Vadeli Altın)
+        df_ons = fetch_yahoo_retry(["XAUUSD=X", "GC=F"], interval)
+        
+        # 2. Dolar Verisini Çek (TRY=X -> USDTRY=X)
+        df_usd = fetch_yahoo_retry(["TRY=X", "USDTRY=X"], interval)
+        
+        if df_ons is not None and df_usd is not None:
+            # Sütun isimlerini temizle ve yeniden adlandır
+            df_ons = df_ons[['Close']].rename(columns={'Close': 'Ons'})
+            df_usd = df_usd[['Close']].rename(columns={'Close': 'Usd'})
+            
+            # Zaman çizelgelerini eşleştir (join)
+            # 'inner' join ile sadece iki verinin de olduğu saatleri alırız
+            df = df_ons.join(df_usd, how='inner')
+            
+            # Formül: (Ons * Dolar) / 31.1035
+            df['Close'] = (df['Ons'] * df['Usd']) / 31.1035
+            
+            # Yapay OHLC oluştur
+            df['Open'] = df['Close']
+            df['High'] = df['Close'] * 1.002
+            df['Low'] = df['Close'] * 0.998
+            df['Volume'] = 10000 
+            
+            return df[['Open', 'High', 'Low', 'Close', 'Volume']]
+    except Exception as e:
+        print(f"Gram Gold Calculation Error: {e}")
+        return None
+    return None
+def process_data(df, src):
+    if df is not None and len(df) > 10:
+        try:
+            # 'Volume' sütunu yoksa oluştur (Hata önleyici)
+            if 'Volume' not in df.columns: df['Volume'] = 0
+            
+            # İndikatör Hesaplamaları
+            df['RSI'] = df.ta.rsi(length=14)
+            df['EMA_50'] = df.ta.ema(length=50)
+            df['EMA_20'] = df.ta.ema(length=20)
+            
+            # Bollinger Bantları
+            bb = df.ta.bbands(length=20, std=2)
+            if bb is not None:
+                df = pd.concat([df, bb], axis=1)
+                # BBands sütun isimleri bazen değişebilir, düzeltme:
+                cols = df.columns
+                # Genellikle BBL_20_2.0 vb. gelir. Son eklenenleri alalım
+                df.rename(columns={cols[-5]: 'BB_Lower', cols[-3]: 'BB_Upper'}, inplace=True)
+                
+            df['ATR'] = df.ta.atr(length=14)
+            return df, src
+        except Exception as e:
+            print(f"Process Error: {e}")
+            return None, "İşleme Hatası"
+            
+    return None, "Yetersiz Veri"
 def get_market_data(source_pref, symbol, interval):
+    # 1. GRAM ALTIN ÖZEL DURUMU
+    if symbol == "GRAM_TRY":
+        df = fetch_gram_gold_calculated(interval)
+        if df is not None: return process_data(df, "Hesaplamalı (Ons x Dolar)")
+        return None, "Veri Hesaplanamadı"
+
+    # 2. ONS ALTIN (Yedekli Yapı)
     if symbol == "XAU_GOLD":
-        for t in ["XAUUSD=X", "GC=F"]:
-            df = fetch_yahoo_safe(t, interval)
-            if df is not None: return process_data(df, f"Yahoo ({t})")
-        return None, "Veri Yok"
+        # Önce Spot Altın, olmazsa Vadeli Altın
+        df = fetch_yahoo_retry(["XAUUSD=X", "GC=F"], interval)
+        if df is not None: return process_data(df, "Yahoo (Gold)")
+        return None, "Veri Yok (Yahoo)"
+    
+    # 3. FOREX
     if symbol == "EURUSD=X":
         return process_data(fetch_yahoo_safe("EURUSD=X", interval), "Yahoo (Forex)")
 
+    # 4. KRİPTO PARALAR
     df = None
     src_name = ""
+    
+    # Seçilen kaynağı dene
     if source_pref == "Binance":
         df = fetch_binance_simple(symbol, interval)
-        src_name = "Binance" if df is not None else ""
+        src_name = "Binance"
     elif source_pref == "OKX":
         df = fetch_okx_simple(symbol, interval)
-        src_name = "OKX" if df is not None else ""
+        src_name = "OKX"
     
-    if df is None:
+    # Eğer seçilen kaynak veri getirmediyse Yahoo'ya git
+    if df is None or df.empty:
         df = fetch_yahoo_safe(symbol, interval)
         src_name = "Yahoo (Yedek)"
 
-    if df is None or df.empty: return None, "Veri Alınamadı"
+    if df is None or df.empty: 
+        return None, "Veri Alınamadı"
+        
     return process_data(df, src_name)
 
-def process_data(df, src):
-    if df is not None and len(df) > 10:
-        df['RSI'] = df.ta.rsi(length=14)
-        df['EMA_50'] = df.ta.ema(length=50)
-        # BULUT İÇİN EMA 20 ve 50
-        df['EMA_20'] = df.ta.ema(length=20)
-        bb = df.ta.bbands(length=20, std=2)
-        df = pd.concat([df, bb], axis=1)
-        df.rename(columns={df.columns[-5]: 'BB_Lower', df.columns[-3]: 'BB_Upper'}, inplace=True)
-        df['ATR'] = df.ta.atr(length=14)
-        return df, src
-    return None, "Hata"
-
-# --- CÜZDAN CANLI FİYAT ---
+# --- CÜZDAN CANLI FİYAT (YEDEKLİ) ---
 @st.cache_data(ttl=30, show_spinner=False)
 def get_live_price_for_portfolio(coin_name):
     try:
         ticker_symbol = COIN_MAP.get(coin_name)
-        if ticker_symbol == "XAU_GOLD": ticker_symbol = "XAUUSD=X"
+        
+        # GRAM ALTIN HESABI (CANLI)
+        if ticker_symbol == "GRAM_TRY":
+             # Ons fiyatını bul (Yedekli)
+             ons_price = 0
+             try: ons_price = yf.Ticker("XAUUSD=X").fast_info['last_price']
+             except: pass
+             
+             if ons_price == 0 or ons_price is None:
+                 try: ons_price = yf.Ticker("GC=F").fast_info['last_price']
+                 except: pass
+             
+             # Dolar fiyatını bul (Yedekli)
+             usd_price = 0
+             try: usd_price = yf.Ticker("TRY=X").fast_info['last_price']
+             except: pass
+             
+             if usd_price == 0 or usd_price is None:
+                 try: usd_price = yf.Ticker("USDTRY=X").fast_info['last_price']
+                 except: pass
+
+             if ons_price > 0 and usd_price > 0:
+                 return (ons_price * usd_price) / 31.1035
+             return 0
+
+        # ONS ALTIN (CANLI)
+        if ticker_symbol == "XAU_GOLD": 
+            try:
+                price = yf.Ticker("XAUUSD=X").fast_info['last_price']
+                if price and price > 0: return price
+            except: pass
+            
+            # XAUUSD çalışmazsa GC=F dene
+            try:
+                return yf.Ticker("GC=F").fast_info['last_price']
+            except: return 0
+        
+        # NORMAL KRİPTO
         if not ticker_symbol: return 0
         ticker = yf.Ticker(ticker_symbol)
         return ticker.fast_info['last_price']
@@ -234,20 +397,69 @@ def calculate_oracle_signal_fixed(df, supports, resistances):
         status, color, target_msg = "NÖTR", "gray", f"RSI: {rsi:.0f}"
     return status, color, target_msg
 
-def calculate_smart_prediction(df, periods=10):
+def calculate_smart_prediction(df, periods=15):
     try:
-        work_df = df.tail(150).copy()
-        x = np.arange(len(work_df))
+        # Veri Hazırlığı (Son 60 mum yeterli)
+        work_df = df.tail(60).copy()
+        if len(work_df) < 30: return [], []
+
+        # X (Zaman) ve Y (Fiyat) verileri
         y = work_df['Close'].values
-        z = np.polyfit(x, y, 2) 
-        p = np.poly1d(z)
-        future_x = np.arange(len(work_df), len(work_df) + periods)
-        predictions = p(future_x)
+        x = np.arange(len(y)).reshape(-1, 1)
+        
+        # 1. DOĞRUSAL REGRESYON (ANA TREND)
+        model = LinearRegression()
+        model.fit(x, y)
+        slope = model.coef_[0]     # Eğim (Trendin Yönü)
+        intercept = model.intercept_
+        
+        # 2. RSI BAZLI AKILLI DÜZELTME (MOMENTUM KONTROLÜ)
+        current_rsi = work_df['RSI'].iloc[-1]
+        current_price = y[-1]
+        ema_50 = work_df['EMA_50'].iloc[-1]
+        
+        # Eğim Düzeltme Katsayısı
+        adjustment_factor = 1.0
+        
+        # Senaryo A: Yükseliş Trendi
+        if slope > 0:
+            if current_rsi > 70: adjustment_factor = 0.4  # RSI Şişmiş, yükselişi frenle
+            elif current_rsi > 60: adjustment_factor = 0.7 # Yorulma var
+            elif current_rsi < 40: adjustment_factor = 1.3 # Güçlü momentum potansiyeli
+            
+            # Fiyat EMA50'den çok uzaksa (Ortalamaya Dönüş Riski)
+            if current_price > ema_50 * 1.05:
+                adjustment_factor *= 0.8
+                
+        # Senaryo B: Düşüş Trendi
+        elif slope < 0:
+            if current_rsi < 30: adjustment_factor = 0.4  # RSI Dipte, düşüşü frenle (Tepki Gelebilir)
+            elif current_rsi < 40: adjustment_factor = 0.7
+            elif current_rsi > 60: adjustment_factor = 1.3 # Düşüş derinleşebilir
+        
+        # Eğimi Revize Et
+        smart_slope = slope * adjustment_factor
+        
+        # 3. GELECEK TAHMİNİ OLUŞTURMA
+        future_dates = []
+        predictions = []
+        
         last_date = work_df.index[-1]
         time_delta = work_df.index[-1] - work_df.index[-2]
-        future_dates = [last_date + (time_delta * i) for i in range(1, periods + 1)]
+        
+        # Tahmin çizgisini son kapanış fiyatından başlat (Süreklilik için)
+        start_price = current_price
+        
+        for i in range(1, periods + 1):
+            future_dates.append(last_date + (time_delta * i))
+            # Her adımda eğim kadar ekle
+            next_price = start_price + (smart_slope * i)
+            predictions.append(next_price)
+            
         return future_dates, predictions
-    except: return [], []
+    except Exception as e:
+        print(f"Prediction Error: {e}")
+        return [], []
 
 def calculate_extended_trendlines(df, extend_candles=15):
     highs = df['High'].values
@@ -362,7 +574,26 @@ df_view = results[view_tf]
 if df_view is not None:
     curr = df_view['Close'].iloc[-1]
     current_atr = df_view.iloc[-1]['ATR'] if 'ATR' in df_view.columns else curr * 0.02
-    
+    # ---   (Risk Hesaplayıcı Başlangıcı) ---
+    with st.sidebar.expander("🧮 Hızlı Risk Hesapla", expanded=False):
+        st.caption("Pozisyon büyüklüğü hesaplar.")
+        # Mevcut fiyatı otomatik getiriyoruz
+        calc_price = st.number_input("Giriş Fiyatı", value=float(curr), format="%.4f")
+        calc_sl = st.number_input("Stop Fiyatı", value=float(curr)*0.98, format="%.4f")
+        calc_balance = st.number_input("Kasa ($)", value=1000.0)
+        calc_risk = st.number_input("Risk (%)", value=1.0, step=0.5)
+        
+        if calc_price > 0 and calc_sl > 0 and calc_price != calc_sl:
+            risk_amt = calc_balance * (calc_risk / 100)
+            diff_pct = abs(calc_price - calc_sl) / calc_price
+            pos_size = risk_amt / diff_pct
+            coin_qty = pos_size / calc_price
+            
+            st.divider()
+            st.write(f"💸 **Risk Tutarı:** ${risk_amt:.2f}")
+            st.success(f"💰 **İşlem Büyüklüğü:** ${pos_size:.2f}")
+            st.info(f"🪙 **Alınacak Adet:** {coin_qty:.4f}")
+    # --- BURADA BİTİYOR (Risk Hesaplayıcı Sonu) ---
     fig = go.Figure()
     
     # --- 1. BULUT (EMA CLOUD) ---
@@ -433,18 +664,65 @@ if df_view is not None:
     else:
         zoom_end = df_view.index[-1]
 
+    # --- GRAFİK AYARLARI (GÜNCELLENDİ) ---
+    
+    # Y Eksen Tipi (Logaritmik / Lineer)
     y_type = "log" if view_tf == "1wk" else "linear"
 
-    config = {'scrollZoom': True, 'displayModeBar': True, 'editable': True, 'modeBarButtons_add': ['drawline', 'drawrect', 'eraseshape']}
-    
-    fig.update_layout(
-        height=900, template="plotly_dark", xaxis_rangeslider_visible=False, dragmode="pan", 
-        yaxis=dict(side="right", fixedrange=False, type=y_type, range=[y_min, y_max] if y_type == "linear" else None),
-        xaxis=dict(range=[zoom_start, zoom_end]),
-        margin=dict(l=10, r=50, t=30, b=20)
-    )
-    st.plotly_chart(fig, use_container_width=True, config=config)
+    # Zoom ve Aralık Ayarları
+    zoom_count = 30 if view_tf == "1wk" else (60 if view_tf == "1d" else 80)
+    if len(df_view) > zoom_count:
+        visible_df = df_view.tail(zoom_count)
+        zoom_start = visible_df.index[0]
+        # Y ekseni aralığını görünen mumlara göre ayarla
+        y_min = visible_df['Low'].min() * 0.98
+        y_max = visible_df['High'].max() * 1.02
+    else:
+        zoom_start = df_view.index[0]
+        y_min = df_view['Low'].min() * 0.95
+        y_max = df_view['High'].max() * 1.05
 
+    # Geleceğe boşluk bırak (Tahminleri görmek için)
+    gap_multiplier = 2 if view_tf == "1wk" else 5
+    if len(df_view) > 2:
+        delta = df_view.index[-1] - df_view.index[-2]
+        zoom_end = df_view.index[-1] + (delta * gap_multiplier)
+    else:
+        zoom_end = df_view.index[-1]
+
+    # LAYOUT AYARLARI
+    fig.update_layout(
+        height=900, 
+        template="plotly_dark", 
+        xaxis_rangeslider_visible=False, 
+        dragmode="pan",  # Varsayılan mouse hareketi: Kaydırma
+        title=None,      # Başlığı tamamen kaldır
+        yaxis=dict(
+            side="right", 
+            fixedrange=False, 
+            type=y_type, 
+            range=[y_min, y_max] if y_type == "linear" else None
+        ),
+        xaxis=dict(
+            range=[zoom_start, zoom_end],
+            type="date"
+        ),
+        margin=dict(l=10, r=60, t=10, b=20), # Kenar boşluklarını daralt
+        hovermode='x unified' # Mouse neredeyse tüm değerleri göster
+    )
+
+    # CONFIG AYARLARI (Önemli Düzeltme Burası)
+    # editable: False yaparak şekillerin kaymasını ve başlık düzenlemeyi engelliyoruz.
+    config = {
+        'scrollZoom': True, 
+        'displayModeBar': True, 
+        'editable': False,  # <--- BU AYAR ŞEKİLLERİ SABİTLER VE YAZIYI KALDIRIR
+        'showAxisRangeEntryBoxes': False,
+        'modeBarButtonsToRemove': ['select2d', 'lasso2d', 'autoScale2d', 'resetScale2d'],
+        'displaylogo': False
+    }
+    
+    st.plotly_chart(fig, use_container_width=True, config=config)
     # --- ANALİZ VE YÖNETİM ---
     st.divider()
     col1, col2, col3 = st.columns([1, 1, 1])
@@ -470,200 +748,367 @@ if df_view is not None:
 
     with col3:
         st.success("### 🎯 AI Stratejisi")
-        signal_status, _, _ = calculate_oracle_signal_fixed(df_view, s_list, r_list)
+        # Sinyali Hesapla
+        signal_status, color, target_msg = calculate_oracle_signal_fixed(df_view, s_list, r_list)
         
-        setup = calculate_trade_setup(df_view, "AL" if "AL" in signal_status else ("SAT" if "SAT" in signal_status else "NÖTR"))
-        if setup:
-            st.markdown(f"#### ✅ {setup['type']}")
-            st.write(f"**Giriş:** ${setup['entry']:,.2f}")
-            st.write(f"**🛑 Stop:** ${setup['sl']:,.2f}")
-            st.write(f"**🎯 TP:** ${setup['tp']:,.2f}")
-        else:
-            st.write("Nötr Bölge. Bekle.")
+        # Trend Kontrolü (EMA 50)
+        is_uptrend = curr > df_view['EMA_50'].iloc[-1]
+        trend_note = ""
+        
+        # ÇELİŞKİ ÇÖZÜCÜ & NÖTR MANTIK
+        if "AL" in signal_status:
+            if is_uptrend:
+                signal_status = "GÜÇLÜ AL (Trend Yönünde) 🚀"
+                trend_note = "Trend seninle, güvenli işlem."
+            else:
+                signal_status = "TEPKİ ALIMI (Riskli) ⚠️"
+                trend_note = "Trend Düşüşte! Sadece kısa vadeli tepki (Scalp)."
+                color = "orange"
+        
+        elif "SAT" in signal_status:
+            if not is_uptrend:
+                signal_status = "GÜÇLÜ SAT (Trend Yönünde) 🔻"
+                trend_note = "Trend aşağı, düşüş derinleşebilir."
+            else:
+                signal_status = "DÜZELTME SATIŞI (Riskli) ⚠️"
+                trend_note = "Trend Yükselişte! Fiyat sadece dinleniyor olabilir."
+        
+        else: # --- YENİ EKLENEN KISIM: NÖTR BÖLGE ---
+            signal_status = "NÖTR (BEKLE) 💤"
+            trend_note = "Piyasa kararsız veya yatay. İşlem yapma, izle."
+            color = "gray"
+            target_msg = "Yön Belirsiz"
 
-# --- CÜZDAN (DÜZENLENEBİLİR & GELİŞMİŞ SATIŞ) ---
+        # Ekrana Yazdır
+        st.markdown(f"<span style='color:{color}; font-weight:bold; font-size:20px'>{signal_status}</span>", unsafe_allow_html=True)
+        st.caption(trend_note)
+        st.write(f"**{target_msg}**")
+        
+        # Setup Sadece AL veya SAT varsa gösterilir
+        if "AL" in signal_status or "SAT" in signal_status:
+            setup = calculate_trade_setup(df_view, "AL" if "AL" in signal_status else "SAT")
+            if setup:
+                st.divider()
+                c_s1, c_s2 = st.columns(2)
+                c_s1.write(f"**Giriş:** ${setup['entry']:,.2f}")
+                c_s1.write(f"**🛑 Stop:** ${setup['sl']:,.2f}")
+                c_s2.write(f"**🎯 TP:** ${setup['tp']:,.2f}")
+        else:
+            st.info("Setup oluşmadı. Güvenli bölge bekleniyor.")
+
+# --- CÜZDAN (NAKİT YÖNETİMİ & AI TARAYICI) ---
     st.divider()
-    st.header("💼 Portföy ve Risk Yönetimi")
+    st.header("💼 Varlık ve Fırsat Yönetimi")
+    
+# --- YENİ ÖZELLİK: AI PİYASA TARAYICI (BAKİYE ÖNERİLİ) ---
+    with st.expander("🔍 Piyasayı Tara & Fırsat Bul (AI)", expanded=False):
+        st.info("Bu modül RSI, Trend ve Destek/Direnç analizi yaparak kasa yönetimi önerir.")
+        
+        scan_tf = st.radio("Tarama Periyodu:", ["4h", "1d", "1wk"], horizontal=True, format_func=lambda x: intervals[x])
+        
+        if st.button("🚀 Taramayı Başlat"):
+            best_opp = None
+            best_score = -100
+            
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            coins_to_scan = list(COIN_MAP.keys())
+            total_coins = len(coins_to_scan)
+            
+            results_scan = []
+
+            for i, c_name in enumerate(coins_to_scan):
+                status_text.text(f"Analiz ediliyor: {c_name}...")
+                progress_bar.progress((i + 1) / total_coins)
+                
+                sym = COIN_MAP[c_name]
+                d_scan, _ = get_market_data("Yahoo Finance", sym, scan_tf)
+                
+                if d_scan is not None and len(d_scan) > 20:
+                    last_price = d_scan['Close'].iloc[-1]
+                    last_rsi = d_scan['RSI'].iloc[-1]
+                    ema_50 = d_scan['EMA_50'].iloc[-1]
+                    sup_list, res_list = calculate_sr(d_scan, scan_tf)
+                    nearest_sup = max([s for s in sup_list if s < last_price], default=0)
+                    
+                    # --- PUANLAMA ---
+                    score = 50 
+                    reasons = []
+                    
+                    # RSI
+                    if last_rsi < 35: score += 20; reasons.append("RSI Dip")
+                    elif last_rsi > 65: score -= 20
+                    
+                    # Trend
+                    if last_price > ema_50: score += 10
+                    
+                    # Destek
+                    if nearest_sup > 0 and (last_price - nearest_sup)/last_price < 0.03:
+                        score += 25; reasons.append("Desteğe Yakın")
+                    
+                    # --- BAKİYE YÖNETİMİ ÖNERİSİ ---
+                    alloc_pct = 0
+                    if score >= 85: alloc_pct = 10  # Çok Güçlü Fırsat -> %10
+                    elif score >= 70: alloc_pct = 5 # İyi Fırsat -> %5
+                    elif score >= 60: alloc_pct = 2.5 # Normal -> %2.5
+                    
+                    if score >= 60: signal_str = "AL"
+                    elif score <= 40: signal_str = "SAT"
+                    else: signal_str = "NÖTR"
+                    
+                    results_scan.append({
+                        "Coin": c_name, 
+                        "Sinyal": signal_str,
+                        "Puan": score,
+                        "Önerilen Kasa (%)": f"%{alloc_pct}" if alloc_pct > 0 else "-",
+                        "Sebep": ", ".join(reasons)
+                    })
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_opp = results_scan[-1]
+
+            progress_bar.empty()
+            status_text.empty()
+            
+            if best_opp:
+                st.success(f"🌟 **EN İYİ FIRSAT:** {best_opp['Coin']}")
+                c1, c2 = st.columns(2)
+                c1.metric("Puan", best_opp['Puan'])
+                c2.metric("Önerilen Yatırım", best_opp['Önerilen Kasa (%)'], help="Toplam varlığının bu kadarı ile işlem açman önerilir.")
+                st.caption(f"Sebep: {best_opp['Sebep']}")
+            
+            st.dataframe(pd.DataFrame(results_scan).sort_values(by="Puan", ascending=False), use_container_width=True)
+
+    st.divider()
+
+# --- PORTFÖY VE EMİR YÖNETİMİ (LİMİT EMİR İPTAL/DÜZENLE & DÜZELTİLMİŞ) ---
+    st.divider()
     col_risk, col_wallet = st.columns([1, 2])
     
+    # Global Bakiye
+    current_balance = st.session_state['portfolio_data'].get('balance', 0.0)
+
     with col_risk:
-        st.subheader("🧮 Planlama")
-        entry_price = st.number_input("Giriş Fiyatı ($)", value=float(curr), step=0.01, format="%.2f")
-        investment = st.number_input("Yatırım Tutarı ($)", value=1000.0, step=100.0)
-        plan_dir = st.radio("Yön:", ["LONG", "SHORT"], horizontal=True)
+        st.subheader("🧮 Emir Gir")
         
-        plan_setup = calculate_setup_dynamic(entry_price, current_atr, "LONG" if "LONG" in plan_dir else "SHORT")
+        # 1. Giriş Ayarları
+        entry_price = st.number_input("Giriş Fiyatı ($)", value=float(curr), step=0.01, format="%.4f")
+        investment = st.number_input("İşlem Tutarı ($)", value=1000.0, step=100.0)
         
-        risk_usd = abs(entry_price - plan_setup['sl']) * (investment / entry_price)
-        reward_usd = abs(plan_setup['tp'] - entry_price) * (investment / entry_price)
+        # Limit Emir Seçeneği
+        is_limit = st.checkbox("⏳ Limit Emir (Fiyat Bekle)", value=False, help="İşaretlenirse hemen almaz, fiyat bu seviyeye gelinceye kadar bekler.")
         
-        st.markdown(f"**🛑 Stop:** ${plan_setup['sl']:,.2f} (Risk: -${risk_usd:.1f})")
-        st.markdown(f"**🎯 TP:** ${plan_setup['tp']:,.2f} (Kar: +${reward_usd:.1f})")
+        # Bakiye Kullanımı
+        use_balance = st.checkbox(f"🏦 Bakiyeden Kullan (${current_balance:,.2f})", value=True)
         
-        if st.button("➕ Cüzdana Ekle"):
+        # Risk Bilgisi
+        atr_val = current_atr if 'current_atr' in locals() else entry_price*0.02
+        st.caption(f"Stop Önerisi: ${(entry_price - atr_val * 1.5):.2f}")
+
+        if st.button("➕ Emri Gir / Ekle"):
+            # Bakiye Kontrolü
+            if use_balance:
+                if investment > current_balance:
+                    st.error("Yetersiz Bakiye! Lütfen Bakiye Düzenle kısmından para ekleyin.")
+                    st.stop()
+                else:
+                    st.session_state['portfolio_data']['balance'] -= investment
+            
+            status = "PENDING" if is_limit else "ACTIVE"
+            
             new_trade = {
                 "Coin": sel_c,
                 "Giriş": entry_price,
                 "Adet": investment / entry_price,
                 "Yatırım": investment,
                 "Realized": 0.0,
+                "Status": status, 
                 "Tarih": time.strftime("%Y-%m-%d")
             }
-            st.session_state['portfolio'].append(new_trade)
-            save_portfolio(st.session_state['portfolio'])
-            st.success("Kaydedildi!")
+            
+            st.session_state['portfolio_data']['positions'].append(new_trade)
+            save_portfolio(st.session_state['portfolio_data'])
+            
+            msg = "Limit Emir Girildi! Fiyat bekleniyor..." if is_limit else "Pozisyon Açıldı!"
+            st.success(msg)
+            time.sleep(1)
             st.rerun()
+
+        # --- BAKİYE DÜZENLEME PANELİ ---
+        st.write("---")
+        with st.expander("💳 Cüzdan Bakiyesi Düzenle"):
+            st.info("Borsadaki boş USDT miktarınızı buraya girin.")
+            new_balance_input = st.number_input("Güncel USDT Bakiyesi", value=float(current_balance), step=100.0)
+            if st.button("Bakiyeyi Güncelle"):
+                st.session_state['portfolio_data']['balance'] = new_balance_input
+                save_portfolio(st.session_state['portfolio_data'])
+                st.success("Bakiye güncellendi!")
+                time.sleep(0.5)
+                st.rerun()
 
     with col_wallet:
         st.subheader("💰 Varlıklarım")
         
-        if st.session_state['portfolio']:
-            # Veri standardizasyonu (Eski verilerde eksik key varsa tamamla)
-            for item in st.session_state['portfolio']:
-                if 'Realized' not in item: item['Realized'] = 0.0
-
-            portfolio_df = pd.DataFrame(st.session_state['portfolio'])
-
-            # --- 1. GELİŞMİŞ SATIŞ PANELİ ---
-            with st.expander("💸 Kar Al / Kısmi Satış Yap"):
-                # Coin Seçimi
-                p_coins = [c for c in portfolio_df['Coin'].unique().tolist() if portfolio_df[portfolio_df['Coin']==c]['Adet'].sum() > 0]
-                
-                if p_coins:
-                    s_col1, s_col2, s_col3 = st.columns([1.5, 1.5, 1])
-                    sell_coin = s_col1.selectbox("Coin", p_coins)
+        positions = st.session_state['portfolio_data']['positions']
+        
+        # HATA DÜZELTME: Değişkeni döngüden önce sıfırlıyoruz
+        total_active_value = 0 
+        
+        if positions:
+            # --- TABLOLARI AYIR ---
+            active_pos = [p for p in positions if p.get('Status', 'ACTIVE') == 'ACTIVE']
+            pending_pos = [p for p in positions if p.get('Status') == 'PENDING']
+            
+            # 1. AKTİF POZİSYONLAR TABLOSU
+            if active_pos:
+                st.markdown("##### ✅ Aktif Pozisyonlar")
+                # Satış Paneli (Sadece Aktifler İçin)
+                with st.expander("💸 Kar Al / Satış Yap"):
+                    p_coins = list(set([p['Coin'] for p in active_pos]))
+                    s_coin = st.selectbox("Coin", p_coins, key="sell_sel")
                     
-                    # Seçilen coin verisi
-                    coin_data = next((item for item in st.session_state['portfolio'] if item["Coin"] == sell_coin), None)
-                    current_qty = coin_data['Adet']
-                    
-                    # Satış Fiyatı (Manuel Düzenlenebilir)
-                    live_p_sell = curr if sell_coin == sel_c else get_live_price_for_portfolio(sell_coin)
-                    if live_p_sell == 0: live_p_sell = coin_data['Giriş']
-                    
-                    manual_sell_price = s_col1.number_input("Satış Fiyatı ($)", value=float(live_p_sell), format="%.4f")
-
-                    # Satış Yöntemi (Adet vs Yüzde)
-                    sell_method = s_col2.radio("Satış Tipi", ["Adet Gir", "Yüzde (%) Seç"], horizontal=True)
-                    
-                    sell_qty = 0.0
-                    if sell_method == "Adet Gir":
-                        sell_qty = s_col2.number_input("Miktar (Adet)", min_value=0.0, max_value=float(current_qty), step=0.01)
-                    else:
-                        sell_pct = s_col2.slider("Satış Yüzdesi (%)", 0, 100, 50)
-                        sell_qty = current_qty * (sell_pct / 100)
-                        s_col2.caption(f"Denk gelen adet: {sell_qty:.4f}")
-
-                    # Onay Butonu ve Hesaplama
-                    est_total = sell_qty * manual_sell_price
-                    s_col3.write(f"**Toplam: ${est_total:,.2f}**")
-                    
-                    if s_col3.button("SATIŞI ONAYLA", type="primary"):
-                        if sell_qty > 0:
-                            cost_basis = coin_data['Giriş']
-                            cost_of_sold = sell_qty * cost_basis
-                            sale_value = sell_qty * manual_sell_price
-                            realized_pnl = sale_value - cost_of_sold
+                    target_pos = next((p for p in active_pos if p['Coin'] == s_coin), None)
+                    if target_pos:
+                        cur_qty = target_pos['Adet']
+                        sell_price = st.number_input("Satış Fiyatı", value=float(curr if s_coin == sel_c else target_pos['Giriş']))
+                        sell_pct = st.slider("Satış %", 0, 100, 50)
+                        
+                        sell_amt = cur_qty * (sell_pct / 100)
+                        total_return = sell_amt * sell_price
+                        
+                        st.write(f"**Gelecek Nakit:** ${total_return:,.2f}")
+                        
+                        if st.button("Satışı Onayla"):
+                            st.session_state['portfolio_data']['balance'] += total_return
                             
-                            # State Güncelle
-                            for item in st.session_state['portfolio']:
-                                if item['Coin'] == sell_coin:
-                                    item['Adet'] -= sell_qty
-                                    item['Yatırım'] = item['Adet'] * item['Giriş'] # Kalan yatırımı güncelle
-                                    item['Realized'] += realized_pnl
-                                    break
+                            cost_basis = target_pos['Giriş'] * sell_amt
+                            pnl = total_return - cost_basis
                             
-                            save_portfolio(st.session_state['portfolio'])
-                            st.success(f"Satış Başarılı! Kar/Zarar: ${realized_pnl:.2f}")
-                            time.sleep(1)
+                            target_pos['Adet'] -= sell_amt
+                            target_pos['Yatırım'] -= cost_basis
+                            target_pos['Realized'] += pnl
+                            
+                            save_portfolio(st.session_state['portfolio_data'])
+                            st.success("Satış gerçekleşti!")
                             st.rerun()
-                else:
-                    st.warning("Satılacak varlık bulunamadı.")
 
-            # --- 2. DÜZENLENEBİLİR TABLO (ANA VERİ) ---
-            st.markdown("##### 📝 Varlık Listesi (Düzenlenebilir)")
-            # Kullanıcı burada Giriş, Adet ve Realized kısımlarını elle düzeltebilir
-            edited_df = st.data_editor(
-                portfolio_df, 
-                num_rows="dynamic", 
-                use_container_width=True,
-                column_config={
-                    "Coin": st.column_config.TextColumn("Coin", disabled=False),
-                    "Giriş": st.column_config.NumberColumn("Giriş Fiyatı", format="$%.4f"),
-                    "Adet": st.column_config.NumberColumn("Adet", format="%.4f"),
-                    "Yatırım": st.column_config.NumberColumn("Ana Para (Oto)", disabled=True), # Bunu otomatik hesaplayacağız
-                    "Realized": st.column_config.NumberColumn("Realized ($)", format="$%.2f"),
-                    "Tarih": st.column_config.TextColumn("Tarih", disabled=True),
-                },
-                key="editor_key"
-            )
-
-            # Değişiklik Kontrolü
-            if not edited_df.equals(portfolio_df):
-                # Yatırım sütununu (Adet * Giriş) olarak yeniden hesapla ki tutarsızlık olmasın
-                edited_df['Yatırım'] = edited_df['Giriş'] * edited_df['Adet']
-                st.session_state['portfolio'] = edited_df.to_dict('records')
-                save_portfolio(st.session_state['portfolio'])
-                st.rerun()
-
-            # --- 3. ANALİZ VE TOPLAM TABLOSU (READ-ONLY) ---
-            # Düzenlenebilir tabloda hesaplanan PNL görünmez, o yüzden aşağıya özet tablo koyuyoruz
-            total_inv = 0
-            total_val = 0
-            total_realized = 0
-            
-            analysis_data = []
-            
-            for item in st.session_state['portfolio']:
-                if item['Adet'] > 0:
-                    live_p = curr if item['Coin'] == sel_c else get_live_price_for_portfolio(item['Coin'])
-                    if live_p == 0: live_p = item['Giriş']
-                    
-                    val = item['Adet'] * live_p
-                    unrealized = val - item['Yatırım']
-                    pnl_pct = (unrealized / item['Yatırım']) * 100
-                    
-                    # Öneri
-                    advice = "➖"
-                    if pnl_pct > 10: advice = "KAR AL 💰"
-                    elif pnl_pct < -5: advice = "STOP 🛑"
-                    
-                    analysis_data.append({
-                        "Coin": item['Coin'],
-                        "Fiyat": live_p,
-                        "Değer": val,
-                        "Kar/Zarar ($)": unrealized,
-                        "Kar/Zarar (%)": f"%{pnl_pct:.2f}",
-                        "Öneri": advice
-                    })
-                    
-                    total_inv += item['Yatırım']
-                    total_val += val
+                # Aktif Tablo Verisi
+                active_data = []
+                for item in active_pos:
+                    if item['Adet'] > 0:
+                        lp = curr if item['Coin'] == sel_c else get_live_price_for_portfolio(item['Coin'])
+                        if lp == 0: lp = item['Giriş']
+                        val = item['Adet'] * lp
+                        pnl_usd = val - item['Yatırım']
+                        pnl_pct = (pnl_usd / item['Yatırım']) * 100
+                        
+                        total_active_value += val
+                        
+                        active_data.append({
+                            "Coin": item['Coin'],
+                            "Giriş": item['Giriş'],
+                            "Adet": item['Adet'],
+                            "Değer ($)": val,
+                            "Kar/Zarar ($)": pnl_usd,
+                            "Kar/Zarar (%)": f"%{pnl_pct:.2f}"
+                        })
                 
-                total_realized += item['Realized']
+                if active_data:
+                    st.dataframe(pd.DataFrame(active_data), use_container_width=True)
 
-            if analysis_data:
-                st.markdown("##### 📊 Canlı Analiz (Sadece Gösterim)")
-                st.dataframe(pd.DataFrame(analysis_data).set_index("Coin"), use_container_width=True)
+            # 2. BEKLEYEN EMİRLER TABLOSU (İPTAL VE DÜZENLE EKLENDİ)
+            if pending_pos:
+                st.markdown("##### ⏳ Bekleyen Limit Emirler")
+                pending_data = []
+                for item in pending_pos:
+                    lp = curr if item['Coin'] == sel_c else get_live_price_for_portfolio(item['Coin'])
+                    diff_pct = ((lp - item['Giriş']) / lp) * 100
+                    
+                    pending_data.append({
+                        "Coin": item['Coin'],
+                        "Hedef Giriş": item['Giriş'],
+                        "Anlık Fiyat": lp,
+                        "Uzaklık (%)": f"%{diff_pct:.2f}",
+                        "Kilitli Tutar": item['Yatırım']
+                    })
+                
+                st.dataframe(pd.DataFrame(pending_data), use_container_width=True)
+                
+                # --- EMİR YÖNETİM PANELİ ---
+                with st.expander("🛠️ Emri Yönet (Düzenle / İptal / Başlat)", expanded=True):
+                    # İşlem yapılacak coini seç (Index ile değil, Coin ismi ve Fiyat ile eşleştiriyoruz)
+                    # Benzersiz olması için Coin + Fiyat birleşimi kullanıyoruz string olarak
+                    p_opts = [f"{p['Coin']} - ${p['Giriş']}" for p in pending_pos]
+                    selected_opt = st.selectbox("İşlem Yapılacak Emir", p_opts)
+                    
+                    # Seçilen emri bul
+                    sel_coin_name = selected_opt.split(" - ")[0]
+                    sel_price_val = float(selected_opt.split(" - $")[1])
+                    
+                    target_pending = next((p for p in pending_pos if p['Coin'] == sel_coin_name and abs(p['Giriş'] - sel_price_val) < 0.0001), None)
+                    
+                    if target_pending:
+                        c_man1, c_man2, c_man3 = st.columns(3)
+                        
+                        # 1. İPTAL ET
+                        with c_man1:
+                            if st.button("❌ İptal Et (Para İade)", type="secondary"):
+                                # Parayı iade et
+                                st.session_state['portfolio_data']['balance'] += target_pending['Yatırım']
+                                # Listeden sil
+                                st.session_state['portfolio_data']['positions'].remove(target_pending)
+                                save_portfolio(st.session_state['portfolio_data'])
+                                st.success("Emir iptal edildi, para iade edildi.")
+                                time.sleep(1)
+                                st.rerun()
 
-            # METRİKLER
-            unrealized_total = total_val - total_inv
-            net_total = unrealized_total + total_realized
-            
+                        # 2. DÜZENLE
+                        with c_man2:
+                            new_limit_price = st.number_input("Yeni Hedef Fiyat", value=float(target_pending['Giriş']), format="%.4f")
+                            if st.button("✏️ Fiyatı Güncelle"):
+                                if new_limit_price > 0:
+                                    target_pending['Giriş'] = new_limit_price
+                                    # Tutarı sabit tutup adeti güncelliyoruz
+                                    target_pending['Adet'] = target_pending['Yatırım'] / new_limit_price
+                                    save_portfolio(st.session_state['portfolio_data'])
+                                    st.success("Emir fiyatı güncellendi.")
+                                    time.sleep(1)
+                                    st.rerun()
+
+                        # 3. AKTİFLEŞTİR
+                        with c_man3:
+                            if st.button("🚀 Manuel Başlat"):
+                                target_pending['Status'] = 'ACTIVE'
+                                # Giriş fiyatı limit fiyat olarak kalır
+                                save_portfolio(st.session_state['portfolio_data'])
+                                st.success("Emir aktife alındı!")
+                                st.rerun()
+
+            # --- TOPLAM ÖZET ---
             st.divider()
+            
+            pending_reserved = sum([p['Yatırım'] for p in pending_pos]) # Bekleyen emirlerdeki kilitli para
+            
+            total_equity = current_balance + total_active_value + pending_reserved
+            
             m1, m2, m3 = st.columns(3)
-            m1.metric("Anlık Varlık", f"${total_val:,.2f}")
-            m2.metric("Kasa (Realized)", f"${total_realized:,.2f}", delta_color="normal")
-            m3.metric("NET DURUM", f"${net_total:,.2f}", delta=f"{net_total:.2f}")
-
-            if st.button("🗑️ Tümünü Temizle"):
-                st.session_state['portfolio'] = []
-                save_portfolio([])
+            m1.metric("Boştaki USDT", f"${current_balance:,.2f}")
+            m2.metric("Aktif Pozisyonlar", f"${total_active_value:,.2f}")
+            m3.metric("🏆 TOPLAM VARLIK", f"${total_equity:,.2f}")
+            
+            if st.button("🗑️ Portföyü Sıfırla"):
+                st.session_state['portfolio_data'] = {"balance": 1000.0, "positions": []}
+                save_portfolio(st.session_state['portfolio_data'])
                 st.rerun()
+                
         else:
-            st.info("Henüz portföy eklemediniz.")
+            st.info("Portföy boş. Bakiye düzenleyebilir veya işlem açabilirsiniz.")
+            st.metric("Mevcut Bakiye", f"${current_balance:,.2f}")
 
 else: st.error("Veri Alınamadı.")
+# BOT KISMI AYNEN KALACAK...
 
 # BOT
 if auto or st.session_state.get('auto_mode', False):
