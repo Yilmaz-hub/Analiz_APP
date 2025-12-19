@@ -63,7 +63,7 @@ COIN_MAP = {
     "Pepe": "PEPE-USD", 
     "ONS ALTIN ($)": "XAU_GOLD",    # ONS Altın
     "GRAM ALTIN (TL)": "GRAM_TRY",  # Gram Altın (Hesaplamalı)
-    "EUR/USD": "EURUSD=X"
+    "EUR/USD": "EURUSD=X",
     "Türk Hava Yolları (THYAO)": "THYAO.IS", # YENİ EKLENDİ
     "Pegasus (PGSUS)": "PGSUS.IS"            # YENİ EKLENDİ
 }
@@ -1130,4 +1130,5 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
