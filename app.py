@@ -672,7 +672,7 @@ if df_view is not None:
     y_type = "log" if view_tf == "1wk" else "linear"
 
     # Zoom ve Aralık Ayarları
-    zoom_count = 30 if view_tf == "1wk" else (60 if view_tf == "1d" else 80)
+    zoom_count = 50 if view_tf == "1wk" else (60 if view_tf == "1d" else 80)
     if len(df_view) > zoom_count:
         visible_df = df_view.tail(zoom_count)
         zoom_start = visible_df.index[0]
@@ -683,7 +683,15 @@ if df_view is not None:
         zoom_start = df_view.index[0]
         y_min = df_view['Low'].min() * 0.95
         y_max = df_view['High'].max() * 1.05
-
+# Logaritmik Aralık Hesabı (Log scale için Plotly log10(değer) ister)
+    # Grafiğin sıkışmaması için alt/üst boşlukları (padding) ayarlıyoruz
+    if y_type == "log":
+        # Logaritmik için değerlerin log10'unu alıp range'e veriyoruz
+        # Altına %5, üstüne %5 boşluk bırak
+        range_y = [np.log10(y_min_raw * 0.90), np.log10(y_max_raw * 1.10)]
+    else:
+        # Lineer için direkt değerler
+        range_y = [y_min_raw * 0.95, y_max_raw * 1.05]
     # Geleceğe boşluk bırak (Tahminleri görmek için)
     gap_multiplier = 2 if view_tf == "1wk" else 5
     if len(df_view) > 2:
@@ -703,7 +711,9 @@ if df_view is not None:
             side="right", 
             fixedrange=False, 
             type=y_type, 
-            range=[y_min, y_max] if y_type == "linear" else None
+            range=range_y,         # Hesapladığımız özel aralık
+            tickformat=".2f",      # 10^6 yerine 125.50 gibi normal sayı göster
+            exponentformat="none"  # Bilimsel gösterimi tamamen kapat
         ),
         xaxis=dict(
             range=[zoom_start, zoom_end],
@@ -1130,5 +1140,6 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
