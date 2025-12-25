@@ -666,24 +666,25 @@ if df_view is not None:
     else:
         zoom_end = df_view.index[-1]
 
-    # --- GRAFİK AYARLARI (GÜNCELLENDİ) ---
+   # --- GRAFİK AYARLARI (LOGARİTMİK DÜZELTME) ---
     
-    # Y Eksen Tipi (Logaritmik / Lineer)
+    # Haftalıkta LOG, diğerlerinde LINEAR
     y_type = "log" if view_tf == "1wk" else "linear"
 
-    # Zoom ve Aralık Ayarları
-    zoom_count = 50 if view_tf == "1wk" else (60 if view_tf == "1d" else 80)
+    # Zoom Ayarları
+    zoom_count = 50 if view_tf == "1wk" else (80 if view_tf == "1d" else 100)
+    
     if len(df_view) > zoom_count:
         visible_df = df_view.tail(zoom_count)
         zoom_start = visible_df.index[0]
-        # Y ekseni aralığını görünen mumlara göre ayarla
-        y_min = visible_df['Low'].min() * 0.98
-        y_max = visible_df['High'].max() * 1.02
+        y_min_raw = visible_df['Low'].min()
+        y_max_raw = visible_df['High'].max()
     else:
         zoom_start = df_view.index[0]
-        y_min = df_view['Low'].min() * 0.95
-        y_max = df_view['High'].max() * 1.05
-# Logaritmik Aralık Hesabı (Log scale için Plotly log10(değer) ister)
+        y_min_raw = df_view['Low'].min()
+        y_max_raw = df_view['High'].max()
+
+    # Logaritmik Aralık Hesabı (Log scale için Plotly log10(değer) ister)
     # Grafiğin sıkışmaması için alt/üst boşlukları (padding) ayarlıyoruz
     if y_type == "log":
         # Logaritmik için değerlerin log10'unu alıp range'e veriyoruz
@@ -692,21 +693,22 @@ if df_view is not None:
     else:
         # Lineer için direkt değerler
         range_y = [y_min_raw * 0.95, y_max_raw * 1.05]
-    # Geleceğe boşluk bırak (Tahminleri görmek için)
-    gap_multiplier = 2 if view_tf == "1wk" else 5
+
+    # Geleceğe boşluk bırak
+    gap_multiplier = 3 if view_tf == "1wk" else 5
     if len(df_view) > 2:
         delta = df_view.index[-1] - df_view.index[-2]
         zoom_end = df_view.index[-1] + (delta * gap_multiplier)
     else:
         zoom_end = df_view.index[-1]
 
-    # LAYOUT AYARLARI
+    # LAYOUT GÜNCELLEME
     fig.update_layout(
         height=900, 
         template="plotly_dark", 
         xaxis_rangeslider_visible=False, 
-        dragmode="pan",  # Varsayılan mouse hareketi: Kaydırma
-        title=None,      # Başlığı tamamen kaldır
+        dragmode="pan",
+        title=None,
         yaxis=dict(
             side="right", 
             fixedrange=False, 
@@ -719,16 +721,15 @@ if df_view is not None:
             range=[zoom_start, zoom_end],
             type="date"
         ),
-        margin=dict(l=10, r=60, t=10, b=20), # Kenar boşluklarını daralt
-        hovermode='x unified' # Mouse neredeyse tüm değerleri göster
+        margin=dict(l=10, r=60, t=10, b=20),
+        hovermode='x unified'
     )
 
-    # CONFIG AYARLARI (Önemli Düzeltme Burası)
-    # editable: False yaparak şekillerin kaymasını ve başlık düzenlemeyi engelliyoruz.
+    # CONFIG (Sabitleme)
     config = {
         'scrollZoom': True, 
         'displayModeBar': True, 
-        'editable': False,  # <--- BU AYAR ŞEKİLLERİ SABİTLER VE YAZIYI KALDIRIR
+        'editable': False, 
         'showAxisRangeEntryBoxes': False,
         'modeBarButtonsToRemove': ['select2d', 'lasso2d', 'autoScale2d', 'resetScale2d'],
         'displaylogo': False
@@ -1140,6 +1141,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
