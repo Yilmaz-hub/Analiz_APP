@@ -667,73 +667,88 @@ if df_view is not None:
         zoom_end = df_view.index[-1]
 
    # --- GRAFİK AYARLARI (LOGARİTMİK DÜZELTME) ---
+    # --- GRAFİK AYARLARI (GÜVENLİ & HİBRİT VERSİYON) ---
+    import numpy as np # Garanti olsun diye tekrar import ediyoruz
     
-    # Haftalıkta LOG, diğerlerinde LINEAR
-    y_type = "log" if view_tf == "1wk" else "linear"
+    try:
+        # 1. Ölçek Tipi Belirleme
+        # Haftalık (1wk) ise LOG, diğerleri LINEAR
+        y_type = "log" if view_tf == "1wk" else "linear"
 
-    # Zoom Ayarları
-    zoom_count = 50 if view_tf == "1wk" else (80 if view_tf == "1d" else 100)
-    
-    if len(df_view) > zoom_count:
-        visible_df = df_view.tail(zoom_count)
-        zoom_start = visible_df.index[0]
-        y_min_raw = visible_df['Low'].min()
-        y_max_raw = visible_df['High'].max()
-    else:
-        zoom_start = df_view.index[0]
-        y_min_raw = df_view['Low'].min()
-        y_max_raw = df_view['High'].max()
+        # 2. Zoom ve Veri Aralığı Hesaplama
+        zoom_count = 50 if view_tf == "1wk" else (80 if view_tf == "1d" else 100)
+        
+        if len(df_view) > zoom_count:
+            visible_df = df_view.tail(zoom_count)
+            zoom_start = visible_df.index[0]
+            # Ham en düşük ve en yüksek değerler
+            y_min_raw = visible_df['Low'].min()
+            y_max_raw = visible_df['High'].max()
+        else:
+            zoom_start = df_view.index[0]
+            y_min_raw = df_view['Low'].min()
+            y_max_raw = df_view['High'].max()
 
-    # Logaritmik Aralık Hesabı (Log scale için Plotly log10(değer) ister)
-    # Grafiğin sıkışmaması için alt/üst boşlukları (padding) ayarlıyoruz
-    if y_type == "log":
-        # Logaritmik için değerlerin log10'unu alıp range'e veriyoruz
-        # Altına %5, üstüne %5 boşluk bırak
-        range_y = [np.log10(y_min_raw * 0.90), np.log10(y_max_raw * 1.10)]
-    else:
-        # Lineer için direkt değerler
-        range_y = [y_min_raw * 0.95, y_max_raw * 1.05]
+        # 3. Y Ekseni Aralığı (Range) Belirleme
+        range_y = None # Varsayılan (Otomatik)
+        
+        if y_type == "log":
+            # Logaritmik modda Plotly [log10(min), log10(max)] bekler
+            # Sıfır veya negatif değer hatasını önlemek için max() kullanıyoruz
+            safe_min = max(y_min_raw, 0.000001) 
+            range_y = [np.log10(safe_min * 0.90), np.log10(y_max_raw * 1.10)]
+        else:
+            # Lineer modda direkt fiyat
+            range_y = [y_min_raw * 0.95, y_max_raw * 1.05]
 
-    # Geleceğe boşluk bırak
-    gap_multiplier = 3 if view_tf == "1wk" else 5
-    if len(df_view) > 2:
-        delta = df_view.index[-1] - df_view.index[-2]
-        zoom_end = df_view.index[-1] + (delta * gap_multiplier)
-    else:
-        zoom_end = df_view.index[-1]
+        # 4. Geleceğe Boşluk Bırakma (Tahmin Çizgisi İçin)
+        gap_multiplier = 3 if view_tf == "1wk" else 5
+        if len(df_view) > 2:
+            delta = df_view.index[-1] - df_view.index[-2]
+            zoom_end = df_view.index[-1] + (delta * gap_multiplier)
+        else:
+            zoom_end = df_view.index[-1]
 
-    # LAYOUT GÜNCELLEME
-    fig.update_layout(
-        height=900, 
-        template="plotly_dark", 
-        xaxis_rangeslider_visible=False, 
-        dragmode="pan",
-        title=None,
-        yaxis=dict(
-            side="right", 
-            fixedrange=False, 
-            type=y_type, 
-            range=range_y,         # Hesapladığımız özel aralık
-            tickformat=".2f",      # 10^6 yerine 125.50 gibi normal sayı göster
-            exponentformat="none"  # Bilimsel gösterimi tamamen kapat
-        ),
-        xaxis=dict(
-            range=[zoom_start, zoom_end],
-            type="date"
-        ),
-        margin=dict(l=10, r=60, t=10, b=20),
-        hovermode='x unified'
-    )
+        # 5. Layout Güncelleme
+        fig.update_layout(
+            height=900, 
+            template="plotly_dark", 
+            xaxis_rangeslider_visible=False, 
+            dragmode="pan",
+            title=None,
+            yaxis=dict(
+                side="right", 
+                fixedrange=False, 
+                type=y_type, 
+                range=range_y,         # Hesaplanan aralık
+                tickformat=".2f",      # 10^6 yerine normal sayı
+                exponentformat="none"  # Bilimsel gösterimi kapat
+            ),
+            xaxis=dict(
+                range=[zoom_start, zoom_end],
+                type="date"
+            ),
+            margin=dict(l=10, r=60, t=10, b=20),
+            hovermode='x unified'
+        )
 
-    # CONFIG (Sabitleme)
-    config = {
-        'scrollZoom': True, 
-        'displayModeBar': True, 
-        'editable': False, 
-        'showAxisRangeEntryBoxes': False,
-        'modeBarButtonsToRemove': ['select2d', 'lasso2d', 'autoScale2d', 'resetScale2d'],
-        'displaylogo': False
-    }
+        # 6. Config (Sabitleme)
+        config = {
+            'scrollZoom': True, 
+            'displayModeBar': True, 
+            'editable': False, 
+            'showAxisRangeEntryBoxes': False,
+            'modeBarButtonsToRemove': ['select2d', 'lasso2d', 'autoScale2d', 'resetScale2d'],
+            'displaylogo': False
+        }
+        
+        st.plotly_chart(fig, use_container_width=True, config=config)
+
+    except Exception as e:
+        # Hata olursa CMD'ye yaz ve kullanıcıya bildir
+        print("GRAFİK HATASI:", e)
+        traceback.print_exc()
+        st.error(f"Grafik çizilirken hata oluştu: {e}")
     
     st.plotly_chart(fig, use_container_width=True, config=config)
     # --- ANALİZ VE YÖNETİM ---
@@ -1141,6 +1156,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
