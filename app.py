@@ -666,13 +666,11 @@ if df_view is not None:
     else:
         zoom_end = df_view.index[-1]
 
-   # --- GRAFİK AYARLARI (LOGARİTMİK DÜZELTME) ---
-    # --- GRAFİK AYARLARI (GÜVENLİ & HİBRİT VERSİYON) ---
-    import numpy as np # Garanti olsun diye tekrar import ediyoruz
+   # --- GRAFİK AYARLARI (GÜVENLİ & HİBRİT VERSİYON - DÜZELTİLDİ) ---
+    import numpy as np 
     
     try:
         # 1. Ölçek Tipi Belirleme
-        # Haftalık (1wk) ise LOG, diğerleri LINEAR
         y_type = "log" if view_tf == "1wk" else "linear"
 
         # 2. Zoom ve Veri Aralığı Hesaplama
@@ -681,7 +679,6 @@ if df_view is not None:
         if len(df_view) > zoom_count:
             visible_df = df_view.tail(zoom_count)
             zoom_start = visible_df.index[0]
-            # Ham en düşük ve en yüksek değerler
             y_min_raw = visible_df['Low'].min()
             y_max_raw = visible_df['High'].max()
         else:
@@ -690,18 +687,15 @@ if df_view is not None:
             y_max_raw = df_view['High'].max()
 
         # 3. Y Ekseni Aralığı (Range) Belirleme
-        range_y = None # Varsayılan (Otomatik)
+        range_y = None 
         
         if y_type == "log":
-            # Logaritmik modda Plotly [log10(min), log10(max)] bekler
-            # Sıfır veya negatif değer hatasını önlemek için max() kullanıyoruz
             safe_min = max(y_min_raw, 0.000001) 
             range_y = [np.log10(safe_min * 0.90), np.log10(y_max_raw * 1.10)]
         else:
-            # Lineer modda direkt fiyat
             range_y = [y_min_raw * 0.95, y_max_raw * 1.05]
 
-        # 4. Geleceğe Boşluk Bırakma (Tahmin Çizgisi İçin)
+        # 4. Geleceğe Boşluk Bırakma
         gap_multiplier = 3 if view_tf == "1wk" else 5
         if len(df_view) > 2:
             delta = df_view.index[-1] - df_view.index[-2]
@@ -720,9 +714,9 @@ if df_view is not None:
                 side="right", 
                 fixedrange=False, 
                 type=y_type, 
-                range=range_y,         # Hesaplanan aralık
-                tickformat=".2f",      # 10^6 yerine normal sayı
-                exponentformat="none"  # Bilimsel gösterimi kapat
+                range=range_y,         
+                tickformat=".2f",      
+                exponentformat="none"  
             ),
             xaxis=dict(
                 range=[zoom_start, zoom_end],
@@ -742,15 +736,16 @@ if df_view is not None:
             'displaylogo': False
         }
         
-        st.plotly_chart(fig, use_container_width=True, config=config)
+        # --- DÜZELTME BURADA YAPILDI ---
+        # 1. use_container_width=True  ---> width="stretch" (Uyarıyı çözer)
+        # 2. key="main_price_chart"    ---> (Duplicate ID hatasını çözer)
+        st.plotly_chart(fig, width="stretch", config=config, key="main_price_chart")
 
     except Exception as e:
-        # Hata olursa CMD'ye yaz ve kullanıcıya bildir
         print("GRAFİK HATASI:", e)
         traceback.print_exc()
         st.error(f"Grafik çizilirken hata oluştu: {e}")
-    
-    st.plotly_chart(fig, use_container_width=True, config=config)
+        
     # --- ANALİZ VE YÖNETİM ---
     st.divider()
     col1, col2, col3 = st.columns([1, 1, 1])
