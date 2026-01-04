@@ -14,7 +14,7 @@ from sklearn.linear_model import LinearRegression
 # ==========================================
 # 🛠️ KULLANICI AYARLARI
 # ==========================================
-DEFAULT_TOKEN = "AAFcItCUQ_3w-a6xCY1poOphka9Rv9t3el0"
+DEFAULT_TOKEN = "8506389839:AAFcItCUQ_3w-a6xCY1poOphka9Rv9t3el0"
 DEFAULT_CHAT_ID = "1120180280"
 PORTFOLIO_FILE = "portfolio.json"
 # ==========================================
@@ -1166,6 +1166,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
