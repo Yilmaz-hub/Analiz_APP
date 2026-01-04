@@ -581,7 +581,7 @@ for tf, label in intervals.items():
     else: 
         st.sidebar.warning(f"{label}: Bekleniyor...")
 
-st.title(f"📈 {sel_c} V43 (Cloud & Money)")
+st.title(f"📈 {sel_c} V47 (Cloud & Money)")
 c = "green" if "Binance" in active_src else ("blue" if "OKX" in active_src else "orange")
 st.markdown(f"**Veri Kaynağı:** <span style='color:{c}; font-weight:bold'>{active_src}</span>", unsafe_allow_html=True)
 
@@ -1166,6 +1166,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
