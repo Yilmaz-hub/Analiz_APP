@@ -14,8 +14,14 @@ from sklearn.linear_model import LinearRegression
 # ==========================================
 # 🛠️ KULLANICI AYARLARI
 # ==========================================
-DEFAULT_TOKEN = "---"
-DEFAULT_CHAT_ID = "---"
+try:
+    DEFAULT_TOKEN = st.secrets["TELEGRAM_TOKEN"]
+    DEFAULT_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
+except FileNotFoundError:
+    # Eğer secrets bulunamazsa boş kalsın (veya hata versin)
+    st.error("Lütfen .streamlit/secrets.toml dosyasını oluşturun veya Cloud Secrets ayarını yapın!")
+    DEFAULT_TOKEN = ""
+    DEFAULT_CHAT_ID = ""
 PORTFOLIO_FILE = "portfolio.json"
 # ==========================================
 
@@ -1166,6 +1172,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
