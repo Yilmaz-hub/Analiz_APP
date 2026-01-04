@@ -93,26 +93,41 @@ HEADERS = {
 def fetch_binance_simple(symbol, interval, limit=500):
     # Sembol Düzeltme
     s_bin = symbol.replace("-", "").replace("USD", "USDT")
-    url = "https://api.binance.com/api/v3/klines"
+    
+    # URL Seçenekleri (Sırasıyla deneyecek)
+    base_urls = [
+        "https://data-api.binance.vision/api/v3/klines", # 1. En güvenlisi (Kısıtlama az)
+        "https://api.binance.us/api/v3/klines",          # 2. ABD Sunucuları için
+        "https://api.binance.com/api/v3/klines"          # 3. Global (Türkiye vb. için)
+    ]
+    
     params = {"symbol": s_bin, "interval": interval, "limit": limit}
     
-    try:
-        r = requests.get(url, params=params, headers=HEADERS, timeout=5)
-        if r.status_code == 200:
-            data = r.json()
-            # API Hata kontrolü
-            if isinstance(data, dict) and 'code' in data: return None
+    for url in base_urls:
+        try:
+            # Timeout süresini kısa tutuyoruz ki diğer URL'ye hızlı geçsin
+            r = requests.get(url, params=params, headers=HEADERS, timeout=3)
             
-            # DÜZELTME: 'Vol' yerine direkt 'Volume' yazdık
-            df = pd.DataFrame(data, columns=["OpT", "Open", "High", "Low", "Close", "Volume", "x", "x", "x", "x", "x", "x"])
-            df["Date"] = pd.to_datetime(df["OpT"], unit='ms')
-            df.set_index("Date", inplace=True)
-            return df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
-    except Exception as e:
-        print(f"Binance Error: {e}")
-        return None
+            if r.status_code == 200:
+                data = r.json()
+                # API Hata kontrolü
+                if isinstance(data, dict) and 'code' in data: continue # Hata varsa diğer URL'ye geç
+                
+                # Veri geldiyse DataFrame oluştur
+                df = pd.DataFrame(data, columns=["OpT", "Open", "High", "Low", "Close", "Volume", "x", "x", "x", "x", "x", "x"])
+                df["Date"] = pd.to_datetime(df["OpT"], unit='ms')
+                df.set_index("Date", inplace=True)
+                
+                # Başarılı olduysa veriyi döndür ve döngüyü kır
+                return df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
+                
+        except Exception as e:
+            # Bu URL çalışmadıysa sessizce diğerine geç
+            continue
+            
+    # Hiçbiri çalışmazsa None dön
+    print("Binance: Tüm URL'ler başarısız oldu.")
     return None
-
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_okx_simple(symbol, interval, limit=300):
     s_okx = symbol.replace("USD", "USDT")
@@ -1151,6 +1166,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
