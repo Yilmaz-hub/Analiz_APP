@@ -563,9 +563,9 @@ show_all_pats = st.sidebar.checkbox("Hepsini Aç/Kapat", value=True)
 f_wm = st.sidebar.checkbox("- W ve M", value=True)
 f_candle = st.sidebar.checkbox("- Mumlar", value=True)
 
-tg_token = st.sidebar.text_input("Bot Token", value=DEFAULT_TOKEN, type="password")
-tg_chat = st.sidebar.text_input("Chat ID", value=DEFAULT_CHAT_ID)
-auto = st.sidebar.checkbox("Otomatik Bot")
+#tg_token = st.sidebar.text_input("Bot Token", value=DEFAULT_TOKEN, type="password")
+#tg_chat = st.sidebar.text_input("Chat ID", value=DEFAULT_CHAT_ID)
+#auto = st.sidebar.checkbox("Otomatik Bot")
 
 intervals = {"4h": "4 Saatlik", "1d": "Günlük", "1wk": "Haftalık"}
 results = {}
@@ -1172,6 +1172,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
