@@ -550,6 +550,18 @@ def send_tg(token, chat_id, msg):
 
 # --- ARAYÜZ ---
 st.sidebar.header("⚙️ Kontrol Paneli")
+
+# 1. GİZLİ AYARLAR (Token ve ID buraya saklandı)
+with st.sidebar.expander("🔐 Bot & API Ayarları", expanded=False):
+    st.caption("Telegram bildirimleri için gereklidir.")
+    # Kullanıcıdan giriş alırken tg_token değişkenine atıyoruz
+    tg_token = st.text_input("Bot Token", value=DEFAULT_TOKEN, type="password")
+    tg_chat = st.text_input("Chat ID", value=DEFAULT_CHAT_ID)
+    st.caption("Bu ayarlar varsayılan olarak kapalıdır.")
+
+st.sidebar.divider()
+
+# 2. NORMAL AYARLAR
 src_pref = st.sidebar.radio("📡 Kaynak:", ["Binance", "OKX", "Yahoo Finance"])
 sel_c = st.sidebar.selectbox("Enstrüman:", list(COIN_MAP.keys()))
 symbol = COIN_MAP[sel_c]
@@ -558,14 +570,16 @@ st.sidebar.divider()
 show_cloud = st.sidebar.checkbox("☁️ Destek/Direnç Bulutu", value=True)
 show_ai = st.sidebar.checkbox("🤖 AI Trend", value=True)
 show_pred = st.sidebar.checkbox("🔮 AI Tahmin", value=True)
+
 st.sidebar.subheader("🔍 Filtreler")
 show_all_pats = st.sidebar.checkbox("Hepsini Aç/Kapat", value=True)
 f_wm = st.sidebar.checkbox("- W ve M", value=True)
 f_candle = st.sidebar.checkbox("- Mumlar", value=True)
 
-tg_token = st.sidebar.text_input("Bot Token", value=DEFAULT_TOKEN, type="password")
-tg_chat = st.sidebar.text_input("Chat ID", value=DEFAULT_CHAT_ID)
+# Otomatik Bot kutusu kolay erişim için dışarıda kalsın
 auto = st.sidebar.checkbox("Otomatik Bot")
+
+# --- BURADAN SONRA intervals... DİYE DEVAM EDEN KODUNUZ GELECEK ---
 
 intervals = {"4h": "4 Saatlik", "1d": "Günlük", "1wk": "Haftalık"}
 results = {}
@@ -1172,6 +1186,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
