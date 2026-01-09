@@ -548,61 +548,29 @@ def send_tg(token, chat_id, msg):
     try: requests.get(f"https://api.telegram.org/bot{token}/sendMessage", params={"chat_id": chat_id, "text": msg, "parse_mode": "Markdown"})
     except: pass
 
-# ==========================================
-# 5. SIDEBAR (SOL MENÜ) - TAM VE EKSİKSİZ
-# ==========================================
-with st.sidebar:
-    st.header("⚙️ Kontrol Paneli")
-    
-    # --- GİZLİ AYARLAR MENÜSÜ ---
-    with st.expander("🔐 Bot & API Ayarları", expanded=False):
-        st.caption("Telegram bildirimleri için gereklidir.")
-        user_token = st.text_input("Bot Token", value=DEFAULT_TOKEN, type="password", key="u_token")
-        user_chat_id = st.text_input("Chat ID", value=DEFAULT_CHAT_ID, key="u_chat")
-        st.caption("Token şifreli modda görünür.")
+# --- ARAYÜZ ---
+st.sidebar.header("⚙️ Kontrol Paneli")
+src_pref = st.sidebar.radio("📡 Kaynak:", ["Binance", "OKX", "Yahoo Finance"])
+sel_c = st.sidebar.selectbox("Enstrüman:", list(COIN_MAP.keys()))
+symbol = COIN_MAP[sel_c]
 
-    st.divider()
+st.sidebar.divider()
+show_cloud = st.sidebar.checkbox("☁️ Destek/Direnç Bulutu", value=True)
+show_ai = st.sidebar.checkbox("🤖 AI Trend", value=True)
+show_pred = st.sidebar.checkbox("🔮 AI Tahmin", value=True)
+st.sidebar.subheader("🔍 Filtreler")
+show_all_pats = st.sidebar.checkbox("Hepsini Aç/Kapat", value=True)
+f_wm = st.sidebar.checkbox("- W ve M", value=True)
+f_candle = st.sidebar.checkbox("- Mumlar", value=True)
 
-    # --- ENSTRÜMAN SEÇİMİ (EKSİK OLAN KISIM BURASIYDI) ---
-    st.subheader("📉 Varlık Seçimi")
-    
-    # Listeyi COIN_MAP anahtarlarından alıyoruz
-    coin_list = list(COIN_MAP.keys())
-    
-    # Kullanıcı buradan seçim yapıyor
-    sel_c = st.selectbox("İncelenecek Varlık", coin_list, index=0)
-    
-    # Seçilen ismin karşılığı olan kodu (örn: BTC-USD) alıyoruz
-    symbol = COIN_MAP[sel_c]
+tg_token = st.sidebar.text_input("Bot Token", value=DEFAULT_TOKEN, type="password")
+tg_chat = st.sidebar.text_input("Chat ID", value=DEFAULT_CHAT_ID)
+auto = st.sidebar.checkbox("Otomatik Bot")
 
-    st.divider()
-
-    # --- OTO-ANALİZ ---
-    st.subheader("🤖 OTO-ANALİZ")
-    auto = st.checkbox("Botu Aktifleştir", value=False, help="Otomatik tarama yapar.")
-    refresh_rate = st.number_input("Tarama (Dk)", min_value=1, max_value=60, value=15)
-    
-    st.divider()
-
-    # --- GRAFİK VE VERİ AYARLARI ---
-    st.subheader("📊 Grafik Ayarı")
-    
-    intervals = {"4h": "4 Saatlik", "1d": "Günlük", "1wk": "Haftalık"}
-    
-    # Zaman Dilimi (tf)
-    tf = st.selectbox("Zaman Dilimi", options=list(intervals.keys()), format_func=lambda x: intervals[x], index=1)
-    view_tf = tf # Uyumluluk için kopyalıyoruz
-    
-    # Veri Kaynağı (src_pref)
-    src_pref = st.radio("Veri Kaynağı", ["Binance", "OKX", "Yahoo Finance"], index=0)
-
-    st.divider()
-    
-    # Bakiye Bilgisi
-    if 'portfolio_data' in st.session_state:
-        cur_bal = st.session_state['portfolio_data'].get('balance', 0)
-        st.info(f"💵 Kasa: ${cur_bal:,.2f}")
+intervals = {"4h": "4 Saatlik", "1d": "Günlük", "1wk": "Haftalık"}
 results = {}
+active_src = ""
+
 # --- ANALİZ DÖNGÜSÜ ---
 for tf, label in intervals.items():
     df, src = get_market_data(src_pref, symbol, tf)
