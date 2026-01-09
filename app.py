@@ -14,15 +14,17 @@ from sklearn.linear_model import LinearRegression
 # ==========================================
 # 🛠️ KULLANICI AYARLARI
 # ==========================================
-try:
-    DEFAULT_TOKEN = st.secrets["TELEGRAM_TOKEN"]
-    DEFAULT_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
-except FileNotFoundError:
+DEFAULT_TOKEN = ""
+DEFAULT_CHAT_ID = ""
+#try:
+ #   DEFAULT_TOKEN = st.secrets["TELEGRAM_TOKEN"]
+  #  DEFAULT_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
+#except FileNotFoundError:
     # Eğer secrets bulunamazsa boş kalsın (veya hata versin)
-    st.error("Lütfen .streamlit/secrets.toml dosyasını oluşturun veya Cloud Secrets ayarını yapın!")
-    DEFAULT_TOKEN = ""
-    DEFAULT_CHAT_ID = ""
-PORTFOLIO_FILE = "portfolio.json"
+ #   st.error("Lütfen .streamlit/secrets.toml dosyasını oluşturun veya Cloud Secrets ayarını yapın!")
+  #  DEFAULT_TOKEN = ""
+   # DEFAULT_CHAT_ID = ""
+#PORTFOLIO_FILE = "portfolio.json"
 # ==========================================
 
 st.set_page_config(layout="wide", page_title="Pro Trader V47 (Gold Edition)")
@@ -1186,6 +1188,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
