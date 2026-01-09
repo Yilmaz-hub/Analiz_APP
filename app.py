@@ -24,7 +24,7 @@ DEFAULT_CHAT_ID = ""
  #   st.error("Lütfen .streamlit/secrets.toml dosyasını oluşturun veya Cloud Secrets ayarını yapın!")
   #  DEFAULT_TOKEN = ""
    # DEFAULT_CHAT_ID = ""
-#PORTFOLIO_FILE = "portfolio.json"
+PORTFOLIO_FILE = "portfolio.json"
 # ==========================================
 
 st.set_page_config(layout="wide", page_title="Pro Trader V47 (Gold Edition)")
@@ -1188,6 +1188,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
