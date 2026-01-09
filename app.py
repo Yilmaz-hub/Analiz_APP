@@ -549,7 +549,7 @@ def send_tg(token, chat_id, msg):
     except: pass
 
 # ==========================================
-# 5. SIDEBAR (SOL MENÜ) - DÜZELTİLMİŞ VE UYUMLU
+# 5. SIDEBAR (SOL MENÜ) - TAM VE EKSİKSİZ
 # ==========================================
 with st.sidebar:
     st.header("⚙️ Kontrol Paneli")
@@ -557,43 +557,51 @@ with st.sidebar:
     # --- GİZLİ AYARLAR MENÜSÜ ---
     with st.expander("🔐 Bot & API Ayarları", expanded=False):
         st.caption("Telegram bildirimleri için gereklidir.")
-        
         user_token = st.text_input("Bot Token", value=DEFAULT_TOKEN, type="password", key="u_token")
         user_chat_id = st.text_input("Chat ID", value=DEFAULT_CHAT_ID, key="u_chat")
-        
-        st.caption("Token şifreli (password) modda görünür.")
+        st.caption("Token şifreli modda görünür.")
+
+    st.divider()
+
+    # --- ENSTRÜMAN SEÇİMİ (EKSİK OLAN KISIM BURASIYDI) ---
+    st.subheader("📉 Varlık Seçimi")
+    
+    # Listeyi COIN_MAP anahtarlarından alıyoruz
+    coin_list = list(COIN_MAP.keys())
+    
+    # Kullanıcı buradan seçim yapıyor
+    sel_c = st.selectbox("İncelenecek Varlık", coin_list, index=0)
+    
+    # Seçilen ismin karşılığı olan kodu (örn: BTC-USD) alıyoruz
+    symbol = COIN_MAP[sel_c]
 
     st.divider()
 
     # --- OTO-ANALİZ ---
     st.subheader("🤖 OTO-ANALİZ")
-    
-    # Hata vermemesi için 'auto' burada tanımlı
-    auto = st.checkbox("Botu Aktifleştir", value=False, help="Otomatik tarama yapar ve sinyal gelirse Telegram atar.")
-    
-    refresh_rate = st.number_input("Tarama Sıklığı (Dakika)", min_value=1, max_value=60, value=15)
+    auto = st.checkbox("Botu Aktifleştir", value=False, help="Otomatik tarama yapar.")
+    refresh_rate = st.number_input("Tarama (Dk)", min_value=1, max_value=60, value=15)
     
     st.divider()
 
-    # --- GRAFİK VE VERİ AYARLARI (HATA BURADAYDI, DÜZELTİLDİ) ---
+    # --- GRAFİK VE VERİ AYARLARI ---
     st.subheader("📊 Grafik Ayarı")
     
     intervals = {"4h": "4 Saatlik", "1d": "Günlük", "1wk": "Haftalık"}
     
-    # DÜZELTME 1: Değişken adını 'view_tf' yerine 'tf' yaptık
+    # Zaman Dilimi (tf)
     tf = st.selectbox("Zaman Dilimi", options=list(intervals.keys()), format_func=lambda x: intervals[x], index=1)
+    view_tf = tf # Uyumluluk için kopyalıyoruz
     
-    # Bu değişkeni kodun geri kalanında 'view_tf' olarak kullanan yerler varsa diye kopyalıyoruz
-    view_tf = tf 
-    
-    # DÜZELTME 2: Değişken adını 'data_source' yerine 'src_pref' yaptık
+    # Veri Kaynağı (src_pref)
     src_pref = st.radio("Veri Kaynağı", ["Binance", "OKX", "Yahoo Finance"], index=0)
 
     st.divider()
     
     # Bakiye Bilgisi
-    cur_bal = st.session_state['portfolio_data'].get('balance', 0)
-    st.info(f"💵 Kasa: ${cur_bal:,.2f}")
+    if 'portfolio_data' in st.session_state:
+        cur_bal = st.session_state['portfolio_data'].get('balance', 0)
+        st.info(f"💵 Kasa: ${cur_bal:,.2f}")
 
 # --- ANALİZ DÖNGÜSÜ ---
 for tf, label in intervals.items():
@@ -1196,6 +1204,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
