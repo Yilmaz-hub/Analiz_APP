@@ -548,54 +548,52 @@ def send_tg(token, chat_id, msg):
     try: requests.get(f"https://api.telegram.org/bot{token}/sendMessage", params={"chat_id": chat_id, "text": msg, "parse_mode": "Markdown"})
     except: pass
 
-# --- SIDEBAR (SOL MENÜ) AYARLARI ---
+# ==========================================
+# 5. SIDEBAR (SOL MENÜ) - DÜZELTİLMİŞ VE UYUMLU
+# ==========================================
 with st.sidebar:
     st.header("⚙️ Kontrol Paneli")
     
-    # 1. GİZLİ AYARLAR MENÜSÜ (Token ve ID buraya saklandı)
+    # --- GİZLİ AYARLAR MENÜSÜ ---
     with st.expander("🔐 Bot & API Ayarları", expanded=False):
         st.caption("Telegram bildirimleri için gereklidir.")
         
-        # Token ve ID çekme (Secrets veya Default)
-        try:
-            sec_token = st.secrets["TELEGRAM_TOKEN"]
-        except:
-            sec_token = DEFAULT_TOKEN
-
-        try:
-            sec_id = st.secrets["TELEGRAM_CHAT_ID"]
-        except:
-            sec_id = DEFAULT_CHAT_ID
-            
-        # Giriş Kutuları (Yıldızlı şifre)
-        user_token = st.text_input("Bot Token", value=sec_token, type="password", key="u_token")
-        user_chat_id = st.text_input("Chat ID", value=sec_id, key="u_chat")
+        user_token = st.text_input("Bot Token", value=DEFAULT_TOKEN, type="password", key="u_token")
+        user_chat_id = st.text_input("Chat ID", value=DEFAULT_CHAT_ID, key="u_chat")
         
         st.caption("Token şifreli (password) modda görünür.")
 
     st.divider()
 
-    # 2. OTOMATİK BOT VE PERİYOT AYARLARI (EKSİK OLAN KISIM BUYDU)
+    # --- OTO-ANALİZ ---
     st.subheader("🤖 OTO-ANALİZ")
     
-    # 'auto' değişkeni burada tanımlanıyor, artık hata vermez
+    # Hata vermemesi için 'auto' burada tanımlı
     auto = st.checkbox("Botu Aktifleştir", value=False, help="Otomatik tarama yapar ve sinyal gelirse Telegram atar.")
     
     refresh_rate = st.number_input("Tarama Sıklığı (Dakika)", min_value=1, max_value=60, value=15)
     
     st.divider()
-    
-    st.subheader("Bakiye Durumu")
-    # Mevcut bakiyeyi göstermek için session_state kontrolü
-    if 'portfolio_data' in st.session_state:
-        cur_bal = st.session_state['portfolio_data'].get('balance', 0)
-        st.info(f"💵 Kasa: ${cur_bal:,.2f}")
-    else:
-        st.warning("Portföy Yüklenmedi")
 
-intervals = {"4h": "4 Saatlik", "1d": "Günlük", "1wk": "Haftalık"}
-results = {}
-active_src = ""
+    # --- GRAFİK VE VERİ AYARLARI (HATA BURADAYDI, DÜZELTİLDİ) ---
+    st.subheader("📊 Grafik Ayarı")
+    
+    intervals = {"4h": "4 Saatlik", "1d": "Günlük", "1wk": "Haftalık"}
+    
+    # DÜZELTME 1: Değişken adını 'view_tf' yerine 'tf' yaptık
+    tf = st.selectbox("Zaman Dilimi", options=list(intervals.keys()), format_func=lambda x: intervals[x], index=1)
+    
+    # Bu değişkeni kodun geri kalanında 'view_tf' olarak kullanan yerler varsa diye kopyalıyoruz
+    view_tf = tf 
+    
+    # DÜZELTME 2: Değişken adını 'data_source' yerine 'src_pref' yaptık
+    src_pref = st.radio("Veri Kaynağı", ["Binance", "OKX", "Yahoo Finance"], index=0)
+
+    st.divider()
+    
+    # Bakiye Bilgisi
+    cur_bal = st.session_state['portfolio_data'].get('balance', 0)
+    st.info(f"💵 Kasa: ${cur_bal:,.2f}")
 
 # --- ANALİZ DÖNGÜSÜ ---
 for tf, label in intervals.items():
@@ -1198,6 +1196,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
