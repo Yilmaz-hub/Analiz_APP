@@ -602,7 +602,7 @@ with st.sidebar:
     if 'portfolio_data' in st.session_state:
         cur_bal = st.session_state['portfolio_data'].get('balance', 0)
         st.info(f"💵 Kasa: ${cur_bal:,.2f}")
-
+results = {}
 # --- ANALİZ DÖNGÜSÜ ---
 for tf, label in intervals.items():
     df, src = get_market_data(src_pref, symbol, tf)
@@ -1204,6 +1204,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
