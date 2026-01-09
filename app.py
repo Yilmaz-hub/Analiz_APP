@@ -548,24 +548,50 @@ def send_tg(token, chat_id, msg):
     try: requests.get(f"https://api.telegram.org/bot{token}/sendMessage", params={"chat_id": chat_id, "text": msg, "parse_mode": "Markdown"})
     except: pass
 
-# --- ARAYÜZ ---
-st.sidebar.header("⚙️ Kontrol Paneli")
-src_pref = st.sidebar.radio("📡 Kaynak:", ["Binance", "OKX", "Yahoo Finance"])
-sel_c = st.sidebar.selectbox("Enstrüman:", list(COIN_MAP.keys()))
-symbol = COIN_MAP[sel_c]
+# --- SIDEBAR (SOL MENÜ) AYARLARI ---
+with st.sidebar:
+    st.header("⚙️ Kontrol Paneli")
+    
+    # 1. GİZLİ AYARLAR MENÜSÜ (Token ve ID buraya saklandı)
+    with st.expander("🔐 Bot & API Ayarları", expanded=False):
+        st.caption("Telegram bildirimleri için gereklidir.")
+        
+        # Token ve ID çekme (Secrets veya Default)
+        try:
+            sec_token = st.secrets["TELEGRAM_TOKEN"]
+        except:
+            sec_token = DEFAULT_TOKEN
 
-st.sidebar.divider()
-show_cloud = st.sidebar.checkbox("☁️ Destek/Direnç Bulutu", value=True)
-show_ai = st.sidebar.checkbox("🤖 AI Trend", value=True)
-show_pred = st.sidebar.checkbox("🔮 AI Tahmin", value=True)
-st.sidebar.subheader("🔍 Filtreler")
-show_all_pats = st.sidebar.checkbox("Hepsini Aç/Kapat", value=True)
-f_wm = st.sidebar.checkbox("- W ve M", value=True)
-f_candle = st.sidebar.checkbox("- Mumlar", value=True)
+        try:
+            sec_id = st.secrets["TELEGRAM_CHAT_ID"]
+        except:
+            sec_id = DEFAULT_CHAT_ID
+            
+        # Giriş Kutuları (Yıldızlı şifre)
+        user_token = st.text_input("Bot Token", value=sec_token, type="password", key="u_token")
+        user_chat_id = st.text_input("Chat ID", value=sec_id, key="u_chat")
+        
+        st.caption("Token şifreli (password) modda görünür.")
 
-#tg_token = st.sidebar.text_input("Bot Token", value=DEFAULT_TOKEN, type="password")
-#tg_chat = st.sidebar.text_input("Chat ID", value=DEFAULT_CHAT_ID)
-#auto = st.sidebar.checkbox("Otomatik Bot")
+    st.divider()
+
+    # 2. OTOMATİK BOT VE PERİYOT AYARLARI (EKSİK OLAN KISIM BUYDU)
+    st.subheader("🤖 OTO-ANALİZ")
+    
+    # 'auto' değişkeni burada tanımlanıyor, artık hata vermez
+    auto = st.checkbox("Botu Aktifleştir", value=False, help="Otomatik tarama yapar ve sinyal gelirse Telegram atar.")
+    
+    refresh_rate = st.number_input("Tarama Sıklığı (Dakika)", min_value=1, max_value=60, value=15)
+    
+    st.divider()
+    
+    st.subheader("Bakiye Durumu")
+    # Mevcut bakiyeyi göstermek için session_state kontrolü
+    if 'portfolio_data' in st.session_state:
+        cur_bal = st.session_state['portfolio_data'].get('balance', 0)
+        st.info(f"💵 Kasa: ${cur_bal:,.2f}")
+    else:
+        st.warning("Portföy Yüklenmedi")
 
 intervals = {"4h": "4 Saatlik", "1d": "Günlük", "1wk": "Haftalık"}
 results = {}
@@ -1172,6 +1198,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
