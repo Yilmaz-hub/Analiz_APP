@@ -12,6 +12,7 @@ from scipy.signal import argrelextrema
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_absolute_error
 # ==========================================
 # 🛠️ KULLANICI AYARLARI
 # ==========================================
@@ -425,92 +426,109 @@ def calculate_oracle_signal_fixed(df, supports, resistances):
 
 def calculate_smart_prediction(df, periods=15):
     """
-    Random Forest'ın 'Yatay Çizgi' sorununu çözen algoritma.
-    Fiyatı değil, 'Bir sonraki mumun yüzde kaç değişeceğini' öğrenir.
+    AI önce geçmiş verilerle kendini test eder (Backtest).
+    Başarısını ölçer, bir 'Güven Skoru' üretir ve buna göre geleceği tahmin eder.
     """
     try:
-        # 1. Veri Hazırlığı
+        # 1. VERİ HAZIRLIĞI
         work_df = df.copy()
-        if len(work_df) < 50: return [], []
+        # En az 100 mumluk veri lazım (Eğitim + Test için)
+        if len(work_df) < 100: return [], [], 0 
 
-        # İndikatörleri Hesapla
+        # İndikatörler
         work_df['RSI'] = work_df.ta.rsi(length=14)
         work_df['EMA_50'] = work_df.ta.ema(length=50)
         work_df['ATR'] = work_df.ta.atr(length=14)
         
-        # --- KRİTİK DÜZELTME BURASI ---
-        # Hedef (Target) artık Fiyat DEĞİL, Değişim Oranıdır.
-        # Yani AI şunu öğrenecek: "RSI 30 iken fiyat genelde %2 artar."
-        work_df['Return'] = work_df['Close'].pct_change() # Yüzdesel değişim
-        work_df['Target'] = work_df['Return'].shift(-1)   # Bir sonraki mumun değişimi
+        # Hedef: Yüzdesel Değişim (Return)
+        work_df['Return'] = work_df['Close'].pct_change()
+        work_df['Target'] = work_df['Return'].shift(-1)
         
-        # NaN temizliği
         work_df.dropna(inplace=True)
-        
-        # Sonsuz değerleri temizle (Sıfıra bölünme hataları için)
         work_df = work_df.replace([np.inf, -np.inf], 0)
 
-        # Eğitim Verisi
-        # AI'ya sadece değişimleri (Return) veriyoruz ki fiyattan bağımsız düşünsün
+        # Özellikler
         features = ['RSI', 'Return', 'ATR']
         X = work_df[features].values
-        y = work_df['Target'].values  # Öğreneceği şey: Yüzdesel Değişim
+        y = work_df['Target'].values
 
-        # 2. MODEL EĞİTİMİ
-        # n_estimators=200 ile daha hassas karar vermesini sağlıyoruz
+        # --- 2. BAŞARI MEKANİZMASI (BACKTEST) ---
+        # Verinin son %20'lik kısmını 'Görmemiş' gibi ayırıyoruz (Test Seti)
+        test_size = int(len(X) * 0.2) 
+        
+        X_train_back = X[:-test_size] # Eski veriler
+        y_train_back = y[:-test_size]
+        
+        X_test_back = X[-test_size:]  # Yakın geçmiş (Test edilecek)
+        y_test_back = y[-test_size:]  # Gerçek sonuçlar
+        
+        # Test Modeli Kur
+        test_model = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42)
+        test_model.fit(X_train_back, y_train_back)
+        
+        # Yakın geçmişi tahmin et
+        y_pred_back = test_model.predict(X_test_back)
+        
+        # Hata Oranını Hesapla (MAE - Ortalama Mutlak Hata)
+        mae = mean_absolute_error(y_test_back, y_pred_back)
+        
+        # Hatayı Puana Çevir (Hata azsa puan yüksek)
+        # Piyasa volatilitesine göre normalize ediyoruz
+        avg_volatility = np.mean(np.abs(y_test_back))
+        if avg_volatility == 0: avg_volatility = 0.01
+        
+        accuracy_score = max(0, 100 - (mae / avg_volatility * 50)) # 0-100 arası puan
+        
+        # --- 3. GELECEĞİ TAHMİN ET (EĞER BAŞARILIYSA) ---
+        
+        # Gerçek Model (Tüm veriyi kullanır)
         model = RandomForestRegressor(n_estimators=200, max_depth=15, random_state=42)
         model.fit(X, y)
-
-        # 3. GELECEĞİ TAHMİN ETME DÖNGÜSÜ
+        
         future_dates = []
         predictions = []
         
         last_date = work_df.index[-1]
         time_delta = work_df.index[-1] - work_df.index[-2]
         
-        # Başlangıç değerleri
         current_price = work_df['Close'].iloc[-1]
         current_rsi = work_df['RSI'].iloc[-1]
         current_atr = work_df['ATR'].iloc[-1]
         last_return = work_df['Return'].iloc[-1]
 
+        # Güven Puanına Göre Düzeltme Faktörü
+        # Eğer AI kendine güvenmiyorsa (puan düşükse) tahminleri yumuşatır (konservatif olur)
+        confidence_factor = accuracy_score / 100.0 
+
         for i in range(1, periods + 1):
             next_date = last_date + (time_delta * i)
             future_dates.append(next_date)
             
-            # Mevcut durumu AI'ya sor
             input_feat = np.array([[current_rsi, last_return, current_atr]])
             
-            # AI Tahmini: "Yüzde kaç değişecek?"
-            pred_pct_change = model.predict(input_feat)[0]
+            # Tahmin
+            pred_pct = model.predict(input_feat)[0]
             
-            # Tahmin edilen yüzdeyi fiyata uygula
-            # Örn: Fiyat 100, AI %1 artış dedi -> Yeni fiyat 101
-            next_price = current_price * (1 + pred_pct_change)
+            # Puan düşükse tahmini törpüle (Risk alma)
+            if accuracy_score < 50:
+                pred_pct = pred_pct * 0.5 # Hareketi yarıya indir
+            
+            next_price = current_price * (1 + pred_pct)
             predictions.append(next_price)
             
-            # --- DÖNGÜSEL GÜNCELLEME (RECURSIVE UPDATE) ---
-            # Bir sonraki adım için indikatörleri yapay olarak güncelle
-            # Bu kısım çizginin dümdüz olmamasını sağlar
+            # Recursive Update
+            if pred_pct > 0: current_rsi += 2 * confidence_factor
+            else: current_rsi -= 2 * confidence_factor
             
-            # 1. RSI Güncelleme (Basitleştirilmiş Mantık)
-            if pred_pct_change > 0: 
-                current_rsi += 2 # Fiyat arttıysa RSI biraz ısınır
-            else: 
-                current_rsi -= 2 # Fiyat düştüyse RSI soğur
-            
-            # RSI Sınırları (0-100 arası tut)
             current_rsi = max(10, min(90, current_rsi))
-            
-            # Değişkenleri bir sonraki tura aktar
-            last_return = pred_pct_change # Bir sonraki tur için 'önceki değişim' bu oldu
+            last_return = pred_pct
             current_price = next_price
 
-        return future_dates, predictions
+        return future_dates, predictions, accuracy_score
 
     except Exception as e:
-        print(f"AI Prediction Fix Error: {e}")
-        return [], []
+        print(f"AI Backtest Error: {e}")
+        return [], [], 0
 
 def calculate_extended_trendlines(df, extend_candles=15):
     highs = df['High'].values
@@ -681,12 +699,27 @@ if df_view is not None:
 
     fig.add_trace(go.Candlestick(x=df_view.index, open=df_view['Open'], high=df_view['High'], low=df_view['Low'], close=df_view['Close'], name='Fiyat'))
     fig.add_hline(y=curr, line_dash="dot", line_color="cyan", annotation_text=f" {curr:,.2f}", annotation_position="right")
-
-    if show_pred:
-        f_dates, f_prices = calculate_smart_prediction(df_view)
+if show_pred:
+        # Fonksiyon artık 3 değer döndürüyor, üçünü de karşılıyoruz
+        f_dates, f_prices, ai_score = calculate_smart_prediction(df_view)
+        
         if len(f_dates) > 0:
-            fig.add_trace(go.Scatter(x=[df_view.index[-1]]+f_dates, y=[df_view['Close'].iloc[-1]]+list(f_prices), mode='lines', line=dict(color='yellow', width=2, dash='dash'), name='AI Tahmini'))
-
+            # Tahmin Çizgisi
+            fig.add_trace(go.Scatter(
+                x=[df_view.index[-1]]+f_dates, 
+                y=[df_view['Close'].iloc[-1]]+list(f_prices), 
+                mode='lines', 
+                line=dict(color='yellow', width=2, dash='dash'), 
+                name=f'AI Tahmini (Güven: %{ai_score:.0f})'
+            ))
+            
+            # Ekrana Bilgi Notu (Grafiğin üstüne veya altına)
+            if ai_score > 70:
+                st.success(f"🧠 **AI Güven Skoru:** %{ai_score:.1f} (Model bu coini çok iyi tanıyor!)")
+            elif ai_score > 40:
+                st.warning(f"🧠 **AI Güven Skoru:** %{ai_score:.1f} (Tahminler orta güvenilirlikte)")
+            else:
+                st.error(f"🧠 **AI Güven Skoru:** %{ai_score:.1f} (Piyasa çok belirsiz, AI zorlanıyor)")
     if show_ai:
         lines = calculate_extended_trendlines(df_view)
         for l in lines:
@@ -1214,6 +1247,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
