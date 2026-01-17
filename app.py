@@ -10,7 +10,8 @@ import json
 import os
 from scipy.signal import argrelextrema
 from sklearn.linear_model import LinearRegression
-
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import MinMaxScaler
 # ==========================================
 # 🛠️ KULLANICI AYARLARI
 # ==========================================
@@ -98,7 +99,7 @@ HEADERS = {
 }
 
 @st.cache_data(ttl=60, show_spinner=False)
-def fetch_binance_simple(symbol, interval, limit=500):
+def fetch_binance_simple(symbol, interval, limit=1000):
     # Sembol Düzeltme
     s_bin = symbol.replace("-", "").replace("USD", "USDT")
     
@@ -161,7 +162,7 @@ def fetch_okx_simple(symbol, interval, limit=300):
 def fetch_yahoo_safe(symbol, interval):
     try:
         # Periyot ayarları
-        p = "2y" if interval == "1wk" else ("1y" if interval == "1d" else "1mo")
+        p = "10y" if interval == "1wk" else ("4y" if interval == "1d" else "1mo")
         i = "1h" if interval == "4h" else ("1d" if interval == "1d" else "1wk")
         
         # Yahoo'dan veri çek
@@ -423,67 +424,85 @@ def calculate_oracle_signal_fixed(df, supports, resistances):
     return status, color, target_msg
 
 def calculate_smart_prediction(df, periods=15):
+    """
+    İnsan gözünün kaçırdığı desenleri bulmak için Random Forest kullanır.
+    Fiyat, RSI, EMA, Hacim ve Volatilite arasındaki karmaşık ilişkiyi öğrenir.
+    """
     try:
-        # Veri Hazırlığı (Son 60 mum yeterli)
-        work_df = df.tail(60).copy()
-        if len(work_df) < 30: return [], []
+        # 1. Veri Hazırlığı (Tüm geçmişi kullan)
+        work_df = df.copy()
+        
+        # Yeterli veri yoksa işlem yapma
+        if len(work_df) < 100: return [], []
 
-        # X (Zaman) ve Y (Fiyat) verileri
-        y = work_df['Close'].values
-        x = np.arange(len(y)).reshape(-1, 1)
+        # 2. Özellik Mühendisliği (AI'nın bakacağı sinyaller)
+        # AI'ya sadece fiyatı değil, indikatörleri de öğretiyoruz
+        work_df['RSI'] = work_df.ta.rsi(length=14)
+        work_df['EMA_Diff'] = work_df['Close'] - work_df['EMA_50'] # Fiyatın ortalamadan farkı
+        work_df['Vol_Change'] = work_df['Volume'].pct_change() # Hacim değişimi
+        work_df['Target'] = work_df['Close'].shift(-1) # Hedef: Bir sonraki mumun kapanışı
         
-        # 1. DOĞRUSAL REGRESYON (ANA TREND)
-        model = LinearRegression()
-        model.fit(x, y)
-        slope = model.coef_[0]     # Eğim (Trendin Yönü)
-        intercept = model.intercept_
+        # NaN verileri temizle (İndikatörlerin hesaplanamadığı ilk satırlar)
+        work_df.dropna(inplace=True)
         
-        # 2. RSI BAZLI AKILLI DÜZELTME (MOMENTUM KONTROLÜ)
-        current_rsi = work_df['RSI'].iloc[-1]
-        current_price = y[-1]
-        ema_50 = work_df['EMA_50'].iloc[-1]
+        # Eğitim Verisi (Özellikler) ve Hedef (Fiyat)
+        features = ['Close', 'RSI', 'EMA_50', 'EMA_20', 'ATR', 'EMA_Diff']
+        X = work_df[features].values
+        y = work_df['Target'].values
         
-        # Eğim Düzeltme Katsayısı
-        adjustment_factor = 1.0
+        # Son satırı (tahmin yapılacak anı) ayıralım
+        # Çünkü son satırın 'Target'ı (yarını) henüz bilinmiyor, onu biz bulacağız.
+        last_features = X[-1].reshape(1, -1)
         
-        # Senaryo A: Yükseliş Trendi
-        if slope > 0:
-            if current_rsi > 70: adjustment_factor = 0.4  # RSI Şişmiş, yükselişi frenle
-            elif current_rsi > 60: adjustment_factor = 0.7 # Yorulma var
-            elif current_rsi < 40: adjustment_factor = 1.3 # Güçlü momentum potansiyeli
-            
-            # Fiyat EMA50'den çok uzaksa (Ortalamaya Dönüş Riski)
-            if current_price > ema_50 * 1.05:
-                adjustment_factor *= 0.8
-                
-        # Senaryo B: Düşüş Trendi
-        elif slope < 0:
-            if current_rsi < 30: adjustment_factor = 0.4  # RSI Dipte, düşüşü frenle (Tepki Gelebilir)
-            elif current_rsi < 40: adjustment_factor = 0.7
-            elif current_rsi > 60: adjustment_factor = 1.3 # Düşüş derinleşebilir
+        # Eğitim seti (Son satır hariç her şey)
+        X_train = X[:-1]
+        y_train = y[:-1]
+
+        # 3. AI MODEL EĞİTİMİ (RANDOM FOREST)
+        # 100 farklı karar ağacı kurarak en iyi sonucu arar
+        model = RandomForestRegressor(n_estimators=100, random_state=42, max_depth=10)
+        model.fit(X_train, y_train)
         
-        # Eğimi Revize Et
-        smart_slope = slope * adjustment_factor
-        
-        # 3. GELECEK TAHMİNİ OLUŞTURMA
+        # 4. GELECEĞİ TAHMİN ETME (İLERİ SİMÜLASYON)
         future_dates = []
         predictions = []
         
         last_date = work_df.index[-1]
         time_delta = work_df.index[-1] - work_df.index[-2]
         
-        # Tahmin çizgisini son kapanış fiyatından başlat (Süreklilik için)
-        start_price = current_price
+        # Döngüsel Tahmin: Bugünü tahmin et -> Çıkan sonucu yarınmış gibi kullan -> Yarını tahmin et
+        current_feats = last_features[0]
         
         for i in range(1, periods + 1):
-            future_dates.append(last_date + (time_delta * i))
-            # Her adımda eğim kadar ekle
-            next_price = start_price + (smart_slope * i)
+            # Gelecek tarihi belirle
+            next_date = last_date + (time_delta * i)
+            future_dates.append(next_date)
+            
+            # Tahmin yap
+            next_price = model.predict([current_feats])[0]
             predictions.append(next_price)
             
+            # --- ZEKİ GÜNCELLEME ---
+            # Tahmin edilen fiyatı bir sonraki adımın girdisi olarak kullanacağız.
+            # Ancak RSI, EMA gibi değerleri de tahmini olarak güncellemeliyiz.
+            # Basitleştirilmiş mantık: Yeni fiyatı 'Close' yerine koy, diğerlerini sabit tut veya hafif kaydır.
+            
+            # Mevcut özellikleri kopyala
+            next_feats = current_feats.copy()
+            
+            # 0. index 'Close' idi, onu yeni tahmin edilen fiyat yap
+            next_feats[0] = next_price 
+            
+            # 2. index EMA_50 idi, onu hafifçe fiyata yaklaştır (Basit hareketli ortalama mantığı)
+            next_feats[2] = (next_feats[2] * 49 + next_price) / 50
+            
+            # Döngü için güncelle
+            current_feats = next_feats
+
         return future_dates, predictions
+
     except Exception as e:
-        print(f"Prediction Error: {e}")
+        print(f"AI Prediction Error: {e}")
         return [], []
 
 def calculate_extended_trendlines(df, extend_candles=15):
@@ -1188,6 +1207,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
