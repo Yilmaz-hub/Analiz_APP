@@ -699,7 +699,7 @@ if df_view is not None:
 
     fig.add_trace(go.Candlestick(x=df_view.index, open=df_view['Open'], high=df_view['High'], low=df_view['Low'], close=df_view['Close'], name='Fiyat'))
     fig.add_hline(y=curr, line_dash="dot", line_color="cyan", annotation_text=f" {curr:,.2f}", annotation_position="right")
-if show_pred:
+    if show_pred:
         # Fonksiyon artık 3 değer döndürüyor, üçünü de karşılıyoruz
         f_dates, f_prices, ai_score = calculate_smart_prediction(df_view)
         
@@ -720,6 +720,7 @@ if show_pred:
                 st.warning(f"🧠 **AI Güven Skoru:** %{ai_score:.1f} (Tahminler orta güvenilirlikte)")
             else:
                 st.error(f"🧠 **AI Güven Skoru:** %{ai_score:.1f} (Piyasa çok belirsiz, AI zorlanıyor)")
+             
     if show_ai:
         lines = calculate_extended_trendlines(df_view)
         for l in lines:
@@ -1247,6 +1248,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
