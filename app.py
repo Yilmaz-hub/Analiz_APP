@@ -426,77 +426,83 @@ def calculate_oracle_signal_fixed(df, supports, resistances):
 
 def calculate_smart_prediction(df, periods=15):
     """
-    AI artık sadece RSI'a değil; MACD, CCI ve Momentum'a da bakar.
-    Böylece 'Körü körüne' tahmin yapmaz, trendi koklar.
+    V4 GÜNCELLEMESİ (ULTRA HİBRİT):
+    Hem eski (MACD, CCI) hem yeni (OBV, ADX, Hafıza) verilerin hepsini kullanır.
+    AI artık tam donanımlı bir teknik analist gibi davranır.
     """
     try:
-        # 1. VERİ HAZIRLIĞI (DAHA FAZLA VERİ = DAHA İYİ ÖĞRENME)
+        # 1. VERİ HAZIRLIĞI
         work_df = df.copy()
-        if len(work_df) < 100: return [], [], 0 
+        # Çok fazla indikatör olduğu için en az 120 mumluk geçmiş lazım
+        if len(work_df) < 120: return [], [], 0 
 
-        # --- YENİ EKLENEN GÖZLER (FEATURES) ---
-        # 1. RSI (Aşırı alım/satım)
+        # --- A. ESKİ DOSTLAR (TEKNİK İNDİKATÖRLER) ---
         work_df['RSI'] = work_df.ta.rsi(length=14)
+        work_df['CCI'] = work_df.ta.cci(length=20)
+        work_df['ATR'] = work_df.ta.atr(length=14)
         
-        # 2. MACD (Trend Yönü ve Gücü) - ÇOK ÖNEMLİ
+        # MACD
         macd = work_df.ta.macd(fast=12, slow=26, signal=9)
         if macd is not None:
             work_df['MACD'] = macd['MACD_12_26_9']
-            work_df['MACD_HIST'] = macd['MACDh_12_26_9']
         else:
             work_df['MACD'] = 0
-            work_df['MACD_HIST'] = 0
-            
-        # 3. CCI (Döngüsel Trendler)
-        work_df['CCI'] = work_df.ta.cci(length=20)
-        
-        # 4. ROC (Değişim Hızı - Momentum)
-        work_df['ROC'] = work_df.ta.roc(length=10)
-        
-        # 5. ATR (Volatilite - Risk)
-        work_df['ATR'] = work_df.ta.atr(length=14)
-        
-        # Hedef: Yüzdesel Değişim (Return)
+
+        # --- B. YENİ GÜÇLER (HACİM & TREND) ---
+        # OBV (Hacim Doğrulaması)
+        if 'Volume' in work_df.columns:
+            work_df['OBV'] = work_df.ta.obv()
+            work_df['OBV_Slope'] = work_df['OBV'].diff(5) # Hacim ivmesi
+        else:
+            work_df['OBV_Slope'] = 0
+
+        # ADX (Trendin Gücü)
+        adx = work_df.ta.adx(length=14)
+        if adx is not None:
+            work_df['ADX'] = adx['ADX_14']
+        else:
+            work_df['ADX'] = 0
+
+        # --- C. HAFIZA (MEMORY) ---
         work_df['Return'] = work_df['Close'].pct_change()
-        work_df['Target'] = work_df['Return'].shift(-1)
+        work_df['Lag1'] = work_df['Return'].shift(1) # Dün
+        work_df['Lag2'] = work_df['Return'].shift(2) # Önceki Gün
+        
+        work_df['Target'] = work_df['Return'].shift(-1) # Hedef: Yarın
         
         # Temizlik
         work_df.dropna(inplace=True)
         work_df = work_df.replace([np.inf, -np.inf], 0)
 
-        # AI'nın bakacağı tüm veriler (Gözler)
-        features = ['RSI', 'MACD', 'MACD_HIST', 'CCI', 'ROC', 'ATR', 'Return']
+        # --- ÖNEMLİ: AI ARTIK 9 FARKLI VERİYE BAKIYOR ---
+        features = ['RSI', 'MACD', 'CCI', 'ATR', 'OBV_Slope', 'ADX', 'Return', 'Lag1', 'Lag2']
         
         X = work_df[features].values
         y = work_df['Target'].values
 
-        # --- 2. BAŞARI MEKANİZMASI (BACKTEST) ---
+        # --- 2. BACKTEST (BAŞARI ÖLÇÜMÜ) ---
         test_size = int(len(X) * 0.2) 
-        
         X_train_back = X[:-test_size]
         y_train_back = y[:-test_size]
         X_test_back = X[-test_size:]
         y_test_back = y[-test_size:]
         
-        # Test Modeli (Daha derin analiz için estimators artırıldı)
-        test_model = RandomForestRegressor(n_estimators=150, max_depth=12, random_state=42)
+        # Model Eğitimi
+        test_model = RandomForestRegressor(n_estimators=200, max_depth=12, random_state=42)
         test_model.fit(X_train_back, y_train_back)
         
         y_pred_back = test_model.predict(X_test_back)
         
-        # Hata Hesaplama
+        # Puanlama
         mae = mean_absolute_error(y_test_back, y_pred_back)
         avg_volatility = np.mean(np.abs(y_test_back))
         if avg_volatility == 0: avg_volatility = 0.001
         
-        # PUANLAMA AYARI (DAHA ADİL FORMÜL)
-        # Eskiden hata volatiliteye eşitse 50 veriyordu, şimdi 65 veriyor.
-        # Çünkü kriptoda volatilite çok yüksek, AI'yı hemen cezalandırmayalım.
         raw_score = 100 - (mae / avg_volatility * 35) 
-        accuracy_score = max(0, min(100, raw_score)) # 0-100 arası sınırla
+        accuracy_score = max(0, min(100, raw_score))
         
-        # --- 3. GELECEĞİ TAHMİN ET ---
-        model = RandomForestRegressor(n_estimators=200, max_depth=15, random_state=42)
+        # --- 3. GELECEK SİMÜLASYONU ---
+        model = RandomForestRegressor(n_estimators=300, max_depth=15, random_state=42)
         model.fit(X, y)
         
         future_dates = []
@@ -504,61 +510,64 @@ def calculate_smart_prediction(df, periods=15):
         
         last_date = work_df.index[-1]
         time_delta = work_df.index[-1] - work_df.index[-2]
+        cur_price = work_df['Close'].iloc[-1]
         
-        # Son durum verilerini al
-        current_data = work_df.iloc[-1]
-        cur_price = current_data['Close']
+        # Simülasyon Başlangıç Değerleri
+        row = work_df.iloc[-1]
         
-        # Başlangıç Feature Vektörü
-        input_feats = [
-            current_data['RSI'], 
-            current_data['MACD'], 
-            current_data['MACD_HIST'],
-            current_data['CCI'],
-            current_data['ROC'],
-            current_data['ATR'],
-            current_data['Return']
-        ]
+        # Değişkenleri tek tek alıyoruz ki döngüde güncelleyebilelim
+        sim_rsi = row['RSI']
+        sim_macd = row['MACD']
+        sim_cci = row['CCI']
+        sim_atr = row['ATR']
+        sim_obv = row['OBV_Slope']
+        sim_adx = row['ADX']
+        sim_ret = row['Return']
+        sim_lag1 = row['Lag1']
+        sim_lag2 = row['Lag2']
 
-        # Güven faktörü (Düşük puanda temkinli ol)
-        confidence = max(0.3, accuracy_score / 100.0) 
+        confidence = max(0.4, accuracy_score / 100.0)
 
         for i in range(1, periods + 1):
             next_date = last_date + (time_delta * i)
             future_dates.append(next_date)
             
-            # Tahmin
-            pred_pct = model.predict([input_feats])[0]
+            # Girdi Vektörü (Sırası features listesiyle aynı olmalı!)
+            input_feats = [[sim_rsi, sim_macd, sim_cci, sim_atr, sim_obv, sim_adx, sim_ret, sim_lag1, sim_lag2]]
             
-            # Düşük güvende hareketi yumuşat
+            # Tahmin
+            pred_pct = model.predict(input_feats)[0]
             pred_pct = pred_pct * confidence
             
             next_price = cur_price * (1 + pred_pct)
             predictions.append(next_price)
             
-            # --- ZEKİ GÜNCELLEME (Feature'ları simüle et) ---
-            # İndikatörleri yeni fiyata göre tahmini güncelle
-            # Basit kurallar: Fiyat artarsa RSI ve MACD artar
+            # --- SİMÜLASYON GÜNCELLEME ---
+            # Hafıza Kaydırma
+            sim_lag2 = sim_lag1
+            sim_lag1 = sim_ret
+            sim_ret = pred_pct
             
-            # 0: RSI
-            delta = 2 if pred_pct > 0 else -2
-            input_feats[0] = max(10, min(90, input_feats[0] + delta))
+            # İndikatör Güncelleme Mantığı
+            if pred_pct > 0:
+                sim_rsi = min(90, sim_rsi + 2)
+                sim_cci = min(200, sim_cci + 5)
+                sim_macd += (pred_pct * 0.2) # MACD fiyata göre yavaş artar
+                sim_obv += 1
+            else:
+                sim_rsi = max(10, sim_rsi - 2)
+                sim_cci = max(-200, sim_cci - 5)
+                sim_macd -= (abs(pred_pct) * 0.2)
+                sim_obv -= 1
             
-            # 1: MACD (Hafif kayma)
-            input_feats[1] += pred_pct * 0.1
-            
-            # 3: CCI (Momentum)
-            input_feats[3] += delta * 3
-            
-            # 6: Return (Son değişim)
-            input_feats[6] = pred_pct
+            sim_adx = sim_adx * 0.99 # Trend gücü zamanla azalır (Entropy)
             
             cur_price = next_price
 
         return future_dates, predictions, accuracy_score
 
     except Exception as e:
-        print(f"AI V2 Error: {e}")
+        print(f"AI V4 Error: {e}")
         return [], [], 0
 def calculate_extended_trendlines(df, extend_candles=15):
     highs = df['High'].values
@@ -1278,6 +1287,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
