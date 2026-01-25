@@ -1585,6 +1585,7 @@ if df_view is not None:
         st.caption(f"Stop Önerisi: ${(entry_price - atr_val * 1.5):.2f}")
 
 if st.button("➕ Emri Gir / Ekle"):
+            # 1. Risk Kontrolü
             is_valid, risk_msg = validate_portfolio_risk(
                 investment, 
                 current_balance, 
@@ -1593,9 +1594,9 @@ if st.button("➕ Emri Gir / Ekle"):
 
             if not is_valid:
                 st.error(risk_msg)
-                # st.stop() yerine return kullanarak scriptin geri kalanını kesebilirsin
+                # Hata varsa burada dur, aşağıya geçme
             else:
-                # Bakiye Kontrolü ve İşlem (Hepsi button if'inin içinde olmalı)
+                # 2. Bakiye Kontrolü ve İşlem
                 proceed = True
                 if use_balance:
                     if investment > current_balance:
@@ -1604,6 +1605,7 @@ if st.button("➕ Emri Gir / Ekle"):
                     else:
                         st.session_state['portfolio_data']['balance'] -= investment
                 
+                # 3. İşlemi Kaydet
                 if proceed:
                     status = "PENDING" if is_limit else "ACTIVE"
                     
@@ -1625,17 +1627,18 @@ if st.button("➕ Emri Gir / Ekle"):
                     time.sleep(1)
                     st.rerun()
 
-        # --- BAKİYE DÜZENLEME PANELİ ---
-        st.write("---")
-        with st.expander("💳 Cüzdan Bakiyesi Düzenle"):
-            st.info("Borsadaki boş USDT miktarınızı buraya girin.")
-            new_balance_input = st.number_input("Güncel USDT Bakiyesi", value=float(current_balance), step=100.0)
-            if st.button("Bakiyeyi Güncelle"):
-                st.session_state['portfolio_data']['balance'] = new_balance_input
-                save_portfolio(st.session_state['portfolio_data'])
-                st.success("Bakiye güncellendi!")
-                time.sleep(0.5)
-                st.rerun()
+    # --- BAKİYE DÜZENLEME PANELİ ---
+    # Bu satır (st.write) "with col_risk:" bloğunun hizasında olmalı (1 TAB içeride)
+    st.write("---") 
+    with st.expander("💳 Cüzdan Bakiyesi Düzenle"):
+        st.info("Borsadaki boş USDT miktarınızı buraya girin.")
+        new_balance_input = st.number_input("Güncel USDT Bakiyesi", value=float(current_balance), step=100.0)
+        if st.button("Bakiyeyi Güncelle"):
+            st.session_state['portfolio_data']['balance'] = new_balance_input
+            save_portfolio(st.session_state['portfolio_data'])
+            st.success("Bakiye güncellendi!")
+            time.sleep(0.5)
+            st.rerun()
 
     with col_wallet:
         st.subheader("💰 Varlıklarım")
@@ -1831,6 +1834,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
