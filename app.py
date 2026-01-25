@@ -1584,7 +1584,7 @@ if df_view is not None:
         atr_val = current_atr if 'current_atr' in locals() else entry_price*0.02
         st.caption(f"Stop Önerisi: ${(entry_price - atr_val * 1.5):.2f}")
 
-if st.button("➕ Emri Gir / Ekle"):
+        if st.button("➕ Emri Gir / Ekle"):
             # 1. Risk Kontrolü
             is_valid, risk_msg = validate_portfolio_risk(
                 investment, 
@@ -1629,16 +1629,16 @@ if st.button("➕ Emri Gir / Ekle"):
 
     # --- BAKİYE DÜZENLEME PANELİ ---
     # Bu satır (st.write) "with col_risk:" bloğunun hizasında olmalı (1 TAB içeride)
-    st.write("---") 
-    with st.expander("💳 Cüzdan Bakiyesi Düzenle"):
-        st.info("Borsadaki boş USDT miktarınızı buraya girin.")
-        new_balance_input = st.number_input("Güncel USDT Bakiyesi", value=float(current_balance), step=100.0)
-        if st.button("Bakiyeyi Güncelle"):
-            st.session_state['portfolio_data']['balance'] = new_balance_input
-            save_portfolio(st.session_state['portfolio_data'])
-            st.success("Bakiye güncellendi!")
-            time.sleep(0.5)
-            st.rerun()
+        st.write("---") 
+        with st.expander("💳 Cüzdan Bakiyesi Düzenle"):
+            st.info("Borsadaki boş USDT miktarınızı buraya girin.")
+            new_balance_input = st.number_input("Güncel USDT Bakiyesi", value=float(current_balance), step=100.0)
+            if st.button("Bakiyeyi Güncelle"):
+                st.session_state['portfolio_data']['balance'] = new_balance_input
+                save_portfolio(st.session_state['portfolio_data'])
+                st.success("Bakiye güncellendi!")
+                time.sleep(0.5)
+                st.rerun()
 
     with col_wallet:
         st.subheader("💰 Varlıklarım")
@@ -1834,6 +1834,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
