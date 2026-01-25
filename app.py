@@ -304,7 +304,42 @@ def get_market_data(source_pref, symbol, interval):
         return None, "Veri Alınamadı"
         
     return process_data(df, src_name)
+def validate_portfolio_risk(new_investment, current_balance, open_positions):
+    """
+    EKLENECEK YER: save_portfolio fonksiyonundan hemen sonra
+    Kelly Criterion ve maksimum pozisyon büyüklüğü kontrolü
+    """
+    total_equity = current_balance + sum([p.get('Yatırım', 0) for p in open_positions if p.get('Status') == 'ACTIVE'])
+    
+    # Tek pozisyon max %20
+    if new_investment > total_equity * 0.20:
+        return False, "⚠️ Tek pozisyon toplam varlığın %20'sini aşamaz!"
+    
+    # Toplam risk max %50
+    total_exposure = sum([p.get('Yatırım', 0) for p in open_positions if p.get('Status') == 'ACTIVE']) + new_investment
+    if total_exposure > total_equity * 0.50:
+        return False, "⚠️ Toplam açık pozisyon %50'yi geçemez!"
+    
+    return True, "✅ Risk kabul edilebilir"
 
+# ========================================
+# 🆕 YENİ EKLEME 2: Sentiment API
+# ========================================
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_fear_greed_index():
+    """
+    EKLENECEK YER: validate_portfolio_risk fonksiyonundan sonra
+    Crypto Fear & Greed Index (0-100)
+    """
+    try:
+        url = "https://api.alternative.me/fng/"
+        r = requests.get(url, timeout=5)
+        data = r.json()
+        value = int(data['data'][0]['value'])
+        classification = data['data'][0]['value_classification']
+        return value, classification
+    except:
+        return 50, "Neutral"  # Hata durumunda nötr döndür
 # --- CÜZDAN CANLI FİYAT (YEDEKLİ) ---
 @st.cache_data(ttl=30, show_spinner=False)
 def get_live_price_for_portfolio(coin_name):
@@ -386,189 +421,474 @@ def calculate_setup_dynamic(entry_price, atr, direction):
         setup['tp'] = entry_price - (atr * 2.5)
     return setup
 
-def calculate_sr(df, timeframe):
+def check_active_positions_auto_close(portfolio_data):
+    """
+    EKLENECEK YER: calculate_smart_prediction fonksiyonundan ÖNCE
+    (Ama calculate_setup_dynamic fonksiyonundan SONRA)
+    
+    Aktif pozisyonları kontrol eder, TP/SL'ye ulaşanları otomatik kapatır
+    """
+    positions = portfolio_data.get('positions', [])
+    closed_count = 0
+    closed_trades = []
+    
+    for pos in positions:
+        if pos.get('Status') != 'ACTIVE': 
+            continue
+        
+        coin_name = pos['Coin']
+        entry = pos['Giriş']
+        qty = pos['Adet']
+        investment = pos['Yatırım']
+        
+        # Canlı fiyatı al
+        live_price = get_live_price_for_portfolio(coin_name)
+        if live_price == 0 or live_price is None: 
+            continue
+        
+        # ATR al (4 saatlik için)
+        symbol = COIN_MAP.get(coin_name)
+        if not symbol:
+            continue
+            
+        df_check, _ = get_market_data("Binance", symbol, "4h")
+        
+        if df_check is not None and len(df_check) > 20:
+            atr = df_check['ATR'].iloc[-1]
+            if np.isnan(atr) or atr == 0:
+                atr = entry * 0.02
+            
+            # Yön belirle
+            direction = "LONG"  # Varsayılan (sadece long pozisyon destekliyorsunuz)
+            
+            # Setup hesapla
+            setup = calculate_setup_dynamic(entry, atr, direction)
+            
+            # TP kontrolü
+            if live_price >= setup['tp']:
+                profit = (live_price - entry) * qty
+                pos['Status'] = 'CLOSED_TP'
+                pos['Realized'] = pos.get('Realized', 0) + profit
+                pos['Exit_Price'] = live_price
+                pos['Exit_Date'] = time.strftime("%Y-%m-%d %H:%M")
+                
+                # Parayı iade et
+                portfolio_data['balance'] = portfolio_data.get('balance', 0) + (qty * live_price)
+                
+                closed_count += 1
+                closed_trades.append({
+                    'coin': coin_name,
+                    'type': 'TP',
+                    'profit': profit,
+                    'pct': (profit / investment) * 100
+                })
+            
+            # SL kontrolü
+            elif live_price <= setup['sl']:
+                loss = (live_price - entry) * qty
+                pos['Status'] = 'CLOSED_SL'
+                pos['Realized'] = pos.get('Realized', 0) + loss
+                pos['Exit_Price'] = live_price
+                pos['Exit_Date'] = time.strftime("%Y-%m-%d %H:%M")
+                
+                portfolio_data['balance'] = portfolio_data.get('balance', 0) + (qty * live_price)
+                
+                closed_count += 1
+                closed_trades.append({
+                    'coin': coin_name,
+                    'type': 'SL',
+                    'profit': loss,
+                    'pct': (loss / investment) * 100
+                })
+    
+    if closed_count > 0:
+        save_portfolio(portfolio_data)
+    
+    return closed_count, closed_trades
+    
+def calculate_sr_advanced(df, timeframe):
+    """
+    GELİŞTİRİLMİŞ S/R HESAPLAMA:
+    - Pivot noktaları
+    - Fibonacci seviyeleri
+    - Volume profil (yüksek hacimli bölgeler)
+    """
     supports, resistances = [], []
-    n = 5 if timeframe == "4h" else 15
-    work_df = df.tail(300)
-    for i in range(n, len(work_df)-n):
+    
+    # 1. Klasik Pivot
+    n = 5 if timeframe == "4h" else (10 if timeframe == "1d" else 20)
+    work_df = df.tail(500)
+    
+    for i in range(n, len(work_df) - n):
         l = work_df['Low'].iloc[i]
         h = work_df['High'].iloc[i]
-        if l == work_df['Low'].iloc[i-n:i+n+1].min(): supports.append(l)
-        if h == work_df['High'].iloc[i-n:i+n+1].max(): resistances.append(h)
-    return sorted(list(set([round(x,2) for x in supports]))), sorted(list(set([round(x,2) for x in resistances])))
+        
+        if l == work_df['Low'].iloc[i-n:i+n+1].min():
+            supports.append(l)
+        if h == work_df['High'].iloc[i-n:i+n+1].max():
+            resistances.append(h)
+    
+    # 2. Fibonacci Seviyeleri (Son major swing)
+    swing_high = work_df['High'].max()
+    swing_low = work_df['Low'].min()
+    diff = swing_high - swing_low
+    
+    # Fibonacci retracement seviyeleri
+    fib_levels = [
+        swing_low + diff * 0.236,
+        swing_low + diff * 0.382,
+        swing_low + diff * 0.5,
+        swing_low + diff * 0.618,
+        swing_low + diff * 0.786
+    ]
+    
+    current_price = df['Close'].iloc[-1]
+    
+    # Mevcut fiyatın altındakiler destek, üstündekiler direnç
+    for fib in fib_levels:
+        if fib < current_price:
+            supports.append(fib)
+        else:
+            resistances.append(fib)
+    
+    # 3. Volume Profile (Yüksek hacimli fiyat seviyeleri = güçlü S/R)
+    if 'Volume' in work_df.columns and work_df['Volume'].sum() > 0:
+        # Fiyatı 50 bine böl, her binde toplam hacmi hesapla
+        price_bins = pd.cut(work_df['Close'], bins=50)
+        volume_profile = work_df.groupby(price_bins)['Volume'].sum()
+        
+        # En yüksek hacimli 3 seviye
+        top_volume_levels = volume_profile.nlargest(3).index
+        for interval in top_volume_levels:
+            mid_price = (interval.left + interval.right) / 2
+            if mid_price < current_price:
+                supports.append(mid_price)
+            else:
+                resistances.append(mid_price)
+    
+    # 4. Temizlik ve Sıralama
+    supports = sorted(list(set([round(x, 2) for x in supports])))
+    resistances = sorted(list(set([round(x, 2) for x in resistances])))
+    
+    return supports, resistances
 
-def calculate_oracle_signal_fixed(df, supports, resistances):
-    if df is None: return "Veri Yok", "gray", ""
+def calculate_oracle_signal_v2(df, supports, resistances):
+    """
+    GELİŞTİRİLMİŞ SİNYAL SİSTEMİ:
+    - Çoklu zaman dilimi onayı
+    - Hacim doğrulaması
+    - Destek/Direnç yakınlığı
+    """
+    if df is None or len(df) < 50: 
+        return "Veri Yok", "gray", ""
+    
     last = df.iloc[-1]
+    prev = df.iloc[-2]
+    
+    # === 1. TEKNİK OKUMA ===
     rsi = last['RSI']
     price = last['Close']
+    ema_20 = last['EMA_20']
+    ema_50 = last['EMA_50']
     bb_lower = last['BB_Lower']
     bb_upper = last['BB_Upper']
-    target_msg = ""
     
-    if rsi < 45:
-        status, color = "AL (UCUZ)", "blue"
-        if rsi < 30: status, color = "GÜÇLÜ AL (DİP)", "green"
-        if price < bb_lower:
-            low_s = [s for s in supports if s < price]
-            target_msg = f"📉 Hedef: {max(low_s):,.2f}" if low_s else "Dip Belirsiz"
-        else: target_msg = f"📉 Hedef: {bb_lower:,.2f}"
-    elif rsi > 55:
-        status, color = "SAT (PAHALI)", "orange"
-        if rsi > 70: status, color = "GÜÇLÜ SAT", "red"
-        if price > bb_upper:
-            up_r = [r for r in resistances if r > price]
-            target_msg = f"📈 Hedef: {min(up_r):,.2f}" if up_r else "ATH Belirsiz"
-        else: target_msg = f"📈 Hedef: {bb_upper:,.2f}"
+    # MACD Çapraz
+    macd_current = last.get('MACD', 0)
+    macd_prev = prev.get('MACD', 0)
+    macd_signal = last.get('MACD_Signal', 0) if 'MACD_Signal' in last else 0
+    macd_cross_up = macd_prev < macd_signal and macd_current > macd_signal
+    macd_cross_down = macd_prev > macd_signal and macd_current < macd_signal
+    
+    # Hacim Onayı
+    vol_ratio = 1
+    if 'Volume' in df.columns and df['Volume'].sum() > 0:
+        vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
+        vol_ratio = last['Volume'] / vol_avg if vol_avg > 0 else 1
+    
+    # === 2. DESTEK/DİRENÇ YAKINLIĞI ===
+    nearest_support = max([s for s in supports if s < price], default=0)
+    nearest_resistance = min([r for r in resistances if r > price], default=price * 2)
+    
+    support_dist = ((price - nearest_support) / price * 100) if nearest_support > 0 else 100
+    resist_dist = ((nearest_resistance - price) / price * 100) if nearest_resistance < price * 2 else 100
+    
+    # === 3. PUAN SİSTEMİ (0-100) ===
+    score = 50  # Nötr başlangıç
+    
+    # RSI Puanı (-30 ile +30 arası)
+    if rsi < 30: score += 30
+    elif rsi < 40: score += 15
+    elif rsi > 70: score -= 30
+    elif rsi > 60: score -= 15
+    
+    # Trend Puanı
+    if price > ema_20 > ema_50: score += 20  # Güçlü uptrend
+    elif price < ema_20 < ema_50: score -= 20  # Güçlü downtrend
+    
+    # Bollinger
+    if price < bb_lower: score += 15
+    elif price > bb_upper: score -= 15
+    
+    # MACD Çapraz
+    if macd_cross_up: score += 10
+    elif macd_cross_down: score -= 10
+    
+    # Hacim Onayı
+    if vol_ratio > 1.5: score += 10  # Yüksek hacim = güçlü hareket
+    elif vol_ratio < 0.7: score -= 5  # Düşük hacim = zayıf sinyal
+    
+    # Destek/Direnç yakınlığı
+    if support_dist < 2: score += 20  # Desteğe çok yakın
+    if resist_dist < 2: score -= 20  # Dirence çok yakın
+    
+    # === 4. KARAR MANTĞI ===
+    if score >= 75:
+        status, color = "GÜÇLÜ AL 🚀", "green"
+        target_msg = f"📈 Hedef: ${nearest_resistance:,.2f} (+%{resist_dist:.1f})"
+    elif score >= 60:
+        status, color = "AL (Dikkatli) 📊", "blue"
+        target_msg = f"Hedef: ${bb_upper:,.2f}"
+    elif score <= 25:
+        status, color = "GÜÇLÜ SAT 📉", "red"
+        target_msg = f"📉 Hedef: ${nearest_support:,.2f} (-%{support_dist:.1f})"
+    elif score <= 40:
+        status, color = "SAT (Kısmi) ⚠️", "orange"
+        target_msg = f"Hedef: ${bb_lower:,.2f}"
     else:
-        status, color, target_msg = "NÖTR", "gray", f"RSI: {rsi:.0f}"
+        status, color = "NÖTR (BEKLE) 💤", "gray"
+        target_msg = f"Skor: {score}/100 - Yön belirsiz"
+    
     return status, color, target_msg
-
-def calculate_smart_prediction(df, periods=15):
+    
+def multi_timeframe_confirmation(coin_name, symbol):
     """
-    V4 GÜNCELLEMESİ (ULTRA HİBRİT):
-    Hem eski (MACD, CCI) hem yeni (OBV, ADX, Hafıza) verilerin hepsini kullanır.
-    AI artık tam donanımlı bir teknik analist gibi davranır.
+    EKLENECEK YER: calculate_oracle_signal_v2 fonksiyonundan sonra
+    3 zaman diliminde de aynı yönde sinyal varsa güçlü onay
+    """
+    signals = {}
+    scores = []
+    
+    for tf in ["4h", "1d", "1wk"]:
+        try:
+            df, _ = get_market_data("Binance", symbol, tf)
+            if df is not None and len(df) > 50:
+                s_list, r_list = calculate_sr_advanced(df, tf)
+                status, color, _ = calculate_oracle_signal_v2(df, s_list, r_list)
+                
+                if "AL" in status: 
+                    signals[tf] = "AL"
+                    scores.append(1)
+                elif "SAT" in status: 
+                    signals[tf] = "SAT"
+                    scores.append(-1)
+                else: 
+                    signals[tf] = "NÖTR"
+                    scores.append(0)
+        except:
+            signals[tf] = "HATA"
+            scores.append(0)
+    
+    # Onay kontrolü
+    if len(scores) == 3:
+        if all(s > 0 for s in scores): return "✅ ÜÇ DİLİM AL ONAYI", signals
+        elif all(s < 0 for s in scores): return "❌ ÜÇ DİLİM SAT ONAYI", signals
+        elif sum(scores) > 0: return "⚠️ KARMA (AL Ağırlıklı)", signals
+        elif sum(scores) < 0: return "⚠️ KARMA (SAT Ağırlıklı)", signals
+    
+    return "📊 Çelişkili Sinyaller", signals
+    
+def calculate_trailing_stop(entry, current_price, atr, trailing_pct=0.05):
+    """
+    EKLENECEK YER: multi_timeframe_confirmation fonksiyonundan sonra
+    Trailing stop: Fiyat %X yükselince stop'u yukarı çek
+    """
+    initial_stop = entry - (atr * 1.5)
+    
+    if current_price > entry * (1 + trailing_pct):
+        new_stop = current_price - (atr * 1.2)
+        return max(initial_stop, new_stop)
+    
+    return initial_stop
+    
+def calculate_smart_prediction_FIXED(df, periods=15):
+    """
+    DATA LEAKAGE ÖNLENMİŞ VERSİYON
+    - Scaler sadece train setine fit edilir
+    - Test seti "görmemiş" gibi davranır
+    - Simülasyon sırasında scaler sabittir
     """
     try:
-        # 1. VERİ HAZIRLIĞI
         work_df = df.copy()
-        # Çok fazla indikatör olduğu için en az 120 mumluk geçmiş lazım
-        if len(work_df) < 120: return [], [], 0 
-
-        # --- A. ESKİ DOSTLAR (TEKNİK İNDİKATÖRLER) ---
+        if len(work_df) < 150: return [], [], 0
+        
+        # === İNDİKATÖRLER (Değişiklik yok) ===
         work_df['RSI'] = work_df.ta.rsi(length=14)
         work_df['CCI'] = work_df.ta.cci(length=20)
         work_df['ATR'] = work_df.ta.atr(length=14)
         
-        # MACD
         macd = work_df.ta.macd(fast=12, slow=26, signal=9)
-        if macd is not None:
-            work_df['MACD'] = macd['MACD_12_26_9']
-        else:
-            work_df['MACD'] = 0
-
-        # --- B. YENİ GÜÇLER (HACİM & TREND) ---
-        # OBV (Hacim Doğrulaması)
-        if 'Volume' in work_df.columns:
+        work_df['MACD'] = macd['MACD_12_26_9'] if macd is not None else 0
+        work_df['MACD_Signal'] = macd['MACDs_12_26_9'] if macd is not None else 0
+        
+        stoch = work_df.ta.stochrsi()
+        work_df['StochRSI_K'] = stoch['STOCHRSIk_14_14_3_3'] if stoch is not None else 50
+        
+        if 'Volume' in work_df.columns and work_df['Volume'].sum() > 0:
             work_df['OBV'] = work_df.ta.obv()
-            work_df['OBV_Slope'] = work_df['OBV'].diff(5) # Hacim ivmesi
+            work_df['Volume_SMA'] = work_df['Volume'].rolling(20).mean()
+            work_df['Volume_Ratio'] = work_df['Volume'] / work_df['Volume_SMA']
         else:
-            work_df['OBV_Slope'] = 0
-
-        # ADX (Trendin Gücü)
+            work_df['OBV'] = 0
+            work_df['Volume_Ratio'] = 1
+        
         adx = work_df.ta.adx(length=14)
-        if adx is not None:
-            work_df['ADX'] = adx['ADX_14']
+        work_df['ADX'] = adx['ADX_14'] if adx is not None else 25
+        
+        work_df['Price_SMA50'] = work_df['Close'].rolling(50).mean()
+        work_df['Price_Distance'] = (work_df['Close'] - work_df['Price_SMA50']) / work_df['Price_SMA50'] * 100
+        
+        bb = work_df.ta.bbands(length=20, std=2)
+        if bb is not None:
+            work_df['BB_Width'] = (bb.iloc[:, -3] - bb.iloc[:, -5]) / work_df['Close'] * 100
         else:
-            work_df['ADX'] = 0
-
-        # --- C. HAFIZA (MEMORY) ---
+            work_df['BB_Width'] = 2
+        
         work_df['Return'] = work_df['Close'].pct_change()
-        work_df['Lag1'] = work_df['Return'].shift(1) # Dün
-        work_df['Lag2'] = work_df['Return'].shift(2) # Önceki Gün
+        work_df['Return_5'] = work_df['Close'].pct_change(5)
+        work_df['Volatility'] = work_df['Return'].rolling(20).std()
         
-        work_df['Target'] = work_df['Return'].shift(-1) # Hedef: Yarın
+        for lag in [1, 2, 3, 5]:
+            work_df[f'Lag{lag}'] = work_df['Return'].shift(lag)
         
-        # Temizlik
+        work_df['Target'] = work_df['Return'].shift(-1)
+        
+        work_df.replace([np.inf, -np.inf], np.nan, inplace=True)
         work_df.dropna(inplace=True)
-        work_df = work_df.replace([np.inf, -np.inf], 0)
-
-        # --- ÖNEMLİ: AI ARTIK 9 FARKLI VERİYE BAKIYOR ---
-        features = ['RSI', 'MACD', 'CCI', 'ATR', 'OBV_Slope', 'ADX', 'Return', 'Lag1', 'Lag2']
+        
+        features = [
+            'RSI', 'MACD', 'MACD_Signal', 'CCI', 'StochRSI_K',
+            'ADX', 'BB_Width', 'Price_Distance',
+            'Volume_Ratio', 'OBV',
+            'Return', 'Return_5', 'Volatility',
+            'Lag1', 'Lag2', 'Lag3', 'Lag5'
+        ]
         
         X = work_df[features].values
         y = work_df['Target'].values
-
-        # --- 2. BACKTEST (BAŞARI ÖLÇÜMÜ) ---
-        test_size = int(len(X) * 0.2) 
-        X_train_back = X[:-test_size]
-        y_train_back = y[:-test_size]
-        X_test_back = X[-test_size:]
-        y_test_back = y[-test_size:]
         
-        # Model Eğitimi
-        test_model = RandomForestRegressor(n_estimators=200, max_depth=12, random_state=42)
-        test_model.fit(X_train_back, y_train_back)
+        # ====================================================
+        # 🔥 KRİTİK DÜZELTME BURASI
+        # ====================================================
         
-        y_pred_back = test_model.predict(X_test_back)
+        # 1️⃣ ÖNCE VERİYİ BÖL (Ham haliyle)
+        test_size = int(len(X) * 0.25)
+        X_train_raw = X[:-test_size]
+        X_test_raw = X[-test_size:]
+        y_train = y[:-test_size]
+        y_test = y[-test_size:]
         
-        # Puanlama
-        mae = mean_absolute_error(y_test_back, y_pred_back)
-        avg_volatility = np.mean(np.abs(y_test_back))
-        if avg_volatility == 0: avg_volatility = 0.001
+        # 2️⃣ SCALER'I SADECE TRAIN SETİNE GÖRE EĞİT
+        scaler = MinMaxScaler()
+        X_train = scaler.fit_transform(X_train_raw)  # fit_transform sadece train'de
         
-        raw_score = 100 - (mae / avg_volatility * 35) 
-        accuracy_score = max(0, min(100, raw_score))
+        # 3️⃣ TEST SETİNİ TRAIN KURALLARINA GÖRE DÖNÜŞTÜRr
+        X_test = scaler.transform(X_test_raw)  # Sadece transform, fit yok!
         
-        # --- 3. GELECEK SİMÜLASYONU ---
-        model = RandomForestRegressor(n_estimators=300, max_depth=15, random_state=42)
-        model.fit(X, y)
+        # ====================================================
+        # Artık model gelecekteki min/max değerleri "görmüyor"
+        # ====================================================
         
+        # === BACKTEST ===
+        rf_model = RandomForestRegressor(n_estimators=250, max_depth=10, min_samples_split=5, random_state=42)
+        lr_model = LinearRegression()
+        
+        rf_model.fit(X_train, y_train)
+        lr_model.fit(X_train, y_train)
+        
+        rf_pred = rf_model.predict(X_test)
+        lr_pred = lr_model.predict(X_test)
+        ensemble_pred = 0.7 * rf_pred + 0.3 * lr_pred
+        
+        # Doğruluk hesabı
+        mae = mean_absolute_error(y_test, ensemble_pred)
+        volatility = np.std(y_test)
+        
+        direction_acc = np.mean((ensemble_pred > 0) == (y_test > 0)) * 100
+        volatility_penalty = min(mae / (volatility + 1e-6), 1.0)
+        
+        accuracy_score = (direction_acc * 0.6) + ((1 - volatility_penalty) * 40)
+        accuracy_score = max(0, min(100, accuracy_score))
+        
+        # === FINAL MODEL (Tüm veriyle eğit) ===
+        # ⚠️ DİKKAT: Burada da scaler'ı sadece TÜM MEVCUT VERİ üzerinde fit ediyoruz
+        # Gelecek için tahmin yaparken bu scaler sabit kalacak
+        scaler_full = MinMaxScaler()
+        X_scaled_full = scaler_full.fit_transform(X)
+        
+        rf_final = RandomForestRegressor(n_estimators=300, max_depth=12, random_state=42)
+        lr_final = LinearRegression()
+        rf_final.fit(X_scaled_full, y)
+        lr_final.fit(X_scaled_full, y)
+        
+        # === GELECEK TAHMİNİ ===
         future_dates = []
         predictions = []
         
         last_date = work_df.index[-1]
         time_delta = work_df.index[-1] - work_df.index[-2]
-        cur_price = work_df['Close'].iloc[-1]
+        current_price = work_df['Close'].iloc[-1]
         
-        # Simülasyon Başlangıç Değerleri
-        row = work_df.iloc[-1]
+        sim_state = work_df[features].iloc[-1].copy()
+        confidence_decay = 0.95
         
-        # Değişkenleri tek tek alıyoruz ki döngüde güncelleyebilelim
-        sim_rsi = row['RSI']
-        sim_macd = row['MACD']
-        sim_cci = row['CCI']
-        sim_atr = row['ATR']
-        sim_obv = row['OBV_Slope']
-        sim_adx = row['ADX']
-        sim_ret = row['Return']
-        sim_lag1 = row['Lag1']
-        sim_lag2 = row['Lag2']
-
-        confidence = max(0.4, accuracy_score / 100.0)
-
-        for i in range(1, periods + 1):
-            next_date = last_date + (time_delta * i)
+        for step in range(1, periods + 1):
+            next_date = last_date + (time_delta * step)
             future_dates.append(next_date)
             
-            # Girdi Vektörü (Sırası features listesiyle aynı olmalı!)
-            input_feats = [[sim_rsi, sim_macd, sim_cci, sim_atr, sim_obv, sim_adx, sim_ret, sim_lag1, sim_lag2]]
+            # 🔥 ÖNEMLİ: Simülasyonda scaler_full kullanıyoruz (sabit kalıyor)
+            sim_input = scaler_full.transform([sim_state.values])
             
-            # Tahmin
-            pred_pct = model.predict(input_feats)[0]
-            pred_pct = pred_pct * confidence
+            rf_change = rf_final.predict(sim_input)[0]
+            lr_change = lr_final.predict(sim_input)[0]
+            pred_change = (0.7 * rf_change + 0.3 * lr_change) * (accuracy_score / 100) * (confidence_decay ** step)
             
-            next_price = cur_price * (1 + pred_pct)
+            next_price = current_price * (1 + pred_change)
             predictions.append(next_price)
             
-            # --- SİMÜLASYON GÜNCELLEME ---
-            # Hafıza Kaydırma
-            sim_lag2 = sim_lag1
-            sim_lag1 = sim_ret
-            sim_ret = pred_pct
+            # State güncellemeleri (önceki gibi)
+            sim_state['Lag5'] = sim_state['Lag3']
+            sim_state['Lag3'] = sim_state['Lag2']
+            sim_state['Lag2'] = sim_state['Lag1']
+            sim_state['Lag1'] = pred_change
+            sim_state['Return'] = pred_change
             
-            # İndikatör Güncelleme Mantığı
-            if pred_pct > 0:
-                sim_rsi = min(90, sim_rsi + 2)
-                sim_cci = min(200, sim_cci + 5)
-                sim_macd += (pred_pct * 0.2) # MACD fiyata göre yavaş artar
-                sim_obv += 1
+            if pred_change > 0:
+                sim_state['RSI'] = min(85, sim_state['RSI'] + (pred_change * 100))
+                sim_state['CCI'] = min(200, sim_state['CCI'] + (pred_change * 200))
+                sim_state['StochRSI_K'] = min(100, sim_state['StochRSI_K'] + 5)
             else:
-                sim_rsi = max(10, sim_rsi - 2)
-                sim_cci = max(-200, sim_cci - 5)
-                sim_macd -= (abs(pred_pct) * 0.2)
-                sim_obv -= 1
+                sim_state['RSI'] = max(15, sim_state['RSI'] + (pred_change * 100))
+                sim_state['CCI'] = max(-200, sim_state['CCI'] + (pred_change * 200))
+                sim_state['StochRSI_K'] = max(0, sim_state['StochRSI_K'] - 5)
             
-            sim_adx = sim_adx * 0.99 # Trend gücü zamanla azalır (Entropy)
+            sim_state['MACD'] += pred_change * 0.5
+            sim_state['Price_Distance'] = ((next_price - current_price) / current_price) * 100
+            sim_state['Volatility'] = sim_state['Volatility'] * 0.95 + abs(pred_change) * 0.05
             
-            cur_price = next_price
-
+            if abs(pred_change) < 0.005:
+                sim_state['ADX'] = max(10, sim_state['ADX'] * 0.9)
+            
+            current_price = next_price
+        
         return future_dates, predictions, accuracy_score
-
+        
     except Exception as e:
-        print(f"AI V4 Error: {e}")
+        print(f"AI FIXED Error: {e}")
+        import traceback
+        traceback.print_exc()
         return [], [], 0
+
 def calculate_extended_trendlines(df, extend_candles=15):
     highs = df['High'].values
     lows = df['Low'].values
@@ -628,7 +948,131 @@ def detect_patterns(df):
             if (closes[idx] > opens[idx]) and (closes[idx-1] < opens[idx-1]) and (closes[idx] > opens[idx-1]) and (opens[idx] < closes[idx-1]):
                  patterns.append({"type": "icon", "name": "Yutan Boğa", "color": "cyan", "x": dates[idx], "y": lows[idx], "msg": "🚀", "anchor": "top"})
     return patterns
-
+# ========================================
+# 🆕 YENİ EKLEME 8: Backtest Motor
+# ========================================
+def run_strategy_backtest(df, initial_balance=10000):
+    """
+    EKLENECEK YER: detect_patterns fonksiyonundan SONRA, send_tg fonksiyonundan ÖNCE
+    
+    Basit bir backtest motoru - Mevcut sinyal sisteminizi test eder
+    """
+    balance = initial_balance
+    position = None
+    trades = []
+    equity_curve = []
+    
+    # En az 100 mum gerekli
+    if len(df) < 100:
+        return None
+    
+    # İlk 50 mumu eğitim için kullan, gerisi test
+    for i in range(50, len(df)):
+        current_slice = df.iloc[:i]
+        row = df.iloc[i]
+        price = row['Close']
+        date = df.index[i]
+        
+        # S/R hesapla
+        supports, resistances = calculate_sr_advanced(current_slice, "1d")
+        
+        # Sinyal al
+        signal, color, _ = calculate_oracle_signal_v2(current_slice, supports, resistances)
+        
+        # Pozisyon yoksa ve AL sinyali varsa
+        if position is None and "AL" in signal and balance > 0:
+            qty = (balance * 0.95) / price  # %95'ini kullan
+            position = {
+                'entry': price,
+                'entry_date': date,
+                'qty': qty,
+                'type': 'LONG'
+            }
+            balance -= (qty * price)
+        
+        # Pozisyon varsa ve SAT sinyali veya stop kontrolü
+        elif position is not None:
+            # Stop/TP hesapla
+            atr = current_slice['ATR'].iloc[-1] if 'ATR' in current_slice.columns else price * 0.02
+            tp = position['entry'] + (atr * 2.5)
+            sl = position['entry'] - (atr * 1.5)
+            
+            should_close = False
+            close_reason = ""
+            
+            if "SAT" in signal:
+                should_close = True
+                close_reason = "Sinyal"
+            elif price >= tp:
+                should_close = True
+                close_reason = "TP"
+            elif price <= sl:
+                should_close = True
+                close_reason = "SL"
+            
+            if should_close:
+                pnl = (price - position['entry']) * position['qty']
+                balance += (position['qty'] * price)
+                
+                trades.append({
+                    'entry': position['entry'],
+                    'exit': price,
+                    'entry_date': position['entry_date'],
+                    'exit_date': date,
+                    'pnl': pnl,
+                    'pnl_pct': (pnl / (position['entry'] * position['qty'])) * 100,
+                    'reason': close_reason
+                })
+                
+                position = None
+        
+        # Equity curve kaydet
+        current_equity = balance
+        if position is not None:
+            current_equity += (position['qty'] * price)
+        equity_curve.append({'date': date, 'equity': current_equity})
+    
+    # Açık pozisyon varsa kapat
+    if position is not None:
+        final_price = df['Close'].iloc[-1]
+        pnl = (final_price - position['entry']) * position['qty']
+        balance += (position['qty'] * final_price)
+        trades.append({
+            'entry': position['entry'],
+            'exit': final_price,
+            'pnl': pnl,
+            'pnl_pct': (pnl / (position['entry'] * position['qty'])) * 100,
+            'reason': 'Final'
+        })
+    
+    # İstatistikler
+    if len(trades) == 0:
+        return None
+    
+    total_return = ((balance - initial_balance) / initial_balance) * 100
+    winning_trades = [t for t in trades if t['pnl'] > 0]
+    losing_trades = [t for t in trades if t['pnl'] <= 0]
+    
+    win_rate = (len(winning_trades) / len(trades)) * 100 if trades else 0
+    avg_win = np.mean([t['pnl'] for t in winning_trades]) if winning_trades else 0
+    avg_loss = np.mean([t['pnl'] for t in losing_trades]) if losing_trades else 0
+    
+    profit_factor = abs(sum([t['pnl'] for t in winning_trades]) / sum([t['pnl'] for t in losing_trades])) if losing_trades and sum([t['pnl'] for t in losing_trades]) != 0 else 0
+    
+    return {
+        'final_balance': balance,
+        'total_return': total_return,
+        'total_trades': len(trades),
+        'winning_trades': len(winning_trades),
+        'losing_trades': len(losing_trades),
+        'win_rate': win_rate,
+        'avg_win': avg_win,
+        'avg_loss': avg_loss,
+        'profit_factor': profit_factor,
+        'trades': trades,
+        'equity_curve': equity_curve
+    }
+    
 def send_tg(token, chat_id, msg):
     try: requests.get(f"https://api.telegram.org/bot{token}/sendMessage", params={"chat_id": chat_id, "text": msg, "parse_mode": "Markdown"})
     except: pass
@@ -664,6 +1108,24 @@ f_candle = st.sidebar.checkbox("- Mumlar", value=True)
 # Otomatik Bot kutusu kolay erişim için dışarıda kalsın
 auto = st.sidebar.checkbox("Otomatik Bot")
 
+with st.sidebar.expander("🔄 Çoklu Dilim Onayı", expanded=False):
+    if st.button("Analiz Et"):
+        confirmation, details = multi_timeframe_confirmation(sel_c, symbol)
+        st.markdown(f"### {confirmation}")
+        for tf, sig in details.items():
+            color = "green" if "AL" in sig else ("red" if "SAT" in sig else "gray")
+            st.markdown(f"**{tf}:** <span style='color:{color}'>{sig}</span>", unsafe_allow_html=True)
+
+# ========================================
+# 🆕 YENİ UI ELEMENT 2: Fear & Greed
+# ========================================
+try:
+    fg_value, fg_class = get_fear_greed_index()
+    fg_color = "green" if fg_value < 30 else ("red" if fg_value > 70 else "orange")
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"**😱 Piyasa Duygusu:** <span style='color:{fg_color}'>{fg_class} ({fg_value})</span>", unsafe_allow_html=True)
+except:
+    pass
 # --- BURADAN SONRA intervals... DİYE DEVAM EDEN KODUNUZ GELECEK ---
 
 intervals = {"4h": "4 Saatlik", "1d": "Günlük", "1wk": "Haftalık"}
@@ -677,8 +1139,8 @@ for tf, label in intervals.items():
     results[tf] = df
     
     if df is not None:
-        s_list, r_list = calculate_sr(df, tf)
-        status, color, target_msg = calculate_oracle_signal_fixed(df, s_list, r_list)
+        s_list, r_list = calculate_sr_advanced(df, tf)
+        status, color, target_msg = calculate_oracle_signal_v2(df, s_list, r_list)
         st.sidebar.markdown("---")
         st.sidebar.markdown(f"### {label}")
         st.sidebar.markdown(f"<span style='color:{color}; font-weight:bold; font-size:18px'>{status}</span>", unsafe_allow_html=True)
@@ -740,7 +1202,7 @@ if df_view is not None:
     fig.add_hline(y=curr, line_dash="dot", line_color="cyan", annotation_text=f" {curr:,.2f}", annotation_position="right")
     if show_pred:
         # Fonksiyon artık 3 değer döndürüyor, üçünü de karşılıyoruz
-        f_dates, f_prices, ai_score = calculate_smart_prediction(df_view)
+        f_dates, f_prices, ai_score = calculate_smart_prediction_FIXED(df_view)
         
         if len(f_dates) > 0:
             # Tahmin Çizgisi
@@ -778,7 +1240,7 @@ if df_view is not None:
                 elif i['type'] == 'icon':
                     fig.add_annotation(x=i['x'], y=i['y'], text=i['msg'], showarrow=False, yshift=15 if i.get('anchor')=='bottom' else -15)
 
-    s_list, r_list = calculate_sr(df_view, view_tf)
+    s_list, r_list = calculate_sr_advanced(df_view, view_tf)
     for s in [x for x in s_list if x < curr][-3:]:
         fig.add_hline(y=s, line_dash="dash", line_color="#00FF00", annotation_text=f"Dst: {s}")
     for r in [x for x in r_list if x > curr][:3]:
@@ -908,7 +1370,7 @@ if df_view is not None:
     with col3:
         st.success("### 🎯 AI Stratejisi")
         # Sinyali Hesapla
-        signal_status, color, target_msg = calculate_oracle_signal_fixed(df_view, s_list, r_list)
+        signal_status, color, target_msg = calculate_oracle_signal_v2(df_view, s_list, r_list)
         
         # Trend Kontrolü (EMA 50)
         is_uptrend = curr > df_view['EMA_50'].iloc[-1]
@@ -954,7 +1416,63 @@ if df_view is not None:
                 c_s2.write(f"**🎯 TP:** ${setup['tp']:,.2f}")
         else:
             st.info("Setup oluşmadı. Güvenli bölge bekleniyor.")
-
+            
+if df_view is not None:
+    st.divider()
+    
+    with st.expander("📊 Backtest: Strateji Performansı", expanded=False):
+        st.info("Mevcut sinyal sisteminizi geçmiş veride test eder. Gerçek sonuçları yansıtır.")
+        
+        if st.button("🚀 Backtest Başlat"):
+            with st.spinner("Backtest çalışıyor..."):
+                results = run_strategy_backtest(df_view, initial_balance=10000)
+                
+                if results is None:
+                    st.warning("Yeterli işlem oluşmadı. Daha uzun veri gerekebilir.")
+                else:
+                    # Metrikler
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Toplam Getiri", f"%{results['total_return']:.2f}")
+                    col2.metric("Kazanma Oranı", f"%{results['win_rate']:.1f}")
+                    col3.metric("Toplam İşlem", results['total_trades'])
+                    col4.metric("Profit Factor", f"{results['profit_factor']:.2f}")
+                    
+                    # Detaylar
+                    st.divider()
+                    col_det1, col_det2 = st.columns(2)
+                    col_det1.write(f"✅ Kazanan İşlem: {results['winning_trades']}")
+                    col_det1.write(f"💰 Ort. Kazanç: ${results['avg_win']:.2f}")
+                    col_det2.write(f"❌ Kaybeden İşlem: {results['losing_trades']}")
+                    col_det2.write(f"💸 Ort. Kayıp: ${results['avg_loss']:.2f}")
+                    
+                    # Equity Curve Grafiği
+                    st.divider()
+                    st.subheader("📈 Sermaye Eğrisi")
+                    
+                    eq_df = pd.DataFrame(results['equity_curve'])
+                    fig_eq = go.Figure()
+                    fig_eq.add_trace(go.Scatter(
+                        x=eq_df['date'], 
+                        y=eq_df['equity'],
+                        mode='lines',
+                        name='Sermaye',
+                        line=dict(color='cyan', width=2)
+                    ))
+                    fig_eq.add_hline(y=10000, line_dash="dot", line_color="gray", annotation_text="Başlangıç")
+                    fig_eq.update_layout(
+                        height=400,
+                        template="plotly_dark",
+                        hovermode='x unified',
+                        yaxis_title="Bakiye ($)",
+                        xaxis_title="Tarih"
+                    )
+                    st.plotly_chart(fig_eq, use_container_width=True)
+                    
+                    # İşlem Listesi
+                    with st.expander("📋 Tüm İşlemler"):
+                        trades_df = pd.DataFrame(results['trades'])
+                        st.dataframe(trades_df, use_container_width=True)
+                        
 # --- CÜZDAN (NAKİT YÖNETİMİ & AI TARAYICI) ---
     st.divider()
     st.header("💼 Varlık ve Fırsat Yönetimi")
@@ -988,7 +1506,7 @@ if df_view is not None:
                     last_price = d_scan['Close'].iloc[-1]
                     last_rsi = d_scan['RSI'].iloc[-1]
                     ema_50 = d_scan['EMA_50'].iloc[-1]
-                    sup_list, res_list = calculate_sr(d_scan, scan_tf)
+                    sup_list, res_list = calculate_sr_advanced(d_scan, scan_tf)
                     nearest_sup = max([s for s in sup_list if s < last_price], default=0)
                     
                     # --- PUANLAMA ---
@@ -1066,34 +1584,46 @@ if df_view is not None:
         atr_val = current_atr if 'current_atr' in locals() else entry_price*0.02
         st.caption(f"Stop Önerisi: ${(entry_price - atr_val * 1.5):.2f}")
 
-        if st.button("➕ Emri Gir / Ekle"):
-            # Bakiye Kontrolü
-            if use_balance:
-                if investment > current_balance:
-                    st.error("Yetersiz Bakiye! Lütfen Bakiye Düzenle kısmından para ekleyin.")
-                    st.stop()
-                else:
-                    st.session_state['portfolio_data']['balance'] -= investment
-            
-            status = "PENDING" if is_limit else "ACTIVE"
-            
-            new_trade = {
-                "Coin": sel_c,
-                "Giriş": entry_price,
-                "Adet": investment / entry_price,
-                "Yatırım": investment,
-                "Realized": 0.0,
-                "Status": status, 
-                "Tarih": time.strftime("%Y-%m-%d")
-            }
-            
-            st.session_state['portfolio_data']['positions'].append(new_trade)
-            save_portfolio(st.session_state['portfolio_data'])
-            
-            msg = "Limit Emir Girildi! Fiyat bekleniyor..." if is_limit else "Pozisyon Açıldı!"
-            st.success(msg)
-            time.sleep(1)
-            st.rerun()
+if st.button("➕ Emri Gir / Ekle"):
+            is_valid, risk_msg = validate_portfolio_risk(
+                investment, 
+                current_balance, 
+                st.session_state['portfolio_data']['positions']
+            )
+
+            if not is_valid:
+                st.error(risk_msg)
+                # st.stop() yerine return kullanarak scriptin geri kalanını kesebilirsin
+            else:
+                # Bakiye Kontrolü ve İşlem (Hepsi button if'inin içinde olmalı)
+                proceed = True
+                if use_balance:
+                    if investment > current_balance:
+                        st.error("Yetersiz Bakiye! Lütfen Bakiye Düzenle kısmından para ekleyin.")
+                        proceed = False
+                    else:
+                        st.session_state['portfolio_data']['balance'] -= investment
+                
+                if proceed:
+                    status = "PENDING" if is_limit else "ACTIVE"
+                    
+                    new_trade = {
+                        "Coin": sel_c,
+                        "Giriş": entry_price,
+                        "Adet": investment / entry_price,
+                        "Yatırım": investment,
+                        "Realized": 0.0,
+                        "Status": status, 
+                        "Tarih": time.strftime("%Y-%m-%d")
+                    }
+                    
+                    st.session_state['portfolio_data']['positions'].append(new_trade)
+                    save_portfolio(st.session_state['portfolio_data'])
+                    
+                    msg = "Limit Emir Girildi! Fiyat bekleniyor..." if is_limit else "Pozisyon Açıldı!"
+                    st.success(msg)
+                    time.sleep(1)
+                    st.rerun()
 
         # --- BAKİYE DÜZENLEME PANELİ ---
         st.write("---")
@@ -1267,6 +1797,20 @@ if df_view is not None:
             st.metric("Mevcut Bakiye", f"${current_balance:,.2f}")
 
 else: st.error("Veri Alınamadı.")
+
+if st.session_state.get('portfolio_data'):
+    closed_count, closed_trades = check_active_positions_auto_close(st.session_state['portfolio_data'])
+    
+    if closed_count > 0:
+        st.toast(f"🔔 {closed_count} pozisyon otomatik kapandı!", icon="✅")
+        
+        # Bildirimleri göster
+        for trade in closed_trades:
+            emoji = "✅" if trade['profit'] > 0 else "❌"
+            st.sidebar.success(
+                f"{emoji} {trade['coin']}: {trade['type']} | "
+                f"${trade['profit']:.2f} (%{trade['pct']:.1f})"
+            )
 # BOT KISMI AYNEN KALACAK...
 
 # BOT
@@ -1274,8 +1818,8 @@ if auto or st.session_state.get('auto_mode', False):
     msg = ""
     for tf, res in results.items():
         if res is not None:
-            s_l, r_l = calculate_sr(res, tf)
-            stat, _, target = calculate_oracle_signal_fixed(res, s_l, r_l)
+            s_l, r_l = calculate_sr_advanced(res, tf)
+            stat, _, target = calculate_oracle_signal_v2(res, s_l, r_l)
             if "GÜÇLÜ" in stat or "AL" in stat:
                 msg += f"\n⏰ {tf}: {stat} | {target}"
     
