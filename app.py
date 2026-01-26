@@ -1598,8 +1598,12 @@ if df_view is not None:
         
             progress_bar = st.progress(0)
             status_text = st.empty()
-        
-            coins_to_scan = list(COIN_MAP.keys())
+         # 🔥 DÜZELTME BURADA: Listeyi doğrudan session_state'den (güncel hafızadan) çekiyoruz
+            if 'coin_map' in st.session_state:
+                current_map = st.session_state['coin_map']
+            else:
+                current_map = COIN_MAP # Yedek
+            coins_to_scan = list(current_map.keys())
             total_coins = len(coins_to_scan)
         
             results_scan = []
@@ -1608,7 +1612,7 @@ if df_view is not None:
                 status_text.text(f"Analiz ediliyor: {c_name}...")
                 progress_bar.progress((i + 1) / total_coins)
             
-                sym = COIN_MAP[c_name]
+                sym = current_map[c_name]
                 d_scan, _ = get_market_data("Yahoo Finance", sym, scan_tf)
             
                 if d_scan is not None and len(d_scan) > 20:
@@ -2032,6 +2036,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
