@@ -27,6 +27,7 @@ DEFAULT_CHAT_ID = ""
   #  DEFAULT_TOKEN = ""
    # DEFAULT_CHAT_ID = ""
 PORTFOLIO_FILE = "portfolio.json"
+ASSETS_FILE = "varliklar.json"
 # ==========================================
 
 st.set_page_config(layout="wide", page_title="Pro Trader V47 (Gold Edition)")
@@ -41,7 +42,46 @@ st.markdown("""
         .stDataFrame { text-align: center; }
     </style>
 """, unsafe_allow_html=True)
+# İlk açılışta veya sıfırlamada kullanılacak varsayılan liste
+DEFAULT_COIN_MAP = {
+    "Bitcoin (BTC)": "BTC-USD", 
+    "Ethereum (ETH)": "ETH-USD", 
+    "Solana (SOL)": "SOL-USD", 
+    "Ripple (XRP)": "XRP-USD", 
+    "Avax (AVAX)": "AVAX-USD", 
+    "Dogecoin (DOGE)": "DOGE-USD", 
+    "Pepe": "PEPE-USD", 
+    "ONS ALTIN ($)": "XAU_GOLD",
+    "GRAM ALTIN (TL)": "GRAM_TRY",
+    "EUR/USD": "EURUSD=X",
+    "Türk Hava Yolları (THYAO)": "THYAO.IS",
+    "Pegasus (PGSUS)": "PGSUS.IS"
+}
 
+def load_assets():
+    """Varlık listesini dosyadan yükler, yoksa varsayılanı oluşturur."""
+    if os.path.exists(ASSETS_FILE):
+        try:
+            with open(ASSETS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return DEFAULT_COIN_MAP.copy()
+    else:
+        # Dosya yoksa varsayılanı kaydet ve döndür
+        save_assets(DEFAULT_COIN_MAP)
+        return DEFAULT_COIN_MAP.copy()
+
+def save_assets(data):
+    """Varlık listesini dosyaya kaydeder."""
+    with open(ASSETS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+# Uygulama Başlarken Varlıkları Yükle
+if 'coin_map' not in st.session_state:
+    st.session_state['coin_map'] = load_assets()
+
+# Artık COIN_MAP global değişkenini session state'e bağlıyoruz
+COIN_MAP = st.session_state['coin_map']
 # --- VERİTABANI (YENİ YAPI) ---
 def load_portfolio():
     if os.path.exists(PORTFOLIO_FILE):
@@ -1079,7 +1119,46 @@ def send_tg(token, chat_id, msg):
 
 # --- ARAYÜZ ---
 st.sidebar.header("⚙️ Kontrol Paneli")
+# --- VARLIK EKLE / ÇIKAR (YENİ PANEL) ---
+with st.sidebar.expander("➕ Varlık Yönetimi", expanded=False):
+    st.info("Listeye yeni Coin, Hisse veya Emtia ekleyin.")
+    
+    # 1. YENİ VARLIK EKLEME
+    with st.form("add_asset_form"):
+        new_name = st.text_input("Görünen İsim (Örn: Apple)")
+        new_symbol = st.text_input("Yahoo Kodu (Örn: AAPL)")
+        submitted = st.form_submit_button("Listeye Ekle")
+        
+        if submitted:
+            if new_name and new_symbol:
+                st.session_state['coin_map'][new_name] = new_symbol
+                save_assets(st.session_state['coin_map'])
+                st.success(f"{new_name} eklendi!")
+                time.sleep(0.5)
+                st.rerun()
+            else:
+                st.error("İsim ve Sembol boş olamaz!")
+    
+    # 2. VARLIK SİLME
+    st.write("---")
+    del_asset = st.selectbox("Silinecek Varlık", list(st.session_state['coin_map'].keys()))
+    if st.button("Seçileni Sil"):
+        if del_asset in st.session_state['coin_map']:
+            if len(st.session_state['coin_map']) > 1:
+                del st.session_state['coin_map'][del_asset]
+                save_assets(st.session_state['coin_map'])
+                st.warning(f"{del_asset} silindi.")
+                time.sleep(0.5)
+                st.rerun()
+            else:
+                st.error("Listede en az 1 varlık kalmalı!")
 
+    # 3. VARSAYILANA DÖN
+    if st.button("🔄 Listeyi Sıfırla (Varsayılan)"):
+        st.session_state['coin_map'] = DEFAULT_COIN_MAP.copy()
+        save_assets(st.session_state['coin_map'])
+        st.success("Liste varsayılan ayarlara döndü.")
+        st.rerun()
 # 1. GİZLİ AYARLAR (Token ve ID buraya saklandı)
 with st.sidebar.expander("🔐 Bot & API Ayarları", expanded=False):
     st.caption("Telegram bildirimleri için gereklidir.")
@@ -1925,6 +2004,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
