@@ -1420,7 +1420,7 @@ if df_view is not None:
 if df_view is not None:
     st.divider()
     
-     with st.expander("📊 Backtest: Strateji Performansı", expanded=False):
+    with st.expander("📊 Backtest: Strateji Performansı", expanded=False):
         st.info("Mevcut sinyal sisteminizi geçmiş veride test eder. Gerçek sonuçları yansıtır.")
         
         if st.button("🚀 Backtest Başlat"):
@@ -1925,6 +1925,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
