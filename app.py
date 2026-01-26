@@ -1119,46 +1119,6 @@ def send_tg(token, chat_id, msg):
 
 # --- ARAYÜZ ---
 st.sidebar.header("⚙️ Kontrol Paneli")
-# --- VARLIK EKLE / ÇIKAR (YENİ PANEL) ---
-with st.sidebar.expander("➕ Varlık Yönetimi", expanded=False):
-    st.info("Listeye yeni Coin, Hisse veya Emtia ekleyin.")
-    
-    # 1. YENİ VARLIK EKLEME
-    with st.form("add_asset_form"):
-        new_name = st.text_input("Görünen İsim (Örn: Apple)")
-        new_symbol = st.text_input("Yahoo Kodu (Örn: AAPL)")
-        submitted = st.form_submit_button("Listeye Ekle")
-        
-        if submitted:
-            if new_name and new_symbol:
-                st.session_state['coin_map'][new_name] = new_symbol
-                save_assets(st.session_state['coin_map'])
-                st.success(f"{new_name} eklendi!")
-                time.sleep(0.5)
-                st.rerun()
-            else:
-                st.error("İsim ve Sembol boş olamaz!")
-    
-    # 2. VARLIK SİLME
-    st.write("---")
-    del_asset = st.selectbox("Silinecek Varlık", list(st.session_state['coin_map'].keys()))
-    if st.button("Seçileni Sil"):
-        if del_asset in st.session_state['coin_map']:
-            if len(st.session_state['coin_map']) > 1:
-                del st.session_state['coin_map'][del_asset]
-                save_assets(st.session_state['coin_map'])
-                st.warning(f"{del_asset} silindi.")
-                time.sleep(0.5)
-                st.rerun()
-            else:
-                st.error("Listede en az 1 varlık kalmalı!")
-
-    # 3. VARSAYILANA DÖN
-    if st.button("🔄 Listeyi Sıfırla (Varsayılan)"):
-        st.session_state['coin_map'] = DEFAULT_COIN_MAP.copy()
-        save_assets(st.session_state['coin_map'])
-        st.success("Liste varsayılan ayarlara döndü.")
-        st.rerun()
 # 1. GİZLİ AYARLAR (Token ve ID buraya saklandı)
 with st.sidebar.expander("🔐 Bot & API Ayarları", expanded=False):
     st.caption("Telegram bildirimleri için gereklidir.")
@@ -1168,7 +1128,79 @@ with st.sidebar.expander("🔐 Bot & API Ayarları", expanded=False):
     st.caption("Bu ayarlar varsayılan olarak kapalıdır.")
 
 st.sidebar.divider()
+==========================================
+# 📂 VARLIK YÖNETİMİ (DÜZELTİLMİŞ)
+# ==========================================
+# Varlık ekleyince listenin anında güncellenmesi için selectbox'tan ÖNCE burayı çalıştırıyoruz.
 
+with st.sidebar.expander("➕ Varlık Yönetimi", expanded=False):
+    st.info("Listeye yeni Coin, Hisse veya Emtia ekleyin.")
+    
+    # 1. YENİ VARLIK EKLEME
+    with st.form("add_asset_form"):
+        new_name = st.text_input("Görünen İsim (Örn: Pound)")
+        # Kullanıcıyı uyarmak için placeholder ekledik
+        new_symbol = st.text_input("Yahoo Kodu (Örn: GBPUSD=X)")
+        submitted = st.form_submit_button("Listeye Ekle")
+        
+        if submitted:
+            if new_name and new_symbol:
+                # Session State güncelle
+                st.session_state['coin_map'][new_name] = new_symbol
+                # Dosyaya kaydet
+                save_assets(st.session_state['coin_map'])
+                # Global değişkeni anında güncelle ki aşağıda görünsün
+                COIN_MAP = st.session_state['coin_map'] 
+                st.success(f"{new_name} eklendi!")
+                time.sleep(0.5)
+                st.rerun()
+            else:
+                st.error("İsim ve Sembol boş olamaz!")
+    
+    # 2. VARLIK SİLME
+    st.write("---")
+    # Silme listesini session state'den alıyoruz
+    del_asset = st.selectbox("Silinecek Varlık", list(st.session_state['coin_map'].keys()), key="del_box")
+    
+    if st.button("Seçileni Sil"):
+        if del_asset in st.session_state['coin_map']:
+            if len(st.session_state['coin_map']) > 1:
+                del st.session_state['coin_map'][del_asset]
+                save_assets(st.session_state['coin_map'])
+                COIN_MAP = st.session_state['coin_map'] # Anında güncelleme
+                st.warning(f"{del_asset} silindi.")
+                time.sleep(0.5)
+                st.rerun()
+            else:
+                st.error("Listede en az 1 varlık kalmalı!")
+
+    # 3. VARSAYILANA DÖN
+    if st.button("🔄 Listeyi Sıfırla"):
+        st.session_state['coin_map'] = DEFAULT_COIN_MAP.copy()
+        save_assets(st.session_state['coin_map'])
+        st.rerun()
+
+st.sidebar.divider()
+# ==========================================
+# 📡 KAYNAK VE ENSTRÜMAN SEÇİMİ (KRİTİK YER)
+# ==========================================
+# Buradaki COIN_MAP artık yukarıda güncellenen session_state verisini kullanır.
+
+# Güncel listeyi al
+current_assets = list(st.session_state['coin_map'].keys())
+
+src_pref = st.sidebar.radio("📡 Kaynak:", ["Binance", "OKX", "Yahoo Finance"])
+
+# Eğer liste boşsa hata vermesin diye kontrol
+if not current_assets:
+    current_assets = ["Bitcoin (BTC)"]
+
+sel_c = st.sidebar.selectbox("Enstrüman:", current_assets)
+
+# Seçilen varlığın kodunu haritadan çek
+symbol = st.session_state['coin_map'].get(sel_c, "BTC-USD")
+
+st.sidebar.divider()
 # 2. NORMAL AYARLAR
 src_pref = st.sidebar.radio("📡 Kaynak:", ["Binance", "OKX", "Yahoo Finance"])
 sel_c = st.sidebar.selectbox("Enstrüman:", list(COIN_MAP.keys()))
@@ -2004,6 +2036,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
