@@ -1514,7 +1514,7 @@ if df_view is not None:
                     nearest_sup = max([s for s in sup_list if s < last_price], default=0)
                 
                 # === ANA SİNYAL SİSTEMİ ===
-                    main_signal, main_color, target_msg = calculate_sr_advanced(d_scan, sup_list, res_list)
+                    main_signal, main_color, target_msg = calculate_oracle_signal_v2(d_scan, sup_list, res_list)
                 
                 # --- TARAYICI PUANLAMASI ---
                     score = 50 
@@ -1925,6 +1925,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
