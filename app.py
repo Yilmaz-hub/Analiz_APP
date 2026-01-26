@@ -1128,7 +1128,7 @@ with st.sidebar.expander("🔐 Bot & API Ayarları", expanded=False):
     st.caption("Bu ayarlar varsayılan olarak kapalıdır.")
 
 st.sidebar.divider()
-==========================================
+
 # 📂 VARLIK YÖNETİMİ (DÜZELTİLMİŞ)
 # ==========================================
 # Varlık ekleyince listenin anında güncellenmesi için selectbox'tan ÖNCE burayı çalıştırıyoruz.
@@ -2036,6 +2036,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
