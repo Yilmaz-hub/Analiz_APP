@@ -1202,11 +1202,7 @@ symbol = st.session_state['coin_map'].get(sel_c, "BTC-USD")
 
 st.sidebar.divider()
 # 2. NORMAL AYARLAR
-src_pref = st.sidebar.radio("📡 Kaynak:", ["Binance", "OKX", "Yahoo Finance"])
-sel_c = st.sidebar.selectbox("Enstrüman:", list(COIN_MAP.keys()))
-symbol = COIN_MAP[sel_c]
 
-st.sidebar.divider()
 show_cloud = st.sidebar.checkbox("☁️ Destek/Direnç Bulutu", value=True)
 show_ai = st.sidebar.checkbox("🤖 AI Trend", value=True)
 show_pred = st.sidebar.checkbox("🔮 AI Tahmin", value=True)
@@ -2036,6 +2032,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
