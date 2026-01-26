@@ -1890,7 +1890,7 @@ with st.expander("🔍 Piyasayı Tara & Fırsat Bul (AI)", expanded=False):
             st.info("Portföy boş. Bakiye düzenleyebilir veya işlem açabilirsiniz.")
             st.metric("Mevcut Bakiye", f"${current_balance:,.2f}")
 
-         else: st.error("Veri Alınamadı.")
+else: st.error("Veri Alınamadı.")
 
 if st.session_state.get('portfolio_data'):
     closed_count, closed_trades = check_active_positions_auto_close(st.session_state['portfolio_data'])
@@ -1925,6 +1925,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
