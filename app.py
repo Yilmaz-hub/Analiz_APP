@@ -1479,6 +1479,7 @@ if df_view is not None:
     
 # --- YENİ ÖZELLİK: AI PİYASA TARAYICI (BAKİYE ÖNERİLİ) ---
     # --- YENİ ÖZELLİK: AI PİYASA TARAYICI (GÜNCELLENMİŞ + RENKLENDİRİLMİŞ) ---
+# --- YENİ ÖZELLİK: AI PİYASA TARAYICI (GÜNCELLENMİŞ + RENKLENDİRİLMİŞ) ---
 with st.expander("🔍 Piyasayı Tara & Fırsat Bul (AI)", expanded=False):
     st.info("Bu modül RSI, Trend ve Destek/Direnç analizi yaparak kasa yönetimi önerir.")
     
@@ -1648,7 +1649,6 @@ with st.expander("🔍 Piyasayı Tara & Fırsat Bul (AI)", expanded=False):
             file_name=f"piyasa_tarama_{scan_tf}_{time.strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv"
         )
-
     st.divider()
 
 # --- PORTFÖY VE EMİR YÖNETİMİ (LİMİT EMİR İPTAL/DÜZENLE & DÜZELTİLMİŞ) ---
@@ -1925,6 +1925,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
