@@ -1585,6 +1585,13 @@ for tf, label in intervals.items():
         st.sidebar.markdown(f"### {label}")
         st.sidebar.markdown(f"<span style='color:{color}; font-weight:bold; font-size:18px'>{status}</span>", unsafe_allow_html=True)
         st.sidebar.caption(f"{target_msg}")
+        adv_patterns = detect_advanced_patterns(df)
+    
+        if adv_patterns:
+            st.sidebar.markdown("**🔍 Tespit Edilen Formasyonlar:**")
+            for pat in adv_patterns:
+                emoji_dir = "🟢" if pat['direction'] == 'BULLISH' else ("🔴" if pat['direction'] == 'BEARISH' else "⚪")
+                st.sidebar.caption(f"{emoji_dir} {pat['name']} (Güven: %{pat['confidence']})")
     else: 
         st.sidebar.warning(f"{label}: Bekleniyor...")
 
@@ -2369,6 +2376,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
