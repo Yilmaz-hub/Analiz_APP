@@ -1544,7 +1544,7 @@ st.sidebar.subheader("🔍 Filtreler")
 show_all_pats = st.sidebar.checkbox("Hepsini Aç/Kapat", value=True)
 f_wm = st.sidebar.checkbox("- W ve M", value=True)
 f_candle = st.sidebar.checkbox("- Mumlar", value=True)
-
+f_advanced = st.sidebar.checkbox("- Gelişmiş Formasyonlar (Üçgen, ABCD, Baş-Omuz)", value=False)
 # Otomatik Bot kutusu kolay erişim için dışarıda kalsın
 auto = st.sidebar.checkbox("Otomatik Bot")
 
@@ -2376,6 +2376,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
