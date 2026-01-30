@@ -1691,7 +1691,7 @@ if df_view is not None:
 advanced_items = detect_advanced_patterns(df_view)
 
 # Grafiğe çiz
-       try:
+try:
        for adv in advanced_items:
            if adv['type'] == 'triangle':
                # Üçgen çizgisi
@@ -2450,6 +2450,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
