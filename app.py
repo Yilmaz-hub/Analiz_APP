@@ -1662,7 +1662,7 @@ for tf, label in intervals.items():
         st.sidebar.caption(f"{target_msg}")
         adv_patterns = detect_advanced_patterns(df)
     
-         if adv_patterns:
+        if adv_patterns:
             st.sidebar.markdown("**🔍 Tespit Edilen Formasyonlar:**")
             for pat in adv_patterns:
               emoji_dir = "🟢" if pat['direction'] == 'BULLISH' else ("🔴" if pat['direction'] == 'BEARISH' else "⚪")
@@ -2451,6 +2451,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
