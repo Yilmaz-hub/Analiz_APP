@@ -988,6 +988,339 @@ def detect_patterns(df):
             if (closes[idx] > opens[idx]) and (closes[idx-1] < opens[idx-1]) and (closes[idx] > opens[idx-1]) and (opens[idx] < closes[idx-1]):
                  patterns.append({"type": "icon", "name": "Yutan Boğa", "color": "cyan", "x": dates[idx], "y": lows[idx], "msg": "🚀", "anchor": "top"})
     return patterns
+ # =========================================
+# 🆕 GELİŞMİŞ FORMASYON TESPİT SİSTEMİ
+# =========================================
+
+def detect_advanced_patterns(df):
+    """
+    EKLENECEK YER: detect_patterns fonksiyonundan SONRA
+    
+    Gelişmiş teknik analiz formasyonlarını tespit eder:
+    - Üçgen formasyonlar
+    - Harmonik formasyonlar (ABCD, Butterfly, Gartley)
+    - Baş-Omuz
+    - Bayrak/Flama
+    - Kama formasyonları
+    """
+    patterns = []
+    dates = df.index
+    highs = df['High'].values
+    lows = df['Low'].values
+    closes = df['Close'].values
+    
+    if len(df) < 50:
+        return patterns
+    
+    # =========================================
+    # 1. ÜÇGEN FORMASYONLARI
+    # =========================================
+    try:
+        # Son 60 mum için trend çizgileri çiz
+        window = min(60, len(df))
+        work_slice = df.tail(window)
+        
+        # Üst tepe noktaları
+        peak_indices = argrelextrema(work_slice['High'].values, np.greater, order=5)[0]
+        # Alt dip noktaları
+        trough_indices = argrelextrema(work_slice['Low'].values, np.less, order=5)[0]
+        
+        if len(peak_indices) >= 2 and len(trough_indices) >= 2:
+            # Direnci çizgisi eğimi (son 2 tepe)
+            resistance_slope = (work_slice['High'].iloc[peak_indices[-1]] - work_slice['High'].iloc[peak_indices[-2]]) / (peak_indices[-1] - peak_indices[-2])
+            
+            # Destek çizgisi eğimi (son 2 dip)
+            support_slope = (work_slice['Low'].iloc[trough_indices[-1]] - work_slice['Low'].iloc[trough_indices[-2]]) / (trough_indices[-1] - trough_indices[-2])
+            
+            current_price = df['Close'].iloc[-1]
+            
+            # A. YÜKSELEN ÜÇGEN (Ascending Triangle)
+            if abs(resistance_slope) < 0.001 and support_slope > 0.001:
+                patterns.append({
+                    "type": "triangle",
+                    "name": "Yükselen Üçgen ▲",
+                    "color": "green",
+                    "x0": work_slice.index[peak_indices[-2]],
+                    "y0": work_slice['High'].iloc[peak_indices[-2]],
+                    "x1": work_slice.index[-1],
+                    "y1": work_slice['High'].iloc[peak_indices[-1]],
+                    "direction": "BULLISH",
+                    "target": current_price * 1.08,
+                    "confidence": 75
+                })
+            
+            # B. DÜŞEN ÜÇGEN (Descending Triangle)
+            elif abs(support_slope) < 0.001 and resistance_slope < -0.001:
+                patterns.append({
+                    "type": "triangle",
+                    "name": "Düşen Üçgen ▼",
+                    "color": "red",
+                    "x0": work_slice.index[trough_indices[-2]],
+                    "y0": work_slice['Low'].iloc[trough_indices[-2]],
+                    "x1": work_slice.index[-1],
+                    "y1": work_slice['Low'].iloc[trough_indices[-1]],
+                    "direction": "BEARISH",
+                    "target": current_price * 0.92,
+                    "confidence": 75
+                })
+            
+            # C. SİMETRİK ÜÇGEN (Symmetrical Triangle)
+            elif resistance_slope < -0.001 and support_slope > 0.001:
+                patterns.append({
+                    "type": "triangle",
+                    "name": "Simetrik Üçgen ◇",
+                    "color": "yellow",
+                    "x0": work_slice.index[peak_indices[-2]],
+                    "y0": work_slice['High'].iloc[peak_indices[-2]],
+                    "x1": work_slice.index[-1],
+                    "y1": work_slice['Low'].iloc[trough_indices[-1]],
+                    "direction": "NEUTRAL",
+                    "target": current_price,
+                    "confidence": 60
+                })
+    except Exception as e:
+        print(f"Üçgen tespit hatası: {e}")
+    
+    # =========================================
+    # 2. ABCD HARMONİK FORMASYON
+    # =========================================
+    try:
+        # ABCD: 4 noktalı klasik harmonik formasyon
+        # A -> B (Hareket), B -> C (Düzeltme %38-88), C -> D (Hedef)
+        
+        all_peaks = argrelextrema(highs, np.greater, order=10)[0]
+        all_troughs = argrelextrema(lows, np.less, order=10)[0]
+        
+        # Son 4 pivot noktayı bul
+        pivots = []
+        for i in range(len(df)):
+            if i in all_peaks:
+                pivots.append({'idx': i, 'price': highs[i], 'type': 'high'})
+            elif i in all_troughs:
+                pivots.append({'idx': i, 'price': lows[i], 'type': 'low'})
+        
+        if len(pivots) >= 4:
+            # Son 4 pivot
+            A, B, C, D_candidate = pivots[-4], pivots[-3], pivots[-2], pivots[-1]
+            
+            # ABCD kuralları:
+            # 1. A-B-C-D sırası: high-low-high-low veya low-high-low-high
+            # 2. BC retracement: AB'nin %38-88'i
+            # 3. CD projection: BC'nin %127-161.8'i
+            
+            AB = abs(B['price'] - A['price'])
+            BC = abs(C['price'] - B['price'])
+            
+            if AB > 0:
+                BC_retracement = BC / AB
+                
+                # Fibonacci retracement aralığında mı?
+                if 0.382 <= BC_retracement <= 0.886:
+                    # ABCD tespiti
+                    CD_projection = BC * 1.272  # Fibonacci 127.2%
+                    
+                    if A['type'] == 'low' and B['type'] == 'high':  # Bullish ABCD
+                        target_D = C['price'] - CD_projection
+                        
+                        patterns.append({
+                            "type": "harmonic",
+                            "name": "ABCD Boğa 🦬",
+                            "color": "cyan",
+                            "points": [A, B, C, D_candidate],
+                            "direction": "BULLISH",
+                            "target": target_D,
+                            "confidence": 80
+                        })
+                    
+                    elif A['type'] == 'high' and B['type'] == 'low':  # Bearish ABCD
+                        target_D = C['price'] + CD_projection
+                        
+                        patterns.append({
+                            "type": "harmonic",
+                            "name": "ABCD Ayı 🐻",
+                            "color": "magenta",
+                            "points": [A, B, C, D_candidate],
+                            "direction": "BEARISH",
+                            "target": target_D,
+                            "confidence": 80
+                        })
+    except Exception as e:
+        print(f"ABCD tespit hatası: {e}")
+    
+    # =========================================
+    # 3. KELEBEK (BUTTERFLY) HARMONİK
+    # =========================================
+    try:
+        # Kelebek: 5 noktalı (X-A-B-C-D)
+        # Fibonacci oranları:
+        # - AB = XA'nın %78.6'sı
+        # - BC = AB'nin %38.2-88.6'sı
+        # - CD = BC'nin %161.8-261.8'i
+        # - D noktası X'i geçer (%127-161.8)
+        
+        if len(pivots) >= 5:
+            X, A, B, C, D_cand = pivots[-5], pivots[-4], pivots[-3], pivots[-2], pivots[-1]
+            
+            XA = abs(A['price'] - X['price'])
+            AB = abs(B['price'] - A['price'])
+            BC = abs(C['price'] - B['price'])
+            CD = abs(D_cand['price'] - C['price'])
+            
+            if XA > 0 and AB > 0 and BC > 0:
+                AB_ret = AB / XA
+                BC_ret = BC / AB
+                CD_ext = CD / BC
+                XD_ext = abs(D_cand['price'] - X['price']) / XA
+                
+                # Kelebek Fibonacci kriterleri
+                if (0.75 <= AB_ret <= 0.82 and 
+                    0.35 <= BC_ret <= 0.90 and 
+                    1.5 <= CD_ext <= 2.7 and
+                    1.2 <= XD_ext <= 1.65):
+                    
+                    patterns.append({
+                        "type": "harmonic",
+                        "name": "Kelebek 🦋",
+                        "color": "purple",
+                        "points": [X, A, B, C, D_cand],
+                        "direction": "REVERSAL",
+                        "target": X['price'],
+                        "confidence": 85
+                    })
+    except Exception as e:
+        print(f"Kelebek tespit hatası: {e}")
+    
+    # =========================================
+    # 4. BAŞ-OMUZ (HEAD & SHOULDERS)
+    # =========================================
+    try:
+        # 3 tepe noktası: Sol Omuz - Baş - Sağ Omuz
+        # Boyun çizgisi (neckline): İki dip arasındaki destek
+        
+        if len(all_peaks) >= 3 and len(all_troughs) >= 2:
+            # Son 3 tepe
+            left_shoulder_idx = all_peaks[-3]
+            head_idx = all_peaks[-2]
+            right_shoulder_idx = all_peaks[-1]
+            
+            # Aralarındaki dipler
+            left_trough_idx = all_troughs[-2]
+            right_trough_idx = all_troughs[-1]
+            
+            left_shoulder = highs[left_shoulder_idx]
+            head = highs[head_idx]
+            right_shoulder = highs[right_shoulder_idx]
+            
+            left_trough = lows[left_trough_idx]
+            right_trough = lows[right_trough_idx]
+            
+            # Baş-Omuz kriterleri:
+            # 1. Baş > Sol Omuz ve Baş > Sağ Omuz
+            # 2. Sol Omuz ≈ Sağ Omuz (%10 tolerans)
+            # 3. Neckline neredeyse yatay
+            
+            if (head > left_shoulder and head > right_shoulder and
+                abs(left_shoulder - right_shoulder) / left_shoulder < 0.10 and
+                abs(left_trough - right_trough) / left_trough < 0.05):
+                
+                neckline = (left_trough + right_trough) / 2
+                target = neckline - (head - neckline)
+                
+                patterns.append({
+                    "type": "reversal",
+                    "name": "Baş-Omuz 👤",
+                    "color": "red",
+                    "x0": dates[left_shoulder_idx],
+                    "y0": left_shoulder,
+                    "x1": dates[right_shoulder_idx],
+                    "y1": right_shoulder,
+                    "neckline": neckline,
+                    "direction": "BEARISH",
+                    "target": target,
+                    "confidence": 90
+                })
+    except Exception as e:
+        print(f"Baş-Omuz tespit hatası: {e}")
+    
+    # =========================================
+    # 5. BAYRAK (FLAG) FORMASYONU
+    # =========================================
+    try:
+        # Bayrak: Güçlü trend sonrası kısa konsolidasyon
+        # Sert yükseliş -> Dar kanal (bayrak direği + bayrak)
+        
+        # Son 30 mumda trend kontrolü
+        recent_slice = df.tail(30)
+        
+        # Son 10 mum önceki 20 mumun max/min'ini geçtiyse bayrak olabilir
+        pole_high = recent_slice['High'].iloc[:-10].max()
+        pole_low = recent_slice['Low'].iloc[:-10].min()
+        
+        flag_highs = recent_slice['High'].iloc[-10:]
+        flag_lows = recent_slice['Low'].iloc[-10:]
+        
+        # Bayrak genişliği (dar kanal)
+        flag_width = (flag_highs.max() - flag_lows.min()) / pole_high
+        
+        # Direk yüksekliği
+        pole_height = (pole_high - pole_low) / pole_low
+        
+        if pole_height > 0.05 and flag_width < 0.03:  # Direk %5+, Bayrak %3-
+            patterns.append({
+                "type": "continuation",
+                "name": "Boğa Bayrağı 🚩",
+                "color": "lime",
+                "x0": recent_slice.index[-10],
+                "y0": flag_lows.min(),
+                "x1": recent_slice.index[-1],
+                "y1": flag_highs.max(),
+                "direction": "BULLISH",
+                "target": pole_high + pole_height * pole_high,
+                "confidence": 70
+            })
+    except Exception as e:
+        print(f"Bayrak tespit hatası: {e}")
+    
+    # =========================================
+    # 6. KAMA (WEDGE) FORMASYONU
+    # =========================================
+    try:
+        # Yükselen Kama: Her iki çizgi de yukarı ama daralıyor (Bearish)
+        # Düşen Kama: Her iki çizgi de aşağı ama daralıyor (Bullish)
+        
+        window_wedge = min(40, len(df))
+        wedge_slice = df.tail(window_wedge)
+        
+        wedge_peaks = argrelextrema(wedge_slice['High'].values, np.greater, order=5)[0]
+        wedge_troughs = argrelextrema(wedge_slice['Low'].values, np.less, order=5)[0]
+        
+        if len(wedge_peaks) >= 2 and len(wedge_troughs) >= 2:
+            upper_slope = (wedge_slice['High'].iloc[wedge_peaks[-1]] - wedge_slice['High'].iloc[wedge_peaks[0]]) / len(wedge_peaks)
+            lower_slope = (wedge_slice['Low'].iloc[wedge_troughs[-1]] - wedge_slice['Low'].iloc[wedge_troughs[0]]) / len(wedge_troughs)
+            
+            # Yükselen Kama (Bearish reversal)
+            if upper_slope > 0 and lower_slope > 0 and upper_slope < lower_slope * 1.5:
+                patterns.append({
+                    "type": "wedge",
+                    "name": "Yükselen Kama ⬆️📐",
+                    "color": "orange",
+                    "direction": "BEARISH",
+                    "confidence": 65
+                })
+            
+            # Düşen Kama (Bullish reversal)
+            elif upper_slope < 0 and lower_slope < 0 and abs(upper_slope) < abs(lower_slope) * 1.5:
+                patterns.append({
+                    "type": "wedge",
+                    "name": "Düşen Kama ⬇️📐",
+                    "color": "lightgreen",
+                    "direction": "BULLISH",
+                    "confidence": 65
+                })
+    except Exception as e:
+        print(f"Kama tespit hatası: {e}")
+    
+    return patterns
 # ========================================
 # 🆕 YENİ EKLEME 8: Backtest Motor
 # ========================================
@@ -2036,6 +2369,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
