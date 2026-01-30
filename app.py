@@ -1598,50 +1598,15 @@ for tf, label in intervals.items():
 st.title(f"📈 {sel_c} V47 (Cloud & Money)")
 c = "green" if "Binance" in active_src else ("blue" if "OKX" in active_src else "orange")
 st.markdown(f"**Veri Kaynağı:** <span style='color:{c}; font-weight:bold'>{active_src}</span>", unsafe_allow_html=True)
-col_title, col_price = st.columns([3, 1])
-with col_title:
-    st.title(f"📈 {sel_c} V47 (Cloud & Money)")
-    c = "green" if "Binance" in active_src else ("blue" if "OKX" in active_src else "orange")
-    st.markdown(f"**Veri Kaynağı:** <span style='color:{c}; font-weight:bold'>{active_src}</span>", unsafe_allow_html=True)
-with col_price:
-   # Canlı fiyatı al
-   live_price = get_live_price_for_portfolio(sel_c)
-   
-   # Fiyat yoksa df_view'den al
-   if live_price == 0 or live_price is None:
-       if df_view is not None:
-           live_price = df_view['Close'].iloc[-1]
-   
-   # Fiyat değişim yüzdesi (son 24 saat)
-   price_change_pct = 0
-   if df_view is not None and len(df_view) > 1:
-       prev_price = df_view['Close'].iloc[-2]
-       if prev_price > 0:
-           price_change_pct = ((live_price - prev_price) / prev_price) * 100
-   
-   # Renk belirleme
-   price_color = "green" if price_change_pct > 0 else ("red" if price_change_pct < 0 else "gray")
-   arrow = "▲" if price_change_pct > 0 else ("▼" if price_change_pct < 0 else "●")
-   
-   # Gösterim
-   st.markdown(
-       f"""
-       <div style='text-align: right; padding-top: 10px;'>
-           <h2 style='margin: 0; color: {price_color};'>
-               ${live_price:,.2f}
-           </h2>
-           <p style='margin: 0; color: {price_color}; font-size: 18px;'>
-               {arrow} {price_change_pct:+.2f}%
-           </p>
-       </div>
-       """,
-       unsafe_allow_html=True
-   )
+
 view_tf = st.selectbox("Periyot:", list(intervals.keys()), format_func=lambda x: intervals[x])
 df_view = results[view_tf]
 
+
 if df_view is not None:
     curr = df_view['Close'].iloc[-1]
+    prev = df_view['Close'].iloc[-2] if len(df_view) > 1 else curr
+    change_pct = ((curr - prev) / prev) * 100 if prev > 0 else 0
     current_atr = df_view.iloc[-1]['ATR'] if 'ATR' in df_view.columns else curr * 0.02
     # ---   (Risk Hesaplayıcı Başlangıcı) ---
     with st.sidebar.expander("🧮 Hızlı Risk Hesapla", expanded=False):
@@ -2507,6 +2472,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
