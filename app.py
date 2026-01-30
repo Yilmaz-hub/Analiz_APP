@@ -1608,6 +1608,11 @@ if df_view is not None:
     prev = df_view['Close'].iloc[-2] if len(df_view) > 1 else curr
     change_pct = ((curr - prev) / prev) * 100 if prev > 0 else 0
     current_atr = df_view.iloc[-1]['ATR'] if 'ATR' in df_view.columns else curr * 0.02
+    st.metric(
+        label=f"{sel_c} Anlık Fiyat",
+        value=f"${curr:,.2f}",
+        delta=f"{change_pct:+.2f}%"
+    )
     # ---   (Risk Hesaplayıcı Başlangıcı) ---
     with st.sidebar.expander("🧮 Hızlı Risk Hesapla", expanded=False):
         st.caption("Pozisyon büyüklüğü hesaplar.")
@@ -2472,6 +2477,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
