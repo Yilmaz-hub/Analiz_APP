@@ -1322,80 +1322,6 @@ def detect_advanced_patterns(df):
     
     return patterns
  # MEVCUT detect_patterns ÇAĞRINIZDAN SONRA
-
-# Gelişmiş formasyonları da tespit et
-advanced_items = detect_advanced_patterns(df_view)
-
-# Grafiğe çiz
-for adv in advanced_items:
-    if adv['type'] == 'triangle':
-        # Üçgen çizgisi
-        fig.add_shape(
-            type="line",
-            x0=adv['x0'], y0=adv['y0'],
-            x1=adv['x1'], y1=adv['y1'],
-            line=dict(color=adv['color'], width=3, dash='dot')
-        )
-        
-        # Hedef çizgisi
-        fig.add_hline(
-            y=adv['target'],
-            line_dash="dashdot",
-            line_color=adv['color'],
-            annotation_text=f"🎯 {adv['name']}"
-        )
-    
-    elif adv['type'] == 'harmonic':
-        # ABCD noktalarını çiz
-        points = adv['points']
-        for i in range(len(points) - 1):
-            fig.add_shape(
-                type="line",
-                x0=df_view.index[points[i]['idx']],
-                y0=points[i]['price'],
-                x1=df_view.index[points[i+1]['idx']],
-                y1=points[i+1]['price'],
-                line=dict(color=adv['color'], width=2)
-            )
-        
-        # İsimlendirme
-        fig.add_annotation(
-            x=df_view.index[points[2]['idx']],
-            y=points[2]['price'],
-            text=adv['name'],
-            showarrow=True,
-            arrowhead=2,
-            bgcolor=adv['color'],
-            font=dict(color='white')
-        )
-    
-    elif adv['type'] == 'reversal':  # Baş-Omuz
-        # Neckline çiz
-        fig.add_hline(
-            y=adv['neckline'],
-            line_dash="solid",
-            line_color=adv['color'],
-            annotation_text="Boyun Çizgisi"
-        )
-        
-        # Hedef
-        fig.add_hline(
-            y=adv['target'],
-            line_dash="dot",
-            line_color="red",
-            annotation_text=f"🎯 {adv['name']}"
-        )
-    
-    elif adv['type'] in ['continuation', 'wedge']:
-        # Basit kutu gösterimi
-        fig.add_annotation(
-            x=df_view.index[-5],
-            y=df_view['High'].iloc[-5],
-            text=adv['name'],
-            showarrow=False,
-            bgcolor=adv['color'],
-            font=dict(size=12, color='black')
-        )
 # ========================================
 # 🆕 YENİ EKLEME 8: Backtest Motor
 # ========================================
@@ -1761,7 +1687,80 @@ if df_view is not None:
                     fig.add_hline(y=i['target'], line_dash="dashdot", line_color="magenta", annotation_text="HEDEF")
                 elif i['type'] == 'icon':
                     fig.add_annotation(x=i['x'], y=i['y'], text=i['msg'], showarrow=False, yshift=15 if i.get('anchor')=='bottom' else -15)
+# Gelişmiş formasyonları da tespit et
+advanced_items = detect_advanced_patterns(df_view)
 
+# Grafiğe çiz
+       try:
+       for adv in advanced_items:
+           if adv['type'] == 'triangle':
+               # Üçgen çizgisi
+               fig.add_shape(
+                   type="line",
+                   x0=adv['x0'], y0=adv['y0'],
+                   x1=adv['x1'], y1=adv['y1'],
+                   line=dict(color=adv['color'], width=3, dash='dot')
+               )
+               
+               # Hedef çizgisi
+               fig.add_hline(
+                   y=adv['target'],
+                   line_dash="dashdot",
+                   line_color=adv['color'],
+                   annotation_text=f"🎯 {adv['name']}"
+               )
+           
+           elif adv['type'] == 'harmonic':
+               # ABCD noktalarını çiz
+               points = adv['points']
+               for i in range(len(points) - 1):
+                   fig.add_shape(
+                       type="line",
+                       x0=df_view.index[points[i]['idx']],
+                       y0=points[i]['price'],
+                       x1=df_view.index[points[i+1]['idx']],
+                       y1=points[i+1]['price'],
+                       line=dict(color=adv['color'], width=2)
+                   )
+               
+               # İsimlendirme
+               fig.add_annotation(
+                   x=df_view.index[points[2]['idx']],
+                   y=points[2]['price'],
+                   text=adv['name'],
+                   showarrow=True,
+                   arrowhead=2,
+                   bgcolor=adv['color'],
+                   font=dict(color='white')
+               )
+           
+           elif adv['type'] == 'reversal':  # Baş-Omuz
+               # Neckline çiz
+               fig.add_hline(
+                   y=adv['neckline'],
+                   line_dash="solid",
+                   line_color=adv['color'],
+                   annotation_text="Boyun Çizgisi"
+               )
+               
+               # Hedef
+               fig.add_hline(
+                   y=adv['target'],
+                   line_dash="dot",
+                   line_color="red",
+                   annotation_text=f"🎯 {adv['name']}"
+               )
+           
+           elif adv['type'] in ['continuation', 'wedge']:
+               # Basit kutu gösterimi
+               fig.add_annotation(
+                   x=df_view.index[-5],
+                   y=df_view['High'].iloc[-5],
+                   text=adv['name'],
+                   showarrow=False,
+                   bgcolor=adv['color'],
+                   font=dict(size=12, color='black')
+               )
     s_list, r_list = calculate_sr_advanced(df_view, view_tf)
     for s in [x for x in s_list if x < curr][-3:]:
         fig.add_hline(y=s, line_dash="dash", line_color="#00FF00", annotation_text=f"Dst: {s}")
@@ -2451,6 +2450,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
