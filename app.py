@@ -1761,6 +1761,7 @@ try:
                    bgcolor=adv['color'],
                    font=dict(size=12, color='black')
                )
+            
     s_list, r_list = calculate_sr_advanced(df_view, view_tf)
     for s in [x for x in s_list if x < curr][-3:]:
         fig.add_hline(y=s, line_dash="dash", line_color="#00FF00", annotation_text=f"Dst: {s}")
@@ -2450,6 +2451,7 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
+
 
 
 
