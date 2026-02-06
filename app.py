@@ -2758,7 +2758,9 @@ if auto or st.session_state.get('auto_mode', False):
         for tf, res in results.items():
             if res is not None:
                 s_l, r_l = calculate_sr_advanced(res, tf)
-            stat, _, target, _, _ = calculate_oracle_signal_v3(res, s_l, r_l, st.session_state.get('signal_calibration'))
+                stat, _, target, _, _ = calculate_oracle_signal_v3(
+                    res, s_l, r_l, st.session_state.get('signal_calibration')
+                )
                 if "GÜÇLÜ" in stat or "AL" in stat:
                     msg += f"\n⏰ {tf}: {stat} | {target}"
         
