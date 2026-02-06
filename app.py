@@ -788,6 +788,73 @@ def calculate_oracle_score(df, supports, resistances):
         "trend_dir": trend_dir
     }
 
+def calculate_oracle_score_fast(last, prev, supports, resistances, vol_avg):
+    """
+    Hızlı skor hesaplama (precompute için): slice yerine satır bazlı çalışır.
+    """
+    if last is None or prev is None:
+        return None
+    
+    rsi = last.get('RSI', np.nan)
+    price = last.get('Close', np.nan)
+    ema_20 = last.get('EMA_20', np.nan)
+    ema_50 = last.get('EMA_50', np.nan)
+    bb_lower = last.get('BB_Lower', np.nan)
+    bb_upper = last.get('BB_Upper', np.nan)
+    adx_val = last.get('ADX_14', np.nan)
+    
+    macd_current = last.get('MACD', 0)
+    macd_prev = prev.get('MACD', 0)
+    macd_signal = last.get('MACD_Signal', 0)
+    macd_cross_up = macd_prev < macd_signal and macd_current > macd_signal
+    macd_cross_down = macd_prev > macd_signal and macd_current < macd_signal
+    
+    vol_ratio = 1
+    if 'Volume' in last:
+        last_vol = last.get('Volume', 0)
+        if vol_avg is not None and not np.isnan(vol_avg) and vol_avg > 0:
+            vol_ratio = last_vol / vol_avg
+    
+    nearest_support = max([s for s in supports if s < price], default=0)
+    nearest_resistance = min([r for r in resistances if r > price], default=price * 2)
+    
+    support_dist = ((price - nearest_support) / price * 100) if nearest_support > 0 else 100
+    resist_dist = ((nearest_resistance - price) / price * 100) if nearest_resistance < price * 2 else 100
+    
+    score = 50
+    
+    if rsi < 30: score += 30
+    elif rsi < 40: score += 15
+    elif rsi > 70: score -= 30
+    elif rsi > 60: score -= 15
+    
+    is_trending = False
+    if not np.isnan(adx_val) and adx_val >= 25:
+        is_trending = True
+    if price > ema_20 > ema_50:
+        score += (25 if is_trending else 10)
+    elif price < ema_20 < ema_50:
+        score -= (25 if is_trending else 10)
+    
+    if not np.isnan(bb_lower) and price < bb_lower:
+        score += (20 if not is_trending else 10)
+    elif not np.isnan(bb_upper) and price > bb_upper:
+        score -= (20 if not is_trending else 10)
+    
+    if macd_cross_up: score += 10
+    elif macd_cross_down: score -= 10
+    
+    if vol_ratio > 1.5: score += 10
+    elif vol_ratio < 0.7: score -= 5
+    
+    if support_dist < 2: score += 20
+    if resist_dist < 2: score -= 20
+    
+    if not is_trending:
+        score -= 5
+    
+    return score
+
 def get_signal_thresholds(calibration, is_trending):
     defaults = {
         "trending": {"strong_buy": 75, "buy": 60, "sell": 40, "strong_sell": 25},
@@ -1583,7 +1650,29 @@ def run_strategy_backtest(df, initial_balance=10000):
         'equity_curve': equity_curve
     }
 
-def simulate_strategy_with_thresholds(df, buy_thr, sell_thr, base_tf="1d"):
+@st.cache_data(ttl=300, show_spinner=False)
+def precompute_oracle_scores(df, base_tf="1d"):
+    if df is None or len(df) < 100:
+        return None
+    
+    vol_avg_series = None
+    if 'Volume' in df.columns:
+        vol_avg_series = df['Volume'].rolling(20).mean()
+    
+    scores = [None] * len(df)
+    for i in range(50, len(df)):
+        current_slice = df.iloc[:i]
+        supports, resistances = calculate_sr_advanced(current_slice, base_tf)
+        last = df.iloc[i - 1] if i - 1 >= 0 else None
+        prev = df.iloc[i - 2] if i - 2 >= 0 else None
+        vol_avg = vol_avg_series.iloc[i - 1] if vol_avg_series is not None else None
+        score = calculate_oracle_score_fast(last, prev, supports, resistances, vol_avg)
+        if score is not None:
+            scores[i] = score
+    
+    return scores
+
+def simulate_strategy_with_thresholds(df, buy_thr, sell_thr, base_tf="1d", precomputed_scores=None):
     if df is None or len(df) < 100:
         return None
     
@@ -1597,12 +1686,16 @@ def simulate_strategy_with_thresholds(df, buy_thr, sell_thr, base_tf="1d"):
         price = row['Close']
         date = df.index[i]
         
-        supports, resistances = calculate_sr_advanced(current_slice, base_tf)
-        base = calculate_oracle_score(current_slice, supports, resistances)
-        if base is None:
-            continue
+        score = None
+        if precomputed_scores is not None and i < len(precomputed_scores):
+            score = precomputed_scores[i]
         
-        score = base["score"]
+        if score is None:
+            supports, resistances = calculate_sr_advanced(current_slice, base_tf)
+            base = calculate_oracle_score(current_slice, supports, resistances)
+            if base is None:
+                continue
+            score = base["score"]
         signal = "AL" if score >= buy_thr else ("SAT" if score <= sell_thr else "NÖTR")
         
         if position is None and "AL" in signal and balance > 0:
@@ -1668,6 +1761,8 @@ def calibrate_signal_thresholds(df, base_tf="1d"):
     if df is None or len(df) < 200:
         return None
     
+    precomputed_scores = precompute_oracle_scores(df, base_tf=base_tf)
+    
     buy_grid = [60, 62, 65, 68, 70]
     sell_grid = [40, 38, 35, 32, 30]
     best = None
@@ -1676,7 +1771,9 @@ def calibrate_signal_thresholds(df, base_tf="1d"):
         for sell in sell_grid:
             if buy - sell < 20:
                 continue
-            res = simulate_strategy_with_thresholds(df, buy, sell, base_tf=base_tf)
+            res = simulate_strategy_with_thresholds(
+                df, buy, sell, base_tf=base_tf, precomputed_scores=precomputed_scores
+            )
             if res is None:
                 continue
             
