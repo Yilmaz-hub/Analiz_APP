@@ -90,33 +90,17 @@ def load_portfolio():
                 data = json.load(f)
                 # Eski yapıyı (liste) yeni yapıya (dict) dönüştür
                 if isinstance(data, list):
-                    return {"balance": 0.0, "positions": data}
+                    return {"balance": 1000.0, "positions": data}
                 return data
         except: return {"balance": 1000.0, "positions": []}
     return {"balance": 1000.0, "positions": []}
 
 def save_portfolio(data):
-    with open(PORTFOLIO_FILE, "w") as f:
-        json.dump(data, f)
+    with open(PORTFOLIO_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 if 'portfolio_data' not in st.session_state:
     st.session_state['portfolio_data'] = load_portfolio()
-
-# --- COIN HARİTASI (GRAM ALTIN EKLENDİ) ---
-COIN_MAP = {
-    "Bitcoin (BTC)": "BTC-USD", 
-    "Ethereum (ETH)": "ETH-USD", 
-    "Solana (SOL)": "SOL-USD", 
-    "Ripple (XRP)": "XRP-USD", 
-    "Avax (AVAX)": "AVAX-USD", 
-    "Dogecoin (DOGE)": "DOGE-USD", 
-    "Pepe": "PEPE-USD", 
-    "ONS ALTIN ($)": "XAU_GOLD",    # ONS Altın
-    "GRAM ALTIN (TL)": "GRAM_TRY",  # Gram Altın (Hesaplamalı)
-    "EUR/USD": "EURUSD=X",
-    "Türk Hava Yolları (THYAO)": "THYAO.IS", # YENİ EKLENDİ
-    "Pegasus (PGSUS)": "PGSUS.IS"            # YENİ EKLENDİ
-}
 
 # --- EĞİTİM SÖZLÜĞÜ ---
 PATTERN_INFO = {
@@ -133,11 +117,6 @@ HEADERS = {
 }
 
 # --- VERİ MOTORLARI (DÜZELTİLMİŞ VERSİYON) ---
-
-# Standart Tarayıcı Kimliği (Bot Engelini Aşmak İçin)
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-}
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_binance_simple(symbol, interval, limit=1000):
@@ -293,12 +272,21 @@ def process_data(df, src):
             bb = df.ta.bbands(length=20, std=2)
             if bb is not None:
                 df = pd.concat([df, bb], axis=1)
-                # BBands sütun isimleri bazen değişebilir, düzeltme:
-                cols = df.columns
-                # Genellikle BBL_20_2.0 vb. gelir. Son eklenenleri alalım
-                df.rename(columns={cols[-5]: 'BB_Lower', cols[-3]: 'BB_Upper'}, inplace=True)
+                # BBand kolonlarını güvenli şekilde seç
+                bbl_cols = [c for c in bb.columns if c.startswith("BBL_")]
+                bbu_cols = [c for c in bb.columns if c.startswith("BBU_")]
+                if bbl_cols:
+                    df.rename(columns={bbl_cols[0]: 'BB_Lower'}, inplace=True)
+                if bbu_cols:
+                    df.rename(columns={bbu_cols[0]: 'BB_Upper'}, inplace=True)
                 
             df['ATR'] = df.ta.atr(length=14)
+            # Trend gücü (ADX)
+            adx = df.ta.adx(length=14)
+            if adx is not None:
+                adx_cols = [c for c in adx.columns if c.startswith("ADX_")]
+                if adx_cols:
+                    df['ADX_14'] = adx[adx_cols[0]]
             return df, src
         except Exception as e:
             print(f"Process Error: {e}")
@@ -491,7 +479,8 @@ def check_active_positions_auto_close(portfolio_data):
         if not symbol:
             continue
             
-        df_check, _ = get_market_data("Binance", symbol, "4h")
+        source_pref = "Binance" if symbol.endswith("-USD") else "Yahoo"
+        df_check, _ = get_market_data(source_pref, symbol, "4h")
         
         if df_check is not None and len(df_check) > 20:
             atr = df_check['ATR'].iloc[-1]
@@ -630,8 +619,9 @@ def calculate_oracle_signal_v2(df, supports, resistances):
     price = last['Close']
     ema_20 = last['EMA_20']
     ema_50 = last['EMA_50']
-    bb_lower = last['BB_Lower']
-    bb_upper = last['BB_Upper']
+    bb_lower = last.get('BB_Lower', np.nan)
+    bb_upper = last.get('BB_Upper', np.nan)
+    adx_val = last.get('ADX_14', np.nan)
     
     # MACD Çapraz
     macd_current = last.get('MACD', 0)
@@ -662,13 +652,16 @@ def calculate_oracle_signal_v2(df, supports, resistances):
     elif rsi > 70: score -= 30
     elif rsi > 60: score -= 15
     
-    # Trend Puanı
-    if price > ema_20 > ema_50: score += 20  # Güçlü uptrend
-    elif price < ema_20 < ema_50: score -= 20  # Güçlü downtrend
+    # Trend Puanı (ADX ile ağırlıklandır)
+    is_trending = False
+    if not np.isnan(adx_val) and adx_val >= 25:
+        is_trending = True
+    if price > ema_20 > ema_50: score += (25 if is_trending else 10)
+    elif price < ema_20 < ema_50: score -= (25 if is_trending else 10)
     
     # Bollinger
-    if price < bb_lower: score += 15
-    elif price > bb_upper: score -= 15
+    if not np.isnan(bb_lower) and price < bb_lower: score += (20 if not is_trending else 10)
+    elif not np.isnan(bb_upper) and price > bb_upper: score -= (20 if not is_trending else 10)
     
     # MACD Çapraz
     if macd_cross_up: score += 10
@@ -683,6 +676,10 @@ def calculate_oracle_signal_v2(df, supports, resistances):
     if resist_dist < 2: score -= 20  # Dirence çok yakın
     
     # === 4. KARAR MANTĞI ===
+    # Rejim filtresi: trend yoksa daha temkinli ol
+    if not is_trending:
+        score -= 5
+
     if score >= 75:
         status, color = "GÜÇLÜ AL 🚀", "green"
         target_msg = f"📈 Hedef: ${nearest_resistance:,.2f} (+%{resist_dist:.1f})"
@@ -700,6 +697,146 @@ def calculate_oracle_signal_v2(df, supports, resistances):
         target_msg = f"Skor: {score}/100 - Yön belirsiz"
     
     return status, color, target_msg
+
+def calculate_oracle_score(df, supports, resistances):
+    """
+    Geliştirilmiş skor hesaplama (ham skor + bağlam)
+    """
+    if df is None or len(df) < 50: 
+        return None
+    
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
+    
+    # === 1. TEKNİK OKUMA ===
+    rsi = last['RSI']
+    price = last['Close']
+    ema_20 = last['EMA_20']
+    ema_50 = last['EMA_50']
+    bb_lower = last.get('BB_Lower', np.nan)
+    bb_upper = last.get('BB_Upper', np.nan)
+    adx_val = last.get('ADX_14', np.nan)
+    
+    # MACD Çapraz
+    macd_current = last.get('MACD', 0)
+    macd_prev = prev.get('MACD', 0)
+    macd_signal = last.get('MACD_Signal', 0) if 'MACD_Signal' in last else 0
+    macd_cross_up = macd_prev < macd_signal and macd_current > macd_signal
+    macd_cross_down = macd_prev > macd_signal and macd_current < macd_signal
+    
+    # Hacim Onayı
+    vol_ratio = 1
+    if 'Volume' in df.columns and df['Volume'].sum() > 0:
+        vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
+        vol_ratio = last['Volume'] / vol_avg if vol_avg > 0 else 1
+    
+    # === 2. DESTEK/DİRENÇ YAKINLIĞI ===
+    nearest_support = max([s for s in supports if s < price], default=0)
+    nearest_resistance = min([r for r in resistances if r > price], default=price * 2)
+    
+    support_dist = ((price - nearest_support) / price * 100) if nearest_support > 0 else 100
+    resist_dist = ((nearest_resistance - price) / price * 100) if nearest_resistance < price * 2 else 100
+    
+    # === 3. PUAN SİSTEMİ (0-100) ===
+    score = 50  # Nötr başlangıç
+    
+    # RSI Puanı (-30 ile +30 arası)
+    if rsi < 30: score += 30
+    elif rsi < 40: score += 15
+    elif rsi > 70: score -= 30
+    elif rsi > 60: score -= 15
+    
+    # Trend Puanı (ADX ile ağırlıklandır)
+    is_trending = False
+    if not np.isnan(adx_val) and adx_val >= 25:
+        is_trending = True
+    trend_dir = "flat"
+    if price > ema_20 > ema_50:
+        trend_dir = "up"
+        score += (25 if is_trending else 10)
+    elif price < ema_20 < ema_50:
+        trend_dir = "down"
+        score -= (25 if is_trending else 10)
+    
+    # Bollinger
+    if not np.isnan(bb_lower) and price < bb_lower: score += (20 if not is_trending else 10)
+    elif not np.isnan(bb_upper) and price > bb_upper: score -= (20 if not is_trending else 10)
+    
+    # MACD Çapraz
+    if macd_cross_up: score += 10
+    elif macd_cross_down: score -= 10
+    
+    # Hacim Onayı
+    if vol_ratio > 1.5: score += 10  # Yüksek hacim = güçlü hareket
+    elif vol_ratio < 0.7: score -= 5  # Düşük hacim = zayıf sinyal
+    
+    # Destek/Direnç yakınlığı
+    if support_dist < 2: score += 20  # Desteğe çok yakın
+    if resist_dist < 2: score -= 20  # Dirence çok yakın
+    
+    return {
+        "score": score,
+        "price": price,
+        "bb_upper": bb_upper,
+        "bb_lower": bb_lower,
+        "support_dist": support_dist,
+        "resist_dist": resist_dist,
+        "nearest_support": nearest_support,
+        "nearest_resistance": nearest_resistance,
+        "vol_ratio": vol_ratio,
+        "is_trending": is_trending,
+        "trend_dir": trend_dir
+    }
+
+def get_signal_thresholds(calibration, is_trending):
+    defaults = {
+        "trending": {"strong_buy": 75, "buy": 60, "sell": 40, "strong_sell": 25},
+        "ranging": {"strong_buy": 82, "buy": 68, "sell": 32, "strong_sell": 18}
+    }
+    if not calibration:
+        return defaults["trending" if is_trending else "ranging"]
+    key = "trending" if is_trending else "ranging"
+    return calibration.get(key, defaults[key])
+
+def calculate_oracle_signal_v3(df, supports, resistances, calibration=None):
+    base = calculate_oracle_score(df, supports, resistances)
+    if base is None:
+        return "Veri Yok", "gray", "", 0, 0
+    
+    score = base["score"]
+    thresholds = get_signal_thresholds(calibration, base["is_trending"])
+    
+    # Rejim filtresi: trend yoksa daha temkinli ol
+    if not base["is_trending"]:
+        score -= 5
+
+    if score >= thresholds["strong_buy"]:
+        status, color = "GÜÇLÜ AL 🚀", "green"
+        target_msg = f"📈 Hedef: ${base['nearest_resistance']:,.2f} (+%{base['resist_dist']:.1f})"
+    elif score >= thresholds["buy"]:
+        status, color = "AL (Dikkatli) 📊", "blue"
+        target_msg = f"Hedef: ${base['bb_upper']:,.2f}"
+    elif score <= thresholds["strong_sell"]:
+        status, color = "GÜÇLÜ SAT 📉", "red"
+        target_msg = f"📉 Hedef: ${base['nearest_support']:,.2f} (-%{base['support_dist']:.1f})"
+    elif score <= thresholds["sell"]:
+        status, color = "SAT (Kısmi) ⚠️", "orange"
+        target_msg = f"Hedef: ${base['bb_lower']:,.2f}"
+    else:
+        status, color = "NÖTR (BEKLE) 💤", "gray"
+        target_msg = f"Skor: {score}/100 - Yön belirsiz"
+    
+    # Güven skoru (0-100)
+    confidence = min(100, max(0, abs(score - 50) * 2))
+    if base["vol_ratio"] > 1.5:
+        confidence += 5
+    elif base["vol_ratio"] < 0.7:
+        confidence -= 5
+    if base["is_trending"] and base["trend_dir"] in ("up", "down"):
+        confidence += 5
+    confidence = max(0, min(100, confidence))
+    
+    return status, color, target_msg, score, confidence
     
 def multi_timeframe_confirmation(coin_name, symbol):
     """
@@ -714,7 +851,7 @@ def multi_timeframe_confirmation(coin_name, symbol):
             df, _ = get_market_data("Binance", symbol, tf)
             if df is not None and len(df) > 50:
                 s_list, r_list = calculate_sr_advanced(df, tf)
-                status, color, _ = calculate_oracle_signal_v2(df, s_list, r_list)
+                status, color, _, _, _ = calculate_oracle_signal_v3(df, s_list, r_list, st.session_state.get('signal_calibration'))
                 
                 if "AL" in status: 
                     signals[tf] = "AL"
@@ -1350,7 +1487,7 @@ def run_strategy_backtest(df, initial_balance=10000):
         supports, resistances = calculate_sr_advanced(current_slice, "1d")
         
         # Sinyal al
-        signal, color, _ = calculate_oracle_signal_v2(current_slice, supports, resistances)
+        signal, color, _, _, _ = calculate_oracle_signal_v3(current_slice, supports, resistances, None)
         
         # Pozisyon yoksa ve AL sinyali varsa
         if position is None and "AL" in signal and balance > 0:
@@ -1444,6 +1581,128 @@ def run_strategy_backtest(df, initial_balance=10000):
         'profit_factor': profit_factor,
         'trades': trades,
         'equity_curve': equity_curve
+    }
+
+def simulate_strategy_with_thresholds(df, buy_thr, sell_thr, base_tf="1d"):
+    if df is None or len(df) < 100:
+        return None
+    
+    balance = 10000
+    position = None
+    trades = []
+    
+    for i in range(50, len(df)):
+        current_slice = df.iloc[:i]
+        row = df.iloc[i]
+        price = row['Close']
+        date = df.index[i]
+        
+        supports, resistances = calculate_sr_advanced(current_slice, base_tf)
+        base = calculate_oracle_score(current_slice, supports, resistances)
+        if base is None:
+            continue
+        
+        score = base["score"]
+        signal = "AL" if score >= buy_thr else ("SAT" if score <= sell_thr else "NÖTR")
+        
+        if position is None and "AL" in signal and balance > 0:
+            qty = (balance * 0.95) / price
+            position = {
+                'entry': price,
+                'entry_date': date,
+                'qty': qty,
+                'type': 'LONG'
+            }
+            balance -= (qty * price)
+        elif position is not None:
+            atr = current_slice['ATR'].iloc[-1] if 'ATR' in current_slice.columns else price * 0.02
+            tp = position['entry'] + (atr * 2.5)
+            sl = position['entry'] - (atr * 1.5)
+            
+            should_close = False
+            close_reason = ""
+            
+            if "SAT" in signal:
+                should_close = True
+                close_reason = "Sinyal"
+            elif price >= tp:
+                should_close = True
+                close_reason = "TP"
+            elif price <= sl:
+                should_close = True
+                close_reason = "SL"
+            
+            if should_close:
+                pnl = (price - position['entry']) * position['qty']
+                balance += (position['qty'] * price)
+                
+                trades.append({
+                    'entry': position['entry'],
+                    'exit': price,
+                    'entry_date': position['entry_date'],
+                    'exit_date': date,
+                    'pnl': pnl,
+                    'pnl_pct': (pnl / (position['entry'] * position['qty'])) * 100,
+                    'reason': close_reason
+                })
+                
+                position = None
+    
+    if len(trades) == 0:
+        return None
+    
+    total_return = ((balance - 10000) / 10000) * 100
+    winning_trades = [t for t in trades if t['pnl'] > 0]
+    losing_trades = [t for t in trades if t['pnl'] <= 0]
+    win_rate = (len(winning_trades) / len(trades)) * 100 if trades else 0
+    profit_factor = abs(sum([t['pnl'] for t in winning_trades]) / sum([t['pnl'] for t in losing_trades])) if losing_trades and sum([t['pnl'] for t in losing_trades]) != 0 else 0
+    
+    return {
+        'total_return': total_return,
+        'win_rate': win_rate,
+        'profit_factor': profit_factor,
+        'total_trades': len(trades)
+    }
+
+def calibrate_signal_thresholds(df, base_tf="1d"):
+    if df is None or len(df) < 200:
+        return None
+    
+    buy_grid = [60, 62, 65, 68, 70]
+    sell_grid = [40, 38, 35, 32, 30]
+    best = None
+    
+    for buy in buy_grid:
+        for sell in sell_grid:
+            if buy - sell < 20:
+                continue
+            res = simulate_strategy_with_thresholds(df, buy, sell, base_tf=base_tf)
+            if res is None:
+                continue
+            
+            objective = res['total_return'] + (res['profit_factor'] * 5) + ((res['win_rate'] - 50) * 0.2)
+            if best is None or objective > best['objective']:
+                best = {
+                    'objective': objective,
+                    'buy': buy,
+                    'sell': sell,
+                    'metrics': res
+                }
+    
+    if not best:
+        return None
+    
+    buy = best['buy']
+    sell = best['sell']
+    strong_buy = min(95, buy + 10)
+    strong_sell = max(5, sell - 10)
+    
+    return {
+        "trending": {"strong_buy": strong_buy, "buy": buy, "sell": sell, "strong_sell": strong_sell},
+        "ranging": {"strong_buy": min(95, buy + 12), "buy": min(90, buy + 3), "sell": max(10, sell - 3), "strong_sell": max(5, sell - 12)},
+        "source": base_tf,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M"),
+        "metrics": best['metrics']
     }
     
 def send_tg(token, chat_id, msg):
@@ -1580,11 +1839,11 @@ for tf, label in intervals.items():
     
     if df is not None:
         s_list, r_list = calculate_sr_advanced(df, tf)
-        status, color, target_msg = calculate_oracle_signal_v2(df, s_list, r_list)
+        status, color, target_msg, score, conf = calculate_oracle_signal_v3(df, s_list, r_list, st.session_state.get('signal_calibration'))
         st.sidebar.markdown("---")
         st.sidebar.markdown(f"### {label}")
         st.sidebar.markdown(f"<span style='color:{color}; font-weight:bold; font-size:18px'>{status}</span>", unsafe_allow_html=True)
-        st.sidebar.caption(f"{target_msg}")
+        st.sidebar.caption(f"{target_msg} | Güven: %{conf:.0f}")
         adv_patterns = detect_advanced_patterns(df)
     
         if adv_patterns:
@@ -1917,8 +2176,9 @@ if df_view is not None:
 
     with col3:
         st.success("### 🎯 AI Stratejisi")
-        # Sinyali Hesapla
-        signal_status, color, target_msg = calculate_oracle_signal_v2(df_view, s_list, r_list)
+        # Sinyali Hesapla (seçili zaman dilimine göre destek/direnç yeniden hesaplanır)
+        s_list_view, r_list_view = calculate_sr_advanced(df_view, view_tf)
+        signal_status, color, target_msg, score, conf = calculate_oracle_signal_v3(df_view, s_list_view, r_list_view, st.session_state.get('signal_calibration'))
         
         # Trend Kontrolü (EMA 50)
         is_uptrend = curr > df_view['EMA_50'].iloc[-1]
@@ -1951,6 +2211,16 @@ if df_view is not None:
         # Ekrana Yazdır
         st.markdown(f"<span style='color:{color}; font-weight:bold; font-size:20px'>{signal_status}</span>", unsafe_allow_html=True)
         st.caption(trend_note)
+        st.caption(f"🧠 AI Güven: %{conf:.0f}")
+        calib = st.session_state.get('signal_calibration')
+        if calib:
+            base = calculate_oracle_score(df_view, s_list_view, r_list_view)
+            if base:
+                thresholds = get_signal_thresholds(calib, base["is_trending"])
+                st.caption(
+                    f"🎯 Eşikler: AL≥{thresholds['buy']} | SAT≤{thresholds['sell']} | "
+                    f"GÜÇLÜ AL≥{thresholds['strong_buy']} | GÜÇLÜ SAT≤{thresholds['strong_sell']}"
+                )
         st.write(f"**{target_msg}**")
         
         # Setup Sadece AL veya SAT varsa gösterilir
@@ -2020,6 +2290,20 @@ if df_view is not None:
                     with st.expander("📋 Tüm İşlemler"):
                         trades_df = pd.DataFrame(results['trades'])
                         st.dataframe(trades_df, use_container_width=True)
+                
+        st.divider()
+        st.subheader("🎯 Sinyal Kalibrasyonu")
+        if st.button("🎯 Sinyal Eşiklerini Kalibre Et"):
+            with st.spinner("Kalibrasyon çalışıyor..."):
+                calib = calibrate_signal_thresholds(df_view, base_tf=view_tf)
+                if calib:
+                    st.session_state['signal_calibration'] = calib
+                    st.success(
+                        f"Kalibrasyon tamamlandı ({calib['timestamp']}). "
+                        f"AL≥{calib['trending']['buy']} | SAT≤{calib['trending']['sell']}"
+                    )
+                else:
+                    st.warning("Kalibrasyon için yeterli veri yok.")
                         
 # --- CÜZDAN (NAKİT YÖNETİMİ & AI TARAYICI) ---
     st.divider()
@@ -2066,7 +2350,7 @@ if df_view is not None:
                     nearest_sup = max([s for s in sup_list if s < last_price], default=0)
                 
                 # === ANA SİNYAL SİSTEMİ ===
-                    main_signal, main_color, target_msg = calculate_oracle_signal_v2(d_scan, sup_list, res_list)
+                    main_signal, main_color, target_msg, _, _ = calculate_oracle_signal_v3(d_scan, sup_list, res_list, st.session_state.get('signal_calibration'))
                 
                 # --- TARAYICI PUANLAMASI ---
                     score = 50 
@@ -2359,13 +2643,17 @@ if df_view is not None:
                 pending_data = []
                 for item in pending_pos:
                     lp = curr if item['Coin'] == sel_c else get_live_price_for_portfolio(item['Coin'])
-                    diff_pct = ((lp - item['Giriş']) / lp) * 100
+                    if lp and lp > 0:
+                        diff_pct = ((lp - item['Giriş']) / lp) * 100
+                        diff_display = f"%{diff_pct:.2f}"
+                    else:
+                        diff_display = "N/A"
                     
                     pending_data.append({
                         "Coin": item['Coin'],
                         "Hedef Giriş": item['Giriş'],
                         "Anlık Fiyat": lp,
-                        "Uzaklık (%)": f"%{diff_pct:.2f}",
+                        "Uzaklık (%)": diff_display,
                         "Kilitli Tutar": item['Yatırım']
                     })
                 
@@ -2461,22 +2749,26 @@ if st.session_state.get('portfolio_data'):
 
 # BOT
 if auto or st.session_state.get('auto_mode', False):
-    msg = ""
-    for tf, res in results.items():
-        if res is not None:
-            s_l, r_l = calculate_sr_advanced(res, tf)
-            stat, _, target = calculate_oracle_signal_v2(res, s_l, r_l)
-            if "GÜÇLÜ" in stat or "AL" in stat:
-                msg += f"\n⏰ {tf}: {stat} | {target}"
-    
-    if msg and tg_token and tg_chat:
-        full_msg = f"🚨 **{sel_c} BOT** 🚨\n{msg}\nFiyat: {curr:.2f}"
-        if 'last_msg' not in st.session_state or st.session_state['last_msg'] != full_msg:
-            send_tg(tg_token, tg_chat, full_msg)
-            st.session_state['last_msg'] = full_msg
-    
-    time.sleep(14400) 
-    st.rerun()
+    now = time.time()
+    last_bot_run = st.session_state.get('last_bot_run', 0)
+    if now - last_bot_run < 14400:
+        pass
+    else:
+        msg = ""
+        for tf, res in results.items():
+            if res is not None:
+                s_l, r_l = calculate_sr_advanced(res, tf)
+            stat, _, target, _, _ = calculate_oracle_signal_v3(res, s_l, r_l, st.session_state.get('signal_calibration'))
+                if "GÜÇLÜ" in stat or "AL" in stat:
+                    msg += f"\n⏰ {tf}: {stat} | {target}"
+        
+        if msg and tg_token and tg_chat:
+            full_msg = f"🚨 **{sel_c} BOT** 🚨\n{msg}\nFiyat: {curr:.2f}"
+            if 'last_msg' not in st.session_state or st.session_state['last_msg'] != full_msg:
+                send_tg(tg_token, tg_chat, full_msg)
+                st.session_state['last_msg'] = full_msg
+        
+        st.session_state['last_bot_run'] = now
 
 
 
