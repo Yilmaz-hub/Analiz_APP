@@ -13,11 +13,20 @@ from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_absolute_error
+
+# Import custom modules
+from logger import logger
+from config import (
+    DataFetchConfig, IndicatorConfig, RiskConfig,
+    MLConfig, SignalConfig, SRConfig, Constants,
+    FileConfig, TelegramConfig, UIConfig
+)
+
 # ==========================================
 # 🛠️ KULLANICI AYARLARI
 # ==========================================
-DEFAULT_TOKEN = ""
-DEFAULT_CHAT_ID = ""
+DEFAULT_TOKEN = TelegramConfig.DEFAULT_TOKEN
+DEFAULT_CHAT_ID = TelegramConfig.DEFAULT_CHAT_ID
 #try:
  #   DEFAULT_TOKEN = st.secrets["TELEGRAM_TOKEN"]
   #  DEFAULT_CHAT_ID = st.secrets["TELEGRAM_CHAT_ID"]
@@ -26,8 +35,8 @@ DEFAULT_CHAT_ID = ""
  #   st.error("Lütfen .streamlit/secrets.toml dosyasını oluşturun veya Cloud Secrets ayarını yapın!")
   #  DEFAULT_TOKEN = ""
    # DEFAULT_CHAT_ID = ""
-PORTFOLIO_FILE = "portfolio.json"
-ASSETS_FILE = "varliklar.json"
+PORTFOLIO_FILE = FileConfig.PORTFOLIO_FILE
+ASSETS_FILE = FileConfig.ASSETS_FILE
 # ==========================================
 
 st.set_page_config(layout="wide", page_title="Pro Trader V47 (Gold Edition)")
@@ -64,7 +73,11 @@ def load_assets():
         try:
             with open(ASSETS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except:
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            logger.warning(f"Failed to load assets file: {e}. Using defaults.")
+            return DEFAULT_COIN_MAP.copy()
+        except Exception as e:
+            logger.error(f"Unexpected error loading assets: {e}")
             return DEFAULT_COIN_MAP.copy()
     else:
         # Dosya yoksa varsayılanı kaydet ve döndür
@@ -80,8 +93,6 @@ def save_assets(data):
 if 'coin_map' not in st.session_state:
     st.session_state['coin_map'] = load_assets()
 
-# Artık COIN_MAP global değişkenini session state'e bağlıyoruz
-COIN_MAP = st.session_state['coin_map']
 # --- VERİTABANI (YENİ YAPI) ---
 def load_portfolio():
     if os.path.exists(PORTFOLIO_FILE):
@@ -92,8 +103,13 @@ def load_portfolio():
                 if isinstance(data, list):
                     return {"balance": 0.0, "positions": data}
                 return data
-        except: return {"balance": 1000.0, "positions": []}
-    return {"balance": 1000.0, "positions": []}
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            logger.warning(f"Failed to load portfolio file: {e}. Using defaults.")
+            return {"balance": Constants.DEFAULT_PORTFOLIO_BALANCE, "positions": []}
+        except Exception as e:
+            logger.error(f"Unexpected error loading portfolio: {e}")
+            return {"balance": Constants.DEFAULT_PORTFOLIO_BALANCE, "positions": []}
+    return {"balance": Constants.DEFAULT_PORTFOLIO_BALANCE, "positions": []}
 
 def save_portfolio(data):
     with open(PORTFOLIO_FILE, "w") as f:
@@ -101,22 +117,6 @@ def save_portfolio(data):
 
 if 'portfolio_data' not in st.session_state:
     st.session_state['portfolio_data'] = load_portfolio()
-
-# --- COIN HARİTASI (GRAM ALTIN EKLENDİ) ---
-COIN_MAP = {
-    "Bitcoin (BTC)": "BTC-USD", 
-    "Ethereum (ETH)": "ETH-USD", 
-    "Solana (SOL)": "SOL-USD", 
-    "Ripple (XRP)": "XRP-USD", 
-    "Avax (AVAX)": "AVAX-USD", 
-    "Dogecoin (DOGE)": "DOGE-USD", 
-    "Pepe": "PEPE-USD", 
-    "ONS ALTIN ($)": "XAU_GOLD",    # ONS Altın
-    "GRAM ALTIN (TL)": "GRAM_TRY",  # Gram Altın (Hesaplamalı)
-    "EUR/USD": "EURUSD=X",
-    "Türk Hava Yolları (THYAO)": "THYAO.IS", # YENİ EKLENDİ
-    "Pegasus (PGSUS)": "PGSUS.IS"            # YENİ EKLENDİ
-}
 
 # --- EĞİTİM SÖZLÜĞÜ ---
 PATTERN_INFO = {
@@ -127,19 +127,9 @@ PATTERN_INFO = {
     "Yutan Boğa": "🚀 **Yutan Boğa:** Güçlü alım."
 }
 
-# --- STANDART HEADERS (BOT ENGELİNİ AŞMAK İÇİN) ---
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-}
-
 # --- VERİ MOTORLARI (DÜZELTİLMİŞ VERSİYON) ---
 
-# Standart Tarayıcı Kimliği (Bot Engelini Aşmak İçin)
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-}
-
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=DataFetchConfig.CACHE_TTL, show_spinner=False)
 def fetch_binance_simple(symbol, interval, limit=1000):
     # Sembol Düzeltme
     s_bin = symbol.replace("-", "").replace("USD", "USDT")
@@ -156,7 +146,7 @@ def fetch_binance_simple(symbol, interval, limit=1000):
     for url in base_urls:
         try:
             # Timeout süresini kısa tutuyoruz ki diğer URL'ye hızlı geçsin
-            r = requests.get(url, params=params, headers=HEADERS, timeout=3)
+            r = requests.get(url, params=params, headers=DataFetchConfig.HEADERS, timeout=3)
             
             if r.status_code == 200:
                 data = r.json()
@@ -186,7 +176,7 @@ def fetch_okx_simple(symbol, interval, limit=300):
     params = {"instId": s_okx, "bar": omap.get(interval, "1D"), "limit": limit}
     
     try:
-        r = requests.get(url, params=params, headers=HEADERS, timeout=5)
+        r = requests.get(url, params=params, headers=DataFetchConfig.HEADERS, timeout=5)
         data = r.json()
         if data.get('code') == '0':
             # OKX Sıralaması: ts, o, h, l, c, vol, ...
@@ -265,14 +255,15 @@ def fetch_gram_gold_calculated(interval):
             df = df_ons.join(df_usd, how='inner')
             
             # Formül: (Ons * Dolar) / 31.1035
-            df['Close'] = (df['Ons'] * df['Usd']) / 31.1035
+            df['Close'] = (df['Ons'] * df['Usd']) / Constants.OUNCE_TO_GRAM
             
             # Yapay OHLC oluştur
             df['Open'] = df['Close']
             df['High'] = df['Close'] * 1.002
             df['Low'] = df['Close'] * 0.998
-            df['Volume'] = 10000 
-            
+            df['Volume'] = Constants.DEFAULT_GRAM_GOLD_VOLUME
+            logger.debug(f"Using default volume {Constants.DEFAULT_GRAM_GOLD_VOLUME} for calculated Gram Gold")
+
             return df[['Open', 'High', 'Low', 'Close', 'Volume']]
     except Exception as e:
         print(f"Gram Gold Calculation Error: {e}")
@@ -285,23 +276,23 @@ def process_data(df, src):
             if 'Volume' not in df.columns: df['Volume'] = 0
             
             # İndikatör Hesaplamaları
-            df['RSI'] = df.ta.rsi(length=14)
-            df['EMA_50'] = df.ta.ema(length=50)
-            df['EMA_20'] = df.ta.ema(length=20)
-            
+            df['RSI'] = df.ta.rsi(length=IndicatorConfig.RSI_LENGTH)
+            df['EMA_50'] = df.ta.ema(length=IndicatorConfig.EMA_LONG)
+            df['EMA_20'] = df.ta.ema(length=IndicatorConfig.EMA_SHORT)
+
             # Bollinger Bantları
-            bb = df.ta.bbands(length=20, std=2)
+            bb = df.ta.bbands(length=IndicatorConfig.BOLLINGER_LENGTH, std=IndicatorConfig.BOLLINGER_STD)
             if bb is not None:
                 df = pd.concat([df, bb], axis=1)
                 # BBands sütun isimleri bazen değişebilir, düzeltme:
                 cols = df.columns
                 # Genellikle BBL_20_2.0 vb. gelir. Son eklenenleri alalım
                 df.rename(columns={cols[-5]: 'BB_Lower', cols[-3]: 'BB_Upper'}, inplace=True)
-                
-            df['ATR'] = df.ta.atr(length=14)
+
+            df['ATR'] = df.ta.atr(length=IndicatorConfig.ATR_LENGTH)
             return df, src
         except Exception as e:
-            print(f"Process Error: {e}")
+            logger.error(f"Process Error: {e}")
             return None, "İşleme Hatası"
             
     return None, "Yetersiz Veri"
@@ -378,13 +369,14 @@ def get_fear_greed_index():
         value = int(data['data'][0]['value'])
         classification = data['data'][0]['value_classification']
         return value, classification
-    except:
+    except (requests.RequestException, KeyError, ValueError) as e:
+        logger.warning(f"Failed to fetch Fear & Greed index: {e}. Using neutral default.")
         return 50, "Neutral"  # Hata durumunda nötr döndür
 # --- CÜZDAN CANLI FİYAT (YEDEKLİ) ---
 @st.cache_data(ttl=30, show_spinner=False)
 def get_live_price_for_portfolio(coin_name):
     try:
-        ticker_symbol = COIN_MAP.get(coin_name)
+        ticker_symbol = st.session_state['coin_map'].get(coin_name)
         
         # GRAM ALTIN HESABI (CANLI)
         if ticker_symbol == "GRAM_TRY":
@@ -407,7 +399,7 @@ def get_live_price_for_portfolio(coin_name):
                  except: pass
 
              if ons_price > 0 and usd_price > 0:
-                 return (ons_price * usd_price) / 31.1035
+                 return (ons_price * usd_price) / Constants.OUNCE_TO_GRAM
              return 0
 
         # ONS ALTIN (CANLI)
@@ -487,7 +479,7 @@ def check_active_positions_auto_close(portfolio_data):
             continue
         
         # ATR al (4 saatlik için)
-        symbol = COIN_MAP.get(coin_name)
+        symbol = st.session_state['coin_map'].get(coin_name)
         if not symbol:
             continue
             
@@ -634,17 +626,29 @@ def calculate_oracle_signal_v2(df, supports, resistances):
     bb_upper = last['BB_Upper']
     
     # MACD Çapraz
-    macd_current = last.get('MACD', 0)
-    macd_prev = prev.get('MACD', 0)
-    macd_signal = last.get('MACD_Signal', 0) if 'MACD_Signal' in last else 0
-    macd_cross_up = macd_prev < macd_signal and macd_current > macd_signal
-    macd_cross_down = macd_prev > macd_signal and macd_current < macd_signal
+    macd_current = last.get('MACD')
+    macd_prev = prev.get('MACD')
+    macd_signal = last.get('MACD_Signal')
+
+    # Only check crossover if MACD data is valid
+    macd_cross_up = False
+    macd_cross_down = False
+    if all(pd.notna([macd_current, macd_prev, macd_signal])):
+        macd_cross_up = macd_prev < macd_signal and macd_current > macd_signal
+        macd_cross_down = macd_prev > macd_signal and macd_current < macd_signal
+    else:
+        logger.debug("MACD data incomplete, skipping crossover check")
     
     # Hacim Onayı
     vol_ratio = 1
     if 'Volume' in df.columns and df['Volume'].sum() > 0:
-        vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
-        vol_ratio = last['Volume'] / vol_avg if vol_avg > 0 else 1
+        vol_avg = df['Volume'].rolling(IndicatorConfig.VOLUME_SMA_LENGTH).mean().iloc[-1]
+        if vol_avg > 0:
+            vol_ratio = last['Volume'] / vol_avg
+        else:
+            logger.warning("Volume average is 0, using neutral ratio")
+    else:
+        logger.debug("Volume data not available for volume ratio calculation")
     
     # === 2. DESTEK/DİRENÇ YAKINLIĞI ===
     nearest_support = max([s for s in supports if s < price], default=0)
@@ -654,45 +658,59 @@ def calculate_oracle_signal_v2(df, supports, resistances):
     resist_dist = ((nearest_resistance - price) / price * 100) if nearest_resistance < price * 2 else 100
     
     # === 3. PUAN SİSTEMİ (0-100) ===
-    score = 50  # Nötr başlangıç
-    
-    # RSI Puanı (-30 ile +30 arası)
-    if rsi < 30: score += 30
-    elif rsi < 40: score += 15
-    elif rsi > 70: score -= 30
-    elif rsi > 60: score -= 15
+    score = SignalConfig.NEUTRAL_START_SCORE  # Nötr başlangıç
+
+    # RSI Puanı
+    if rsi < SignalConfig.RSI_OVERSOLD:
+        score += SignalConfig.RSI_OVERSOLD_SCORE
+    elif rsi < SignalConfig.RSI_OVERSOLD_LIGHT:
+        score += SignalConfig.RSI_OVERSOLD_LIGHT_SCORE
+    elif rsi > SignalConfig.RSI_OVERBOUGHT:
+        score += SignalConfig.RSI_OVERBOUGHT_SCORE
+    elif rsi > SignalConfig.RSI_OVERBOUGHT_LIGHT:
+        score += SignalConfig.RSI_OVERBOUGHT_LIGHT_SCORE
     
     # Trend Puanı
-    if price > ema_20 > ema_50: score += 20  # Güçlü uptrend
-    elif price < ema_20 < ema_50: score -= 20  # Güçlü downtrend
-    
+    if price > ema_20 > ema_50:
+        score += SignalConfig.TREND_SCORE  # Güçlü uptrend
+    elif price < ema_20 < ema_50:
+        score -= SignalConfig.TREND_SCORE  # Güçlü downtrend
+
     # Bollinger
-    if price < bb_lower: score += 15
-    elif price > bb_upper: score -= 15
-    
+    if price < bb_lower:
+        score += SignalConfig.BOLLINGER_SCORE
+    elif price > bb_upper:
+        score -= SignalConfig.BOLLINGER_SCORE
+
     # MACD Çapraz
-    if macd_cross_up: score += 10
-    elif macd_cross_down: score -= 10
-    
+    if macd_cross_up:
+        score += SignalConfig.MACD_CROSS_SCORE
+    elif macd_cross_down:
+        score -= SignalConfig.MACD_CROSS_SCORE
+
     # Hacim Onayı
-    if vol_ratio > 1.5: score += 10  # Yüksek hacim = güçlü hareket
-    elif vol_ratio < 0.7: score -= 5  # Düşük hacim = zayıf sinyal
-    
+    if vol_ratio > IndicatorConfig.HIGH_VOLUME_THRESHOLD:
+        score += SignalConfig.HIGH_VOLUME_SCORE  # Yüksek hacim = güçlü hareket
+    elif vol_ratio < IndicatorConfig.LOW_VOLUME_THRESHOLD:
+        score += SignalConfig.LOW_VOLUME_PENALTY  # Düşük hacim = zayıf sinyal
+
     # Destek/Direnç yakınlığı
-    if support_dist < 2: score += 20  # Desteğe çok yakın
-    if resist_dist < 2: score -= 20  # Dirence çok yakın
+    if support_dist < SignalConfig.SUPPORT_DISTANCE_THRESHOLD:
+        score += SignalConfig.SUPPORT_PROXIMITY_SCORE  # Desteğe çok yakın
+    if resist_dist < SignalConfig.RESISTANCE_DISTANCE_THRESHOLD:
+        score += SignalConfig.RESISTANCE_PROXIMITY_SCORE  # Dirence çok yakın
     
     # === 4. KARAR MANTĞI ===
-    if score >= 75:
+    if score >= SignalConfig.STRONG_BUY_THRESHOLD:
         status, color = "GÜÇLÜ AL 🚀", "green"
         target_msg = f"📈 Hedef: ${nearest_resistance:,.2f} (+%{resist_dist:.1f})"
-    elif score >= 60:
+    elif score >= SignalConfig.BUY_THRESHOLD:
         status, color = "AL (Dikkatli) 📊", "blue"
         target_msg = f"Hedef: ${bb_upper:,.2f}"
-    elif score <= 25:
+    elif score <= SignalConfig.STRONG_SELL_THRESHOLD:
         status, color = "GÜÇLÜ SAT 📉", "red"
         target_msg = f"📉 Hedef: ${nearest_support:,.2f} (-%{support_dist:.1f})"
-    elif score <= 40:
+    elif score <= SignalConfig.SELL_THRESHOLD:
         status, color = "SAT (Kısmi) ⚠️", "orange"
         target_msg = f"Hedef: ${bb_lower:,.2f}"
     else:
@@ -762,14 +780,23 @@ def calculate_smart_prediction_FIXED(df, periods=15):
         work_df = df.copy()
         if len(work_df) < 150: return [], [], 0
         
-        # === İNDİKATÖRLER (Değişiklik yok) ===
-        work_df['RSI'] = work_df.ta.rsi(length=14)
-        work_df['CCI'] = work_df.ta.cci(length=20)
-        work_df['ATR'] = work_df.ta.atr(length=14)
-        
-        macd = work_df.ta.macd(fast=12, slow=26, signal=9)
-        work_df['MACD'] = macd['MACD_12_26_9'] if macd is not None else 0
-        work_df['MACD_Signal'] = macd['MACDs_12_26_9'] if macd is not None else 0
+        # === İNDİKATÖRLER ===
+        work_df['RSI'] = work_df.ta.rsi(length=IndicatorConfig.RSI_LENGTH)
+        work_df['CCI'] = work_df.ta.cci(length=IndicatorConfig.CCI_LENGTH)
+        work_df['ATR'] = work_df.ta.atr(length=IndicatorConfig.ATR_LENGTH)
+
+        macd = work_df.ta.macd(
+            fast=IndicatorConfig.MACD_FAST,
+            slow=IndicatorConfig.MACD_SLOW,
+            signal=IndicatorConfig.MACD_SIGNAL
+        )
+        if macd is not None:
+            work_df['MACD'] = macd['MACD_12_26_9']
+            work_df['MACD_Signal'] = macd['MACDs_12_26_9']
+        else:
+            logger.warning("MACD calculation failed in ML prediction, setting to NaN")
+            work_df['MACD'] = np.nan
+            work_df['MACD_Signal'] = np.nan
         
         stoch = work_df.ta.stochrsi()
         work_df['StochRSI_K'] = stoch['STOCHRSIk_14_14_3_3'] if stoch is not None else 50
@@ -822,7 +849,7 @@ def calculate_smart_prediction_FIXED(df, periods=15):
         # ====================================================
         
         # 1️⃣ ÖNCE VERİYİ BÖL (Ham haliyle)
-        test_size = int(len(X) * 0.25)
+        test_size = int(len(X) * MLConfig.TEST_SIZE_RATIO)
         X_train_raw = X[:-test_size]
         X_test_raw = X[-test_size:]
         y_train = y[:-test_size]
@@ -840,7 +867,12 @@ def calculate_smart_prediction_FIXED(df, periods=15):
         # ====================================================
         
         # === BACKTEST ===
-        rf_model = RandomForestRegressor(n_estimators=250, max_depth=10, min_samples_split=5, random_state=42)
+        rf_model = RandomForestRegressor(
+            n_estimators=MLConfig.RF_BACKTEST_ESTIMATORS,
+            max_depth=MLConfig.RF_BACKTEST_MAX_DEPTH,
+            min_samples_split=MLConfig.RF_BACKTEST_MIN_SAMPLES_SPLIT,
+            random_state=42
+        )
         lr_model = LinearRegression()
         
         rf_model.fit(X_train, y_train)
@@ -848,7 +880,7 @@ def calculate_smart_prediction_FIXED(df, periods=15):
         
         rf_pred = rf_model.predict(X_test)
         lr_pred = lr_model.predict(X_test)
-        ensemble_pred = 0.7 * rf_pred + 0.3 * lr_pred
+        ensemble_pred = MLConfig.RF_WEIGHT * rf_pred + MLConfig.LR_WEIGHT * lr_pred
         
         # Doğruluk hesabı
         mae = mean_absolute_error(y_test, ensemble_pred)
@@ -857,19 +889,23 @@ def calculate_smart_prediction_FIXED(df, periods=15):
         direction_acc = np.mean((ensemble_pred > 0) == (y_test > 0)) * 100
         volatility_penalty = min(mae / (volatility + 1e-6), 1.0)
         
-        accuracy_score = (direction_acc * 0.6) + ((1 - volatility_penalty) * 40)
+        accuracy_score = (direction_acc * MLConfig.DIRECTION_WEIGHT) + ((1 - volatility_penalty) * (MLConfig.VOLATILITY_WEIGHT * 100))
         accuracy_score = max(0, min(100, accuracy_score))
         
         # === FINAL MODEL (Tüm veriyle eğit) ===
-        # ⚠️ DİKKAT: Burada da scaler'ı sadece TÜM MEVCUT VERİ üzerinde fit ediyoruz
-        # Gelecek için tahmin yaparken bu scaler sabit kalacak
-        scaler_full = MinMaxScaler()
-        X_scaled_full = scaler_full.fit_transform(X)
-        
-        rf_final = RandomForestRegressor(n_estimators=300, max_depth=12, random_state=42)
+        # ✅ FIXED: Production uses SAME scaler as backtest (no data leakage)
+        # Scaler is already fit on training data only, now just transform all data
+        X_production_scaled = scaler.transform(X)  # Transform only, no fit!
+
+        rf_final = RandomForestRegressor(
+            n_estimators=MLConfig.RF_PROD_ESTIMATORS,
+            max_depth=MLConfig.RF_PROD_MAX_DEPTH,
+            min_samples_split=MLConfig.RF_PROD_MIN_SAMPLES_SPLIT,
+            random_state=42
+        )
         lr_final = LinearRegression()
-        rf_final.fit(X_scaled_full, y)
-        lr_final.fit(X_scaled_full, y)
+        rf_final.fit(X_production_scaled, y)
+        lr_final.fit(X_production_scaled, y)
         
         # === GELECEK TAHMİNİ ===
         future_dates = []
@@ -880,18 +916,18 @@ def calculate_smart_prediction_FIXED(df, periods=15):
         current_price = work_df['Close'].iloc[-1]
         
         sim_state = work_df[features].iloc[-1].copy()
-        confidence_decay = 0.95
+        confidence_decay = MLConfig.CONFIDENCE_DECAY
         
         for step in range(1, periods + 1):
             next_date = last_date + (time_delta * step)
             future_dates.append(next_date)
             
-            # 🔥 ÖNEMLİ: Simülasyonda scaler_full kullanıyoruz (sabit kalıyor)
-            sim_input = scaler_full.transform([sim_state.values])
+            # ✅ FIXED: Use same scaler from backtest (trained only on historical data)
+            sim_input = scaler.transform([sim_state.values])
             
             rf_change = rf_final.predict(sim_input)[0]
             lr_change = lr_final.predict(sim_input)[0]
-            pred_change = (0.7 * rf_change + 0.3 * lr_change) * (accuracy_score / 100) * (confidence_decay ** step)
+            pred_change = (MLConfig.RF_WEIGHT * rf_change + MLConfig.LR_WEIGHT * lr_change) * (accuracy_score / 100) * (confidence_decay ** step)
             
             next_price = current_price * (1 + pred_change)
             predictions.append(next_price)
@@ -1482,8 +1518,6 @@ with st.sidebar.expander("➕ Varlık Yönetimi", expanded=False):
                 st.session_state['coin_map'][new_name] = new_symbol
                 # Dosyaya kaydet
                 save_assets(st.session_state['coin_map'])
-                # Global değişkeni anında güncelle ki aşağıda görünsün
-                COIN_MAP = st.session_state['coin_map'] 
                 st.success(f"{new_name} eklendi!")
                 time.sleep(0.5)
                 st.rerun()
@@ -1500,7 +1534,6 @@ with st.sidebar.expander("➕ Varlık Yönetimi", expanded=False):
             if len(st.session_state['coin_map']) > 1:
                 del st.session_state['coin_map'][del_asset]
                 save_assets(st.session_state['coin_map'])
-                COIN_MAP = st.session_state['coin_map'] # Anında güncelleme
                 st.warning(f"{del_asset} silindi.")
                 time.sleep(0.5)
                 st.rerun()
@@ -2043,7 +2076,7 @@ if df_view is not None:
             if 'coin_map' in st.session_state:
                 current_map = st.session_state['coin_map']
             else:
-                current_map = COIN_MAP # Yedek
+                current_map = DEFAULT_COIN_MAP.copy()  # Yedek
             coins_to_scan = list(current_map.keys())
             total_coins = len(coins_to_scan)
         
@@ -2477,7 +2510,6 @@ if auto or st.session_state.get('auto_mode', False):
     
     time.sleep(14400) 
     st.rerun()
-
 
 
 
