@@ -3,7 +3,7 @@ import logging
 import sys
 from pathlib import Path
 
-def setup_logger(name:"ProTrader", level=logging.INFO, log_file:None):
+def setup_logger(name="ProTrader", level=logging.INFO, log_file=None):
     """
     Configures and returns a logger instance with the specified name, level, and optional log file.
     ARGS:
