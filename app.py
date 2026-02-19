@@ -58,11 +58,11 @@ if 'portfolio_data' not in st.session_state:
 # --- ARAYÜZ (SIDEBAR) ---
 tg_token, tg_chat = render_sidebar_settings()
 render_asset_management(st.session_state['coin_map'], save_assets)
-render_opportunity_scanner(st.session_state['coin_map'], src_pref)
 
 st.sidebar.divider()
 current_assets = list(st.session_state['coin_map'].keys())
 src_pref = st.sidebar.radio("📡 Kaynak:", ["Binance", "OKX", "Yahoo Finance"])
+render_opportunity_scanner(st.session_state['coin_map'], src_pref)
 
 if not current_assets: current_assets = ["Bitcoin (BTC)"]
 
