@@ -195,26 +195,27 @@ class UIConfig:
 
 # DEFAULT ASSETS
 DEFAULT_COIN_MAP: dict[str, str] = {
-    "BTC": "BTC-USD",
-    "ETH": "ETH-USD",
-    "SOL": "SOL-USD",
-    "AVAX": "AVAX-USD",
-    "XRP": "XRP-USD",
-    "BNB": "BNB-USD",
-    "DOGE": "DOGE-USD",
-    "ADA": "ADA-USD",
-    "DOT": "DOT-USD",
-    "LINK": "LINK-USD",
-    "MATIC": "MATIC-USD",
-    "GRAM_TRY": "GRAM_TRY",
-    "XAU_GOLD": "XAU_GOLD",
+    "Bitcoin (BTC)": "BTC-USD",
+    "Ethereum (ETH)": "ETH-USD",
+    "Solana (SOL)": "SOL-USD",
+    "Ripple (XRP)": "XRP-USD",
+    "Avax (AVAX)": "AVAX-USD",
+    "Dogecoin (DOGE)": "DOGE-USD",
+    "Pepe": "PEPE-USD",
+    "ONS ALTIN ($)": "XAU_GOLD",
+    "GRAM ALTIN (TL)": "GRAM_TRY",
     "EUR/USD": "EURUSD=X",
-    "Pegasus": "PGSUS.IS",
-    "THY": "THYAO.IS"
+    "Türk Hava Yolları (THYAO)": "THYAO.IS",
+    "Pegasus (PGSUS)": "PGSUS.IS"
 }
 
 # PATTERNS
 PATTERN_INFO: dict[str, str] = {
+    "İkili Dip (W)": "📉 **W Formasyonu:** Yükseliş sinyali.",
+    "İkili Tepe (M)": "📈 **M Formasyonu:** Düşüş sinyali.",
+    "Doji": "⚠️ **Doji:** Kararsızlık.",
+    "Hammer": "🔨 **Çekiç:** Dipten dönüş.",
+    "Yutan Boğa": "🚀 **Yutan Boğa:** Güçlü alım.",
     "RSI Pozitif Uyumsuzluk": "Boğa Uyumsuzluğu: Fiyat düşerken RSI yükseliyor. Yükseliş sinyali.",
     "RSI Negatif Uyumsuzluk": "Ayı Uyumsuzluğu: Fiyat yükselirken RSI düşüyor. Düşüş sinyali.",
     "Yüksek Hacimli Kırılım": "Hacimli Kırılım: Önemli bir seviye güçlü hacimle aşıldı.",
@@ -222,8 +223,6 @@ PATTERN_INFO: dict[str, str] = {
     "Büyük Alım (Hacim)": "Büyük Alım: Ortalamanın çok üzerinde hacim. Yön arayışı.",
     "Büyük Satış (Hacim)": "Büyük Satış: Ortalamanın çok üzerinde satış hacmi.",
     "Üçgen Kırılımı": "Üçgen Kırılımı Formasyonu",
-    "İkili Dip (W)": "İkili Dip (W) Formasyonu: Yükseliş",
-    "İkili Tepe (M)": "İkili Tepe (M) Formasyonu: Düşüş",
     "OBO": "Omuz Baş Omuz: Düşüş Formasyonu",
     "TOBO": "Ters Omuz Baş Omuz: Yükseliş Formasyonu",
     "Bayrak/Flama": "Bayrak/Flama Formasyonu",
