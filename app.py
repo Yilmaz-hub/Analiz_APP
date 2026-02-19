@@ -12,6 +12,7 @@ from technical_analysis import calculate_sr_advanced, detect_advanced_patterns, 
 from ml_models import calculate_smart_prediction_FIXED
 from portfolio import load_portfolio, save_portfolio, validate_portfolio_risk, check_active_positions_auto_close, multi_timeframe_confirmation
 from ui_components import render_sidebar_settings, render_asset_management, render_main_chart
+from scanner import render_opportunity_scanner
 from data_fetchers import get_live_price_for_portfolio
 
 st.set_page_config(layout="wide", page_title="Pro Trader V48 (Modular Edition)")
@@ -57,6 +58,7 @@ if 'portfolio_data' not in st.session_state:
 # --- ARAYÜZ (SIDEBAR) ---
 tg_token, tg_chat = render_sidebar_settings()
 render_asset_management(st.session_state['coin_map'], save_assets)
+render_opportunity_scanner(st.session_state['coin_map'], src_pref)
 
 st.sidebar.divider()
 current_assets = list(st.session_state['coin_map'].keys())
