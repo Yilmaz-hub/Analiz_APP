@@ -208,7 +208,9 @@ DEFAULT_COIN_MAP: dict[str, str] = {
     "MATIC": "MATIC-USD",
     "GRAM_TRY": "GRAM_TRY",
     "XAU_GOLD": "XAU_GOLD",
-    "EUR/USD": "EURUSD=X"
+    "EUR/USD": "EURUSD=X",
+    "Pegasus": "PGSUS.IS",
+    "THY": "THYAO.IS"
 }
 
 # PATTERNS
