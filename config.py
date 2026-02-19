@@ -192,3 +192,41 @@ class UIConfig:
         '4h': {'default': 80, 'full': 100}    #Zoom in for 4-hour data
 
     }
+
+# DEFAULT ASSETS
+DEFAULT_COIN_MAP: dict[str, str] = {
+    "BTC": "BTC-USD",
+    "ETH": "ETH-USD",
+    "SOL": "SOL-USD",
+    "AVAX": "AVAX-USD",
+    "XRP": "XRP-USD",
+    "BNB": "BNB-USD",
+    "DOGE": "DOGE-USD",
+    "ADA": "ADA-USD",
+    "DOT": "DOT-USD",
+    "LINK": "LINK-USD",
+    "MATIC": "MATIC-USD",
+    "GRAM_TRY": "GRAM_TRY",
+    "XAU_GOLD": "XAU_GOLD",
+    "EUR/USD": "EURUSD=X"
+}
+
+# PATTERNS
+PATTERN_INFO: dict[str, str] = {
+    "RSI Pozitif Uyumsuzluk": "Boğa Uyumsuzluğu: Fiyat düşerken RSI yükseliyor. Yükseliş sinyali.",
+    "RSI Negatif Uyumsuzluk": "Ayı Uyumsuzluğu: Fiyat yükselirken RSI düşüyor. Düşüş sinyali.",
+    "Yüksek Hacimli Kırılım": "Hacimli Kırılım: Önemli bir seviye güçlü hacimle aşıldı.",
+    "Trend Dönüşümü": "Trend Dönüşü: EMA50 kesişimi ve hacim onayı.",
+    "Büyük Alım (Hacim)": "Büyük Alım: Ortalamanın çok üzerinde hacim. Yön arayışı.",
+    "Büyük Satış (Hacim)": "Büyük Satış: Ortalamanın çok üzerinde satış hacmi.",
+    "Üçgen Kırılımı": "Üçgen Kırılımı Formasyonu",
+    "İkili Dip (W)": "İkili Dip (W) Formasyonu: Yükseliş",
+    "İkili Tepe (M)": "İkili Tepe (M) Formasyonu: Düşüş",
+    "OBO": "Omuz Baş Omuz: Düşüş Formasyonu",
+    "TOBO": "Ters Omuz Baş Omuz: Yükseliş Formasyonu",
+    "Bayrak/Flama": "Bayrak/Flama Formasyonu",
+    "Yükselen Takoz": "Yükselen Takoz: Düşüş Formasyonu",
+    "Düşen Takoz": "Düşen Takoz: Yükseliş Formasyonu",
+    "Harmonik ABCD": "Harmonik ABCD Formasyonu",
+    "Harmonik Butterfly": "Harmonik Butterfly Formasyonu"
+}
