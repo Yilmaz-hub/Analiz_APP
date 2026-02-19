@@ -89,7 +89,7 @@ class MLConfig:
 
     #ACCURACY SCORES
     DIRECTION_WEIGHT = 0.6  #Weight for direction accuracy in overall score
-    VOLATILTY_WEIGHT = 0.4  #Weight for volatility accuracy in overall score
+    VOLATILITY_WEIGHT = 0.4  #Weight for volatility accuracy in overall score
 
     #SIMULATION WEIGHTS
     RSI_MAX = 85
@@ -190,4 +190,5 @@ class UIConfig:
         '1wk': {'default': 30, 'full': 50},  #Zoom out for weekly data
         '1d': {'default': 60, 'full': 80},   #Default zoom for daily data
         '4h': {'default': 80, 'full': 100}    #Zoom in for 4-hour data
+
     }
