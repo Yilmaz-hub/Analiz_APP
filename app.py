@@ -8,7 +8,7 @@ from logger import logger
 
 # === YENİ MODÜLLERDEN IMPORTLAR ===
 from data_fetchers import get_market_data, get_fear_greed_index
-from technical_analysis import calculate_sr_advanced, detect_advanced_patterns, calculate_oracle_signal_v2, calculate_trade_setup, calculate_extended_trendlines, detect_patterns
+from technical_analysis import calculate_sr_advanced, detect_advanced_patterns, calculate_oracle_signal_v2, calculate_trade_setup, calculate_extended_trendlines, detect_patterns, run_strategy_backtest
 from ml_models import calculate_smart_prediction_FIXED
 from portfolio import load_portfolio, save_portfolio, validate_portfolio_risk, check_active_positions_auto_close, multi_timeframe_confirmation
 from ui_components import render_sidebar_settings, render_asset_management, render_main_chart
@@ -62,7 +62,6 @@ render_asset_management(st.session_state['coin_map'], save_assets)
 st.sidebar.divider()
 current_assets = list(st.session_state['coin_map'].keys())
 src_pref = st.sidebar.radio("📡 Kaynak:", ["Binance", "OKX", "Yahoo Finance"])
-render_opportunity_scanner(st.session_state['coin_map'], src_pref)
 
 if not current_assets: current_assets = ["Bitcoin (BTC)"]
 
@@ -211,6 +210,44 @@ if df_view is not None:
                 st.divider()
                 st.write(f"**Giriş:** ${setup['entry']:,.2f} | **🛑 Stop:** ${setup['sl']:,.2f} | **🎯 TP:** ${setup['tp']:,.2f}")
         else: st.info("Setup oluşmadı. Güvenli bölge bekleniyor.")
+
+    # --- BACKTEST ---
+    if df_view is not None:
+        st.divider()
+        with st.expander("📊 Backtest: Strateji Performansı", expanded=False):
+            st.info("Mevcut sinyal sisteminizi geçmiş veride test eder. Gerçek sonuçları yansıtır.")
+            if st.button("🚀 Backtest Başlat"):
+                with st.spinner("Backtest çalışıyor..."):
+                    import plotly.graph_objects as go
+                    bt_results = run_strategy_backtest(df_view, initial_balance=10000)
+                    if bt_results is None:
+                        st.warning("Yeterli işlem oluşmadı. Daha uzun veri gerekebilir.")
+                    else:
+                        col1, col2, col3, col4 = st.columns(4)
+                        col1.metric("Toplam Getiri", f"%{bt_results['total_return']:.2f}")
+                        col2.metric("Kazanma Oranı", f"%{bt_results['win_rate']:.1f}")
+                        col3.metric("Toplam İşlem", bt_results['total_trades'])
+                        col4.metric("Profit Factor", f"{bt_results['profit_factor']:.2f}")
+                        st.divider()
+                        col_det1, col_det2 = st.columns(2)
+                        col_det1.write(f"✅ Kazanan İşlem: {bt_results['winning_trades']}")
+                        col_det1.write(f"💰 Ort. Kazanç: ${bt_results['avg_win']:.2f}")
+                        col_det2.write(f"❌ Kaybeden İşlem: {bt_results['losing_trades']}")
+                        col_det2.write(f"💸 Ort. Kayıp: ${bt_results['avg_loss']:.2f}")
+                        st.divider()
+                        st.subheader("📈 Sermaye Eğrisi")
+                        eq_df = pd.DataFrame(bt_results['equity_curve'])
+                        fig_eq = go.Figure()
+                        fig_eq.add_trace(go.Scatter(x=eq_df['date'], y=eq_df['equity'], mode='lines', name='Sermaye', line=dict(color='cyan', width=2)))
+                        fig_eq.add_hline(y=10000, line_dash="dot", line_color="gray", annotation_text="Başlangıç")
+                        fig_eq.update_layout(height=400, template="plotly_dark", hovermode='x unified', yaxis_title="Bakiye ($)", xaxis_title="Tarih")
+                        st.plotly_chart(fig_eq, use_container_width=True)
+                        with st.expander("📋 Tüm İşlemler"):
+                            trades_df = pd.DataFrame(bt_results['trades'])
+                            st.dataframe(trades_df, use_container_width=True)
+
+    # --- AI PİYASA TARAYICI ---
+    render_opportunity_scanner(st.session_state['coin_map'], src_pref, intervals)
 
     # --- PORTFÖY VE CÜZDAN YÖNETİMİ ---
     st.divider()
