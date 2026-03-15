@@ -137,6 +137,36 @@ class SignalConfig:
     SUPPORT_DISTANCE_THRESHOLD = 2.0  #2% distance from support level
     RESISTANCE_DISTANCE_THRESHOLD = 2.0  #2% distance from resistance level
 
+# DECISION ENGINE (Composite Signal)
+class DecisionEngineConfig:
+    # Dimension weights (must sum to 1.0)
+    TREND_WEIGHT = 0.30
+    MOMENTUM_WEIGHT = 0.25
+    VOLUME_WEIGHT = 0.15
+    PATTERN_WEIGHT = 0.15
+    ML_WEIGHT = 0.15
+
+    # Verdict thresholds (on -100 to +100 scale)
+    # NOTE: Since ML and Volume dimensions often return 0,
+    # the effective max score is ~70, not 100. Thresholds
+    # are set accordingly.
+    STRONG_BUY_THRESHOLD = 35
+    BUY_THRESHOLD = 15
+    SELL_THRESHOLD = -15
+    STRONG_SELL_THRESHOLD = -35
+
+    # Risk management for trade setups
+    CONSERVATIVE_RR = 1.5   # Risk:Reward for TP1
+    AGGRESSIVE_RR = 3.0     # Risk:Reward for TP2
+    ATR_SL_MULTIPLIER = 1.5 # ATR multiplier for stop-loss distance
+
+    # RSI divergence detection
+    DIVERGENCE_LOOKBACK = 20
+    DIVERGENCE_MIN_SWING = 3  # Minimum bars between swings
+
+    # Confidence calculation
+    MIN_CONFIDENCE_TO_TRADE = 30  # Below this, always BEKLE
+
 #SUPPORT AND RESISTANCE
 class SRConfig:
     PIVOT_WINDOW = {   

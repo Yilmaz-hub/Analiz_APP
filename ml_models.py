@@ -186,3 +186,138 @@ def calculate_smart_prediction_FIXED(df, periods=15):
     except Exception as e:
         logger.error(f"AI FIXED Error: {e}")
         return [], [], 0
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def calculate_ml_direction_signal(df):
+    """
+    ML-based direction classification: BULLISH / BEARISH / NEUTRAL
+    Uses RandomForestClassifier instead of regression.
+    Returns: {"direction": str, "confidence": float, "predicted_change_pct": float}
+    """
+    try:
+        from sklearn.ensemble import RandomForestClassifier
+        
+        work_df = df.copy()
+        if len(work_df) < 150:
+            return None
+
+        # === FEATURES (same as prediction model) ===
+        work_df['RSI'] = work_df.ta.rsi(length=IndicatorConfig.RSI_LENGTH)
+        work_df['CCI'] = work_df.ta.cci(length=IndicatorConfig.CCI_LENGTH)
+        work_df['ATR'] = work_df.ta.atr(length=IndicatorConfig.ATR_LENGTH)
+
+        macd = work_df.ta.macd(
+            fast=IndicatorConfig.MACD_FAST,
+            slow=IndicatorConfig.MACD_SLOW,
+            signal=IndicatorConfig.MACD_SIGNAL
+        )
+        if macd is not None:
+            work_df['MACD'] = macd['MACD_12_26_9']
+            work_df['MACD_Signal'] = macd['MACDs_12_26_9']
+        else:
+            work_df['MACD'] = np.nan
+            work_df['MACD_Signal'] = np.nan
+
+        stoch = work_df.ta.stochrsi()
+        work_df['StochRSI_K'] = stoch['STOCHRSIk_14_14_3_3'] if stoch is not None else 50
+
+        if 'Volume' in work_df.columns and work_df['Volume'].sum() > 0:
+            work_df['OBV'] = work_df.ta.obv()
+            work_df['Volume_SMA'] = work_df['Volume'].rolling(20).mean()
+            work_df['Volume_Ratio'] = work_df['Volume'] / work_df['Volume_SMA']
+        else:
+            work_df['OBV'] = 0
+            work_df['Volume_Ratio'] = 1
+
+        adx = work_df.ta.adx(length=14)
+        work_df['ADX'] = adx['ADX_14'] if adx is not None else 25
+
+        work_df['Price_SMA50'] = work_df['Close'].rolling(50).mean()
+        work_df['Price_Distance'] = (work_df['Close'] - work_df['Price_SMA50']) / work_df['Price_SMA50'] * 100
+
+        bb = work_df.ta.bbands(length=20, std=2)
+        if bb is not None:
+            work_df['BB_Width'] = (bb.iloc[:, -3] - bb.iloc[:, -5]) / work_df['Close'] * 100
+        else:
+            work_df['BB_Width'] = 2
+
+        work_df['Return'] = work_df['Close'].pct_change()
+        work_df['Return_5'] = work_df['Close'].pct_change(5)
+        work_df['Volatility'] = work_df['Return'].rolling(20).std()
+
+        for lag in [1, 2, 3, 5]:
+            work_df[f'Lag{lag}'] = work_df['Return'].shift(lag)
+
+        # === CLASSIFICATION TARGET ===
+        # Next-period return
+        next_return = work_df['Close'].pct_change().shift(-1)
+        # Classify: > +0.5% → BULLISH (1), < -0.5% → BEARISH (-1), else NEUTRAL (0)
+        threshold = 0.005
+        work_df['Direction'] = 0
+        work_df.loc[next_return > threshold, 'Direction'] = 1
+        work_df.loc[next_return < -threshold, 'Direction'] = -1
+        work_df['Next_Return'] = next_return
+
+        work_df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        work_df.dropna(inplace=True)
+
+        features = [
+            'RSI', 'MACD', 'MACD_Signal', 'CCI', 'StochRSI_K',
+            'ADX', 'BB_Width', 'Price_Distance',
+            'Volume_Ratio', 'OBV',
+            'Return', 'Return_5', 'Volatility',
+            'Lag1', 'Lag2', 'Lag3', 'Lag5'
+        ]
+
+        X = work_df[features].values
+        y = work_df['Direction'].values
+
+        if len(X) < 100:
+            return None
+
+        # Train on all data except last point
+        scaler = MinMaxScaler()
+        X_train = scaler.fit_transform(X[:-1])
+        y_train = y[:-1]
+        X_last = scaler.transform(X[-1:])
+
+        clf = RandomForestClassifier(
+            n_estimators=200,
+            max_depth=10,
+            min_samples_split=5,
+            random_state=42,
+            class_weight='balanced'
+        )
+        clf.fit(X_train, y_train)
+
+        # Predict
+        prediction = clf.predict(X_last)[0]
+        probabilities = clf.predict_proba(X_last)[0]
+        classes = clf.classes_
+
+        # Get confidence for the predicted class
+        pred_idx = list(classes).index(prediction)
+        confidence = probabilities[pred_idx] * 100
+
+        # Predicted change (from regressor for magnitude)
+        lr = LinearRegression()
+        lr.fit(X_train, work_df['Next_Return'].values[:-1])
+        predicted_change = lr.predict(X_last)[0] * 100  # as percentage
+
+        if prediction == 1:
+            direction = "BULLISH"
+        elif prediction == -1:
+            direction = "BEARISH"
+        else:
+            direction = "NEUTRAL"
+
+        return {
+            "direction": direction,
+            "confidence": confidence,
+            "predicted_change_pct": predicted_change
+        }
+
+    except Exception as e:
+        logger.error(f"ML Direction Signal Error: {e}")
+        return None

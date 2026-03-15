@@ -144,6 +144,107 @@ def calculate_oracle_signal_v2(df, supports, resistances):
     
     return status, color, target_msg
 
+# === NEW: RSI Divergence Detection ===
+def detect_rsi_divergence(df, lookback=20):
+    """
+    Detect RSI divergence:
+    - Bullish: price makes lower low but RSI makes higher low
+    - Bearish: price makes higher high but RSI makes lower high
+    Returns: "BULLISH", "BEARISH", or None
+    """
+    if df is None or len(df) < lookback + 10 or 'RSI' not in df.columns:
+        return None
+    
+    try:
+        recent = df.tail(lookback)
+        prices = recent['Close'].values
+        rsi_vals = recent['RSI'].values
+        
+        if np.any(np.isnan(rsi_vals)):
+            return None
+        
+        # Find local minima and maxima in price
+        price_lows_idx = argrelextrema(prices, np.less, order=3)[0]
+        price_highs_idx = argrelextrema(prices, np.greater, order=3)[0]
+        
+        # Bullish divergence: price lower low + RSI higher low
+        if len(price_lows_idx) >= 2:
+            i1, i2 = price_lows_idx[-2], price_lows_idx[-1]
+            if prices[i2] < prices[i1] and rsi_vals[i2] > rsi_vals[i1]:
+                return "BULLISH"
+        
+        # Bearish divergence: price higher high + RSI lower high
+        if len(price_highs_idx) >= 2:
+            i1, i2 = price_highs_idx[-2], price_highs_idx[-1]
+            if prices[i2] > prices[i1] and rsi_vals[i2] < rsi_vals[i1]:
+                return "BEARISH"
+        
+        return None
+    except Exception as e:
+        logger.debug(f"RSI divergence detection error: {e}")
+        return None
+
+# === NEW: Trend Strength Score ===
+def calculate_trend_strength(df):
+    """
+    Calculate overall trend strength score from -100 (strong downtrend) to +100 (strong uptrend).
+    Uses: EMA alignment, price vs EMA50, ADX, short-term slope.
+    """
+    if df is None or len(df) < 50:
+        return 0
+    
+    try:
+        last = df.iloc[-1]
+        price = last['Close']
+        ema_20 = last.get('EMA_20', price)
+        ema_50 = last.get('EMA_50', price)
+        
+        score = 0
+        
+        # 1. EMA alignment (+/- 30)
+        if price > ema_20 > ema_50:
+            score += 30  # Perfect bullish alignment
+        elif price < ema_20 < ema_50:
+            score -= 30  # Perfect bearish alignment
+        elif price > ema_50:
+            score += 15  # Above long EMA
+        elif price < ema_50:
+            score -= 15  # Below long EMA
+        
+        # 2. Price distance from EMA50 (+/- 25)
+        if ema_50 > 0:
+            distance_pct = ((price - ema_50) / ema_50) * 100
+            dist_score = max(-25, min(25, distance_pct * 5))
+            score += dist_score
+        
+        # 3. ADX trend strength (+/- 25)
+        adx_cols = [c for c in df.columns if 'ADX' in c.upper()]
+        adx_val = 25  # default neutral
+        if adx_cols:
+            adx_val = last.get(adx_cols[0], 25)
+            if pd.isna(adx_val):
+                adx_val = 25
+        
+        if adx_val > 40:
+            # Strong trend — amplify existing direction
+            direction = 1 if score > 0 else -1
+            score += direction * 25
+        elif adx_val > 25:
+            direction = 1 if score > 0 else -1
+            score += direction * 10
+        # If ADX < 25, trend is weak — no additional boost
+        
+        # 4. Short-term slope (+/- 20)
+        if len(df) >= 5:
+            slope_5 = (df['Close'].iloc[-1] - df['Close'].iloc[-5]) / df['Close'].iloc[-5] * 100
+            slope_score = max(-20, min(20, slope_5 * 4))
+            score += slope_score
+        
+        return max(-100, min(100, score))
+    except Exception as e:
+        logger.debug(f"Trend strength calculation error: {e}")
+        return 0
+
 def calculate_trailing_stop(entry, current_price, atr, trailing_pct=0.05):
     initial_stop = entry - (atr * 1.5)
     

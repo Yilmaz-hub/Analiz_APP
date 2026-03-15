@@ -14,6 +14,7 @@ from portfolio import load_portfolio, save_portfolio, validate_portfolio_risk, c
 from ui_components import render_sidebar_settings, render_asset_management, render_main_chart
 from scanner import render_opportunity_scanner
 from data_fetchers import get_live_price_for_portfolio
+from signal_engine import generate_composite_signal, CompositeSignal
 
 st.set_page_config(layout="wide", page_title="Pro Trader V48 (Modular Edition)")
 
@@ -100,6 +101,7 @@ results = {}
 active_src = ""
 
 # --- ANA VERİ DÖNGÜSÜ ---
+composite_signals = {}  # Store composite signals per timeframe
 for tf, label in intervals.items():
     df, src = get_market_data(src_pref, symbol, tf)
     if tf == "1d": active_src = src
@@ -107,18 +109,28 @@ for tf, label in intervals.items():
     
     if df is not None:
         s_list, r_list = calculate_sr_advanced(df, tf)
-        status, color, target_msg = calculate_oracle_signal_v2(df, s_list, r_list)
+        # Use new composite signal engine
+        comp_sig = generate_composite_signal(df, tf, s_list, r_list)
+        composite_signals[tf] = comp_sig
+        
         st.sidebar.markdown("---")
         st.sidebar.markdown(f"### {label}")
-        st.sidebar.markdown(f"<span style='color:{color}; font-weight:bold; font-size:18px'>{status}</span>", unsafe_allow_html=True)
-        st.sidebar.caption(f"{target_msg}")
+        st.sidebar.markdown(f"<span style='color:{comp_sig.color}; font-weight:bold; font-size:20px'>{comp_sig.emoji} {comp_sig.verdict}</span>", unsafe_allow_html=True)
+        st.sidebar.caption(f"Güven: %{comp_sig.confidence:.0f} | Skor: {comp_sig.final_score:.0f}")
+        if comp_sig.entry_price > 0 and "AL" in comp_sig.verdict:
+            st.sidebar.caption(f"🎯 TP: ${comp_sig.take_profit_1:,.2f} | 🛑 SL: ${comp_sig.stop_loss:,.2f}")
+        elif comp_sig.entry_price > 0 and "SAT" in comp_sig.verdict:
+            st.sidebar.caption(f"🎯 TP: ${comp_sig.take_profit_1:,.2f} | 🛑 SL: ${comp_sig.stop_loss:,.2f}")
+        
+        # Also keep legacy for backward compat
+        status, color, target_msg = calculate_oracle_signal_v2(df, s_list, r_list)
         adv_patterns = detect_advanced_patterns(df)
     
         if adv_patterns:
-            st.sidebar.markdown("**🔍 Tespit Edilen Formasyonlar:**")
+            st.sidebar.markdown("**🔍 Formasyonlar:**")
             for pat in adv_patterns:
                 emoji_dir = "🟢" if pat['direction'] == 'BULLISH' else ("🔴" if pat['direction'] == 'BEARISH' else "⚪")
-                st.sidebar.caption(f"{emoji_dir} {pat['name']} (Güven: %{pat['confidence']})")
+                st.sidebar.caption(f"{emoji_dir} {pat['name']} (%{pat['confidence']})")
     else: 
         st.sidebar.warning(f"{label}: Bekleniyor...")
 
@@ -163,53 +175,133 @@ if df_view is not None:
     
     s_l, r_l = render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_cloud, show_pred, show_ai, show_all_pats, f_wm, f_candle, f_advanced, items_raw, lines)
 
-    # --- ALT PANELLER (Analiz & Yönetim) ---
+    # --- ALT PANELLER (Karar Paneli & Analiz) ---
     st.divider()
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col1:
-        st.info("### 🧠 Tespitler")
+    
+    # Get the composite signal for the current view timeframe
+    active_signal = composite_signals.get(view_tf)
+    if active_signal is None:
+        active_signal = generate_composite_signal(df_view, view_tf)
+    
+    # ═══════════════════════════════════════════
+    # DECISION DASHBOARD (Karar Paneli)
+    # ═══════════════════════════════════════════
+    st.markdown("### 🎯 KARAR PANELİ")
+    
+    dash_col1, dash_col2, dash_col3 = st.columns([1.5, 1, 1.5])
+    
+    with dash_col1:
+        # Traffic Light — Main Verdict
+        verdict_bg = {
+            "GÜÇLÜ AL": "#00C853", "AL": "#4CAF50",
+            "BEKLE": "#616161",
+            "SAT": "#FF6D00", "GÜÇLÜ SAT": "#D50000"
+        }
+        bg_color = verdict_bg.get(active_signal.verdict, "#616161")
+        
+        st.markdown(f"""
+        <div style="
+            background: linear-gradient(135deg, {bg_color}22, {bg_color}44);
+            border: 3px solid {bg_color};
+            border-radius: 16px;
+            padding: 25px;
+            text-align: center;
+            margin-bottom: 10px;
+        ">
+            <div style="font-size: 48px; margin-bottom: 8px;">{active_signal.emoji}</div>
+            <div style="font-size: 28px; font-weight: 900; color: {bg_color}; letter-spacing: 2px;">
+                {active_signal.verdict}
+            </div>
+            <div style="font-size: 14px; color: #aaa; margin-top: 8px;">
+                Güven: %{active_signal.confidence:.0f} | Skor: {active_signal.final_score:+.0f}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Trade Setup Card (only if signal is actionable)
+        if "AL" in active_signal.verdict or "SAT" in active_signal.verdict:
+            direction_label = "📈 LONG" if "AL" in active_signal.verdict else "📉 SHORT"
+            st.markdown(f"""
+            <div style="
+                background: #1a1a2e;
+                border-left: 4px solid {bg_color};
+                border-radius: 8px;
+                padding: 15px;
+                margin-top: 5px;
+            ">
+                <div style="font-weight: bold; margin-bottom: 8px; color: {bg_color};">{direction_label} İŞLEM PLANI</div>
+                <div>🔹 <b>Giriş:</b> ${active_signal.entry_price:,.2f}</div>
+                <div>🛑 <b>Stop Loss:</b> ${active_signal.stop_loss:,.2f} <span style="color:#888">(-%{active_signal.risk_amount_pct:.1f})</span></div>
+                <div>🎯 <b>TP1 (1.5:1):</b> ${active_signal.take_profit_1:,.2f}</div>
+                <div>🎯 <b>TP2 (3:1):</b> ${active_signal.take_profit_2:,.2f}</div>
+                <div style="margin-top: 8px; color: #888;">
+                    Risk/Ödül: 1:{active_signal.risk_reward:.1f}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.info("ℹ️ İşlem sinyali yok. Piyasa izleniyor...")
+    
+    with dash_col2:
+        # Dimension Scores — Vertical Bars
+        st.markdown("**📊 Boyut Skorları**")
+        dim_labels = {
+            "trend": ("📈 Trend", active_signal.dimension_scores.get("trend", 0)),
+            "momentum": ("⚡ Momentum", active_signal.dimension_scores.get("momentum", 0)),
+            "volume": ("📦 Hacim", active_signal.dimension_scores.get("volume", 0)),
+            "pattern": ("📐 Formasyon", active_signal.dimension_scores.get("pattern", 0)),
+            "ml": ("🤖 AI", active_signal.dimension_scores.get("ml", 0))
+        }
+        
+        for key, (label, value) in dim_labels.items():
+            bar_color = "#4CAF50" if value > 20 else ("#D50000" if value < -20 else "#888")
+            # Normalize -100..+100 to 0..100 for display width
+            bar_width = int(max(5, min(100, (value + 100) / 2)))
+            st.markdown(f"""
+            <div style="margin-bottom: 10px;">
+                <div style="font-size: 12px; color: #ccc; margin-bottom: 3px;">{label}: <b style="color:{bar_color}">{value:+.0f}</b></div>
+                <div style="background: #333; border-radius: 4px; height: 14px; overflow: hidden;">
+                    <div style="width: {bar_width}%; background: {bar_color}; height: 100%; border-radius: 4px; transition: width 0.3s;"></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Market Summary Metrics
+        st.markdown("---")
+        trend = "YÜKSELİŞ ↗️" if curr > df_view['EMA_50'].iloc[-1] else "DÜŞÜŞ ↘️"
+        rsi_val = df_view['RSI'].iloc[-1] if 'RSI' in df_view.columns else 50
+        st.metric("Trend", trend)
+        st.metric("RSI", f"{rsi_val:.1f}")
+    
+    with dash_col3:
+        # Signal Reasons
+        st.markdown("**💡 Sinyal Gerekçeleri**")
+        if active_signal.reasons:
+            for reason in active_signal.reasons[:8]:  # Show top 8 reasons
+                st.markdown(f"<div style='font-size:13px; padding:3px 0; border-bottom:1px solid #222;'>• {reason}</div>", unsafe_allow_html=True)
+        else:
+            st.write("Analiz tamamlandı, belirgin sinyal yok.")
+        
+        # Multi-timeframe summary
+        st.markdown("---")
+        st.markdown("**🕐 Zaman Dilimleri Özeti**")
+        for tf_key, tf_label in intervals.items():
+            cs = composite_signals.get(tf_key)
+            if cs:
+                tf_color = cs.color
+                st.markdown(f"<span style='color:{tf_color}; font-weight:bold;'>{cs.emoji} {tf_label}: {cs.verdict}</span> <span style='color:#888'>(%{cs.confidence:.0f})</span>", unsafe_allow_html=True)
+        
+        # Pattern Detections
+        st.markdown("---")
+        st.markdown("**🧠 Tespitler**")
         if show_all_pats and items_raw:
             visible_names = []
             for item in items_raw:
                 if (item['type'] == 'box' and f_wm) or (item['type'] == 'icon' and f_candle): visible_names.append(item['name'])
             if visible_names:
-                for p in list(set(visible_names)): st.write(PATTERN_INFO.get(p, p))
-            else: st.write("Filtreli formasyon yok.")
-        else: st.write("Formasyonlar kapalı.")
-        
-    with col2:
-        st.warning("### 📊 Piyasa Özeti")
-        trend = "YÜKSELİŞ" if curr > df_view['EMA_50'].iloc[-1] else "DÜŞÜŞ"
-        prices_list = list(f_prices) if f_prices else []
-        pred_dir = "YUKARI ↗️" if show_pred and len(prices_list) > 0 and float(prices_list[-1]) > curr else "AŞAĞI ↘️"
-        st.metric("Trend (EMA50)", trend)
-        st.metric("Tahmin", pred_dir)
-        st.metric("RSI", f"{df_view['RSI'].iloc[-1]:.1f}")
-
-    with col3:
-        st.success("### 🎯 AI Stratejisi")
-        signal_status, color, target_msg = calculate_oracle_signal_v2(df_view, s_l, r_l)
-        is_uptrend = curr > df_view['EMA_50'].iloc[-1]
-        trend_note = ""
-        if "AL" in signal_status:
-            if is_uptrend: signal_status, trend_note = "GÜÇLÜ AL (Trend Yönünde) 🚀", "Trend seninle, güvenli işlem."
-            else: signal_status, trend_note, color = "TEPKİ ALIMI (Riskli) ⚠️", "Trend Düşüşte! Sadece kısa vadeli tepki (Scalp).", "orange"
-        elif "SAT" in signal_status:
-            if not is_uptrend: signal_status, trend_note = "GÜÇLÜ SAT (Trend Yönünde) 🔻", "Trend aşağı, düşüş derinleşebilir."
-            else: signal_status, trend_note = "DÜZELTME SATIŞI (Riskli) ⚠️", "Trend Yükselişte! Fiyat sadece dinleniyor olabilir."
-        else:
-            signal_status, trend_note, color, target_msg = "NÖTR (BEKLE) 💤", "Piyasa kararsız veya yatay. İşlem yapma, izle.", "gray", "Yön Belirsiz"
-
-        st.markdown(f"<span style='color:{color}; font-weight:bold; font-size:20px'>{signal_status}</span>", unsafe_allow_html=True)
-        st.caption(trend_note)
-        st.write(f"**{target_msg}**")
-        
-        if "AL" in signal_status or "SAT" in signal_status:
-            setup = calculate_trade_setup(df_view, "AL" if "AL" in signal_status else "SAT")
-            if setup:
-                st.divider()
-                st.write(f"**Giriş:** ${setup['entry']:,.2f} | **🛑 Stop:** ${setup['sl']:,.2f} | **🎯 TP:** ${setup['tp']:,.2f}")
-        else: st.info("Setup oluşmadı. Güvenli bölge bekleniyor.")
+                for p in list(set(visible_names)): st.caption(PATTERN_INFO.get(p, p))
+            else: st.caption("Filtreli formasyon yok.")
+        else: st.caption("Formasyonlar kapalı.")
 
     # --- BACKTEST ---
     if df_view is not None:
@@ -400,12 +492,12 @@ def send_tg(token, chat_id, msg):
 
 if auto or st.session_state.get('auto_mode', False):
     msg_str = ""
-    for tf, res in results.items():
-        if res is not None:
-            s_l, r_l = calculate_sr_advanced(res, tf)
-            stat, _, target = calculate_oracle_signal_v2(res, s_l, r_l)
-            if "GÜÇLÜ" in stat or "AL" in stat:
-                msg_str = str(msg_str) + f"\n⏰ {tf}: {stat} | {target}"
+    for tf, label in intervals.items():
+        cs = composite_signals.get(tf)
+        if cs and ("AL" in cs.verdict or "SAT" in cs.verdict):
+            msg_str += f"\n⏰ {label}: {cs.emoji} {cs.verdict} (Güven: %{cs.confidence:.0f})"
+            if cs.entry_price > 0:
+                msg_str += f"\n   🎯 TP: ${cs.take_profit_1:,.2f} | 🛑 SL: ${cs.stop_loss:,.2f}"
     
     if msg_str and tg_token and tg_chat:
         full_msg = f"🚨 **{sel_c} BOT** 🚨\n{msg_str}\nFiyat: {curr:.2f}"
@@ -414,3 +506,4 @@ if auto or st.session_state.get('auto_mode', False):
             st.session_state['last_msg'] = full_msg
     time.sleep(14400) 
     st.rerun()
+
