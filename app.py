@@ -15,6 +15,7 @@ from ui_components import render_sidebar_settings, render_asset_management, rend
 from scanner import render_opportunity_scanner
 from data_fetchers import get_live_price_for_portfolio
 from signal_engine import generate_composite_signal, CompositeSignal
+from advanced_analysis import detect_elliott_wave, analyze_ichimoku, detect_wyckoff_phase, analyze_market_structure
 
 st.set_page_config(layout="wide", page_title="Pro Trader V48 (Modular Edition)")
 
@@ -250,7 +251,8 @@ if df_view is not None:
             "momentum": ("⚡ Momentum", active_signal.dimension_scores.get("momentum", 0)),
             "volume": ("📦 Hacim", active_signal.dimension_scores.get("volume", 0)),
             "pattern": ("📐 Formasyon", active_signal.dimension_scores.get("pattern", 0)),
-            "ml": ("🤖 AI", active_signal.dimension_scores.get("ml", 0))
+            "ml": ("🤖 AI", active_signal.dimension_scores.get("ml", 0)),
+            "advanced": ("🌊 Gelişmiş", active_signal.dimension_scores.get("advanced", 0))
         }
         
         for key, (label, value) in dim_labels.items():
@@ -302,6 +304,67 @@ if df_view is not None:
                 for p in list(set(visible_names)): st.caption(PATTERN_INFO.get(p, p))
             else: st.caption("Filtreli formasyon yok.")
         else: st.caption("Formasyonlar kapalı.")
+
+    # --- GELİŞMİŞ ANALİZ PANELİ ---
+    with st.expander("🌊 Gelişmiş Analiz (Elliott Wave, Ichimoku, Wyckoff, Piyasa Yapısı)", expanded=False):
+        adv_col1, adv_col2 = st.columns(2)
+
+        with adv_col1:
+            # Elliott Wave
+            ew = detect_elliott_wave(df_view)
+            if ew["detected"]:
+                ew_color = "green" if ew["direction"] == "BULLISH" else ("red" if ew["direction"] == "BEARISH" else "gray")
+                st.markdown(f"""
+                <div style="background:#1a1a2e; border-left:4px solid {ew_color}; border-radius:8px; padding:12px; margin-bottom:10px;">
+                    <div style="font-weight:bold; font-size:16px; margin-bottom:6px;">🌊 Elliott Wave</div>
+                    <div>Tip: <b>{ew['type']}</b> | Yön: <b style="color:{ew_color}">{ew['direction']}</b></div>
+                    <div>Güven: %{ew['confidence']}</div>
+                    <div style="margin-top:6px; font-size:13px; color:#ccc;">{ew['description']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                if ew["targets"]:
+                    st.caption(f"🎯 Hedefler: {' | '.join(f'${t:,.2f}' for t in ew['targets'])}")
+            else:
+                st.info("🌊 Elliott Wave: Geçerli dalga sayımı bulunamadı.")
+
+            # Wyckoff
+            wyck = detect_wyckoff_phase(df_view)
+            wyck_color = "green" if wyck["signal"] == "BULLISH" else ("red" if wyck["signal"] == "BEARISH" else "gray")
+            st.markdown(f"""
+            <div style="background:#1a1a2e; border-left:4px solid {wyck_color}; border-radius:8px; padding:12px; margin-bottom:10px;">
+                <div style="font-weight:bold; font-size:16px; margin-bottom:6px;">📦 Wyckoff Fazı</div>
+                <div>Faz: <b style="color:{wyck_color}">{wyck['phase']}</b></div>
+                <div style="margin-top:6px; font-size:13px; color:#ccc;">{wyck['description']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with adv_col2:
+            # Ichimoku
+            ich = analyze_ichimoku(df_view)
+            ich_color = "green" if ich["signal"] == "BULLISH" else ("red" if ich["signal"] == "BEARISH" else "gray")
+            st.markdown(f"""
+            <div style="background:#1a1a2e; border-left:4px solid {ich_color}; border-radius:8px; padding:12px; margin-bottom:10px;">
+                <div style="font-weight:bold; font-size:16px; margin-bottom:6px;">☁️ Ichimoku Cloud</div>
+                <div>Bulut: <b>{ich['cloud_status']}</b></div>
+                <div>TK: {ich['tk_cross']}</div>
+                <div>{ich['chikou']}</div>
+                <div style="margin-top:6px;">Skor: <b style="color:{ich_color}">{ich['score']:+d}</b></div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # Market Structure
+            ms = analyze_market_structure(df_view)
+            ms_color = "green" if ms["signal"] == "BULLISH" else ("red" if ms["signal"] == "BEARISH" else "gray")
+            bos_badge = ' <span style="background:#FF6D00; color:white; padding:2px 6px; border-radius:4px; font-size:11px;">BOS</span>' if ms["bos"] else ""
+            choch_badge = ' <span style="background:#D50000; color:white; padding:2px 6px; border-radius:4px; font-size:11px;">CHoCH</span>' if ms["choch"] else ""
+            st.markdown(f"""
+            <div style="background:#1a1a2e; border-left:4px solid {ms_color}; border-radius:8px; padding:12px; margin-bottom:10px;">
+                <div style="font-weight:bold; font-size:16px; margin-bottom:6px;">📐 Piyasa Yapısı{bos_badge}{choch_badge}</div>
+                <div>Yapı: <b style="color:{ms_color}">{ms['structure']}</b></div>
+                <div style="margin-top:6px; font-size:13px; color:#ccc;">{ms['description']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
 
     # --- BACKTEST ---
     if df_view is not None:

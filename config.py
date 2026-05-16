@@ -140,16 +140,14 @@ class SignalConfig:
 # DECISION ENGINE (Composite Signal)
 class DecisionEngineConfig:
     # Dimension weights (must sum to 1.0)
-    TREND_WEIGHT = 0.30
-    MOMENTUM_WEIGHT = 0.25
-    VOLUME_WEIGHT = 0.15
-    PATTERN_WEIGHT = 0.15
-    ML_WEIGHT = 0.15
+    TREND_WEIGHT = 0.25
+    MOMENTUM_WEIGHT = 0.20
+    VOLUME_WEIGHT = 0.10
+    PATTERN_WEIGHT = 0.10
+    ML_WEIGHT = 0.10
+    ADVANCED_WEIGHT = 0.25  # Elliott Wave, Ichimoku, Wyckoff, Market Structure
 
     # Verdict thresholds (on -100 to +100 scale)
-    # NOTE: Since ML and Volume dimensions often return 0,
-    # the effective max score is ~70, not 100. Thresholds
-    # are set accordingly.
     STRONG_BUY_THRESHOLD = 35
     BUY_THRESHOLD = 15
     SELL_THRESHOLD = -15
@@ -166,6 +164,23 @@ class DecisionEngineConfig:
 
     # Confidence calculation
     MIN_CONFIDENCE_TO_TRADE = 30  # Below this, always BEKLE
+
+# ADVANCED ANALYSIS
+class AdvancedAnalysisConfig:
+    # Elliott Wave
+    ELLIOTT_PIVOT_ORDER = 10
+    ELLIOTT_MIN_BARS = 80
+
+    # Ichimoku Cloud
+    ICHIMOKU_TENKAN = 9
+    ICHIMOKU_KIJUN = 26
+    ICHIMOKU_SENKOU_B = 52
+
+    # Wyckoff
+    WYCKOFF_LOOKBACK = 60
+
+    # Market Structure
+    MARKET_STRUCTURE_ORDER = 5
 
 #SUPPORT AND RESISTANCE
 class SRConfig:

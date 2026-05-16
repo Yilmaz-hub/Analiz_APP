@@ -1,6 +1,6 @@
 """
 COMPOSITE DECISION ENGINE (Karar Motoru)
-Combines 5 independent signal dimensions into a single clear verdict:
+Combines 6 independent signal dimensions into a single clear verdict:
   GÜÇLÜ AL / AL / BEKLE / SAT / GÜÇLÜ SAT
 
 Each dimension scores from -100 (strongly bearish) to +100 (strongly bullish).
@@ -18,6 +18,7 @@ from technical_analysis import (
     detect_patterns,
     detect_advanced_patterns
 )
+from advanced_analysis import calculate_advanced_score
 from logger import logger
 
 
@@ -258,6 +259,18 @@ def _score_patterns(df):
 
 
 # =============================================
+# DIMENSION 6: ADVANCED SCORE (-100 to +100)
+# =============================================
+def _score_advanced(df, timeframe="1d"):
+    """Elliott Wave, Ichimoku Cloud, Wyckoff Phase, Market Structure"""
+    try:
+        return calculate_advanced_score(df, timeframe)
+    except Exception as e:
+        logger.debug(f"Advanced scoring error: {e}")
+        return 0, ["Gelişmiş analiz hesaplanamadı"]
+
+
+# =============================================
 # DIMENSION 5: ML SCORE (-100 to +100)
 # =============================================
 def _score_ml(df):
@@ -318,24 +331,24 @@ def generate_composite_signal(df, timeframe="1d", supports=None, resistances=Non
     if pd.isna(atr) or atr == 0:
         atr = price * 0.02
 
-    # === SCORE ALL DIMENSIONS ===
+    # === SCORE ALL 6 DIMENSIONS ===
     trend_score, trend_reasons = _score_trend(df)
     momentum_score, momentum_reasons = _score_momentum(df)
     volume_score, volume_reasons = _score_volume(df)
     pattern_score, pattern_reasons = _score_patterns(df)
     ml_score, ml_reasons = _score_ml(df)
+    advanced_score, advanced_reasons = _score_advanced(df, timeframe)
 
     signal.dimension_scores = {
         "trend": trend_score,
         "momentum": momentum_score,
         "volume": volume_score,
         "pattern": pattern_score,
-        "ml": ml_score
+        "ml": ml_score,
+        "advanced": advanced_score
     }
 
     # === ADAPTIVE WEIGHTED COMPOSITE ===
-    # When a dimension returns 0 due to missing data (e.g., no volume, 
-    # insufficient data for ML), redistribute its weight to active dimensions.
     cfg = DecisionEngineConfig
 
     dim_weights = {
@@ -344,6 +357,7 @@ def generate_composite_signal(df, timeframe="1d", supports=None, resistances=Non
         "volume": (volume_score, cfg.VOLUME_WEIGHT),
         "pattern": (pattern_score, cfg.PATTERN_WEIGHT),
         "ml": (ml_score, cfg.ML_WEIGHT),
+        "advanced": (advanced_score, cfg.ADVANCED_WEIGHT),
     }
 
     # Separate active (has meaningful data) vs inactive dimensions.
@@ -388,7 +402,7 @@ def generate_composite_signal(df, timeframe="1d", supports=None, resistances=Non
     signal.confidence = max(0, min(100, confidence))
 
     # === COLLECT ALL REASONS ===
-    all_reasons = trend_reasons + momentum_reasons + volume_reasons + pattern_reasons + ml_reasons
+    all_reasons = trend_reasons + momentum_reasons + volume_reasons + pattern_reasons + ml_reasons + advanced_reasons
     signal.reasons = all_reasons
 
     # === VERDICT ===
