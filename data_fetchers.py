@@ -94,7 +94,7 @@ def fetch_yahoo_retry(tickers, interval):
 @st.cache_data(ttl=DataFetchConfig.CACHE_TTL, show_spinner=False)
 def fetch_gram_gold_calculated(interval):
     try:
-        df_ons = fetch_yahoo_retry(["XAUUSD=X", "GC=F"], interval)
+        df_ons = fetch_yahoo_retry(["GC=F"], interval)
         df_usd = fetch_yahoo_retry(["TRY=X", "USDTRY=X"], interval)
         
         if df_ons is not None and df_usd is not None:
@@ -145,7 +145,7 @@ def get_market_data(source_pref, symbol, interval):
         return None, "Veri Hesaplanamadı"
 
     if symbol == "XAU_GOLD":
-        df = fetch_yahoo_retry(["XAUUSD=X", "GC=F"], interval)
+        df = fetch_yahoo_retry(["GC=F"], interval)
         if df is not None: return process_data(df, "Yahoo (Gold)")
         return None, "Veri Yok (Yahoo)"
     
@@ -191,7 +191,7 @@ def get_live_price_for_portfolio(coin_name, coin_map):
         
         if ticker_symbol == "GRAM_TRY":
              ons_price = 0
-             try: ons_price = yf.Ticker("XAUUSD=X").fast_info['last_price']
+             try: ons_price = yf.Ticker("GC=F").fast_info['last_price']
              except: pass
              
              if not ons_price:
@@ -212,7 +212,7 @@ def get_live_price_for_portfolio(coin_name, coin_map):
 
         if ticker_symbol == "XAU_GOLD": 
             try:
-                price = yf.Ticker("XAUUSD=X").fast_info['last_price']
+                price = yf.Ticker("GC=F").fast_info['last_price']
                 if price and price > 0: return price
             except: pass
             try:

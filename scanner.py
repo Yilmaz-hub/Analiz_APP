@@ -149,7 +149,7 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
                     by="Karar Skoru", ascending=False
                 )
 
-                st.dataframe(filtered_df, use_container_width=True, height=400, hide_index=True)
+                st.dataframe(filtered_df, width="stretch", height=400, hide_index=True)
 
                 # === İSTATİSTİKLER ===
                 st.divider()

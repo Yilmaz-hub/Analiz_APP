@@ -399,7 +399,7 @@ if df_view is not None:
                         st.plotly_chart(fig_eq, use_container_width=True)
                         with st.expander("📋 Tüm İşlemler"):
                             trades_df = pd.DataFrame(bt_results['trades'])
-                            st.dataframe(trades_df, use_container_width=True)
+                            st.dataframe(trades_df, width="stretch")
 
     # --- AI PİYASA TARAYICI ---
     render_opportunity_scanner(st.session_state['coin_map'], src_pref, intervals)
@@ -487,7 +487,7 @@ if df_view is not None:
                             "Coin": item['Coin'], "Giriş": item['Giriş'], "Adet": item['Adet'],
                             "Değer ($)": val, "Kar/Zarar ($)": val - item['Yatırım'], "Kar/Zarar (%)": f"%{((val - item['Yatırım']) / item['Yatırım']) * 100:.2f}"
                         })
-                if active_data: st.dataframe(pd.DataFrame(active_data), use_container_width=True)
+                if active_data: st.dataframe(pd.DataFrame(active_data), width="stretch")
 
             if pending_pos:
                 st.markdown("##### ⏳ Bekleyen Limit Emirler")
@@ -498,7 +498,7 @@ if df_view is not None:
                         "Coin": item['Coin'], "Hedef Giriş": item['Giriş'], "Anlık Fiyat": lp,
                         "Uzaklık (%)": f"%{((lp - item['Giriş']) / max(lp, 0.001)) * 100:.2f}", "Kilitli Tutar": item['Yatırım']
                     })
-                st.dataframe(pd.DataFrame(pending_data), use_container_width=True)
+                st.dataframe(pd.DataFrame(pending_data), width="stretch")
                 
                 with st.expander("🛠️ Emri Yönet"):
                     p_opts = [f"{p['Coin']} - ${p['Giriş']}" for p in pending_pos]
