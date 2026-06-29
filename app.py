@@ -396,7 +396,7 @@ if df_view is not None:
                         fig_eq.add_trace(go.Scatter(x=eq_df['date'], y=eq_df['equity'], mode='lines', name='Sermaye', line=dict(color='cyan', width=2)))
                         fig_eq.add_hline(y=10000, line_dash="dot", line_color="gray", annotation_text="Başlangıç")
                         fig_eq.update_layout(height=400, template="plotly_dark", hovermode='x unified', yaxis_title="Bakiye ($)", xaxis_title="Tarih")
-                        st.plotly_chart(fig_eq, width="stretch"
+                        st.plotly_chart(fig_eq, width="stretch")
                         with st.expander("📋 Tüm İşlemler"):
                             trades_df = pd.DataFrame(bt_results['trades'])
                             st.dataframe(trades_df, width="stretch")
