@@ -13,12 +13,14 @@ from logger import logger
 @st.cache_data(ttl=DataFetchConfig.CACHE_TTL, show_spinner=False)
 def fetch_binance_simple(symbol, interval, limit=1000):
     s_bin = symbol.replace("-", "").replace("USD", "USDT")
+    bmap = {"4h": "4h", "1d": "1d", "1wk": "1w"}
+    b_interval = bmap.get(interval, "1d")
     base_urls = [
         "https://data-api.binance.vision/api/v3/klines",
         "https://api.binance.us/api/v3/klines",
         "https://api.binance.com/api/v3/klines"
     ]
-    params = {"symbol": s_bin, "interval": interval, "limit": limit}
+    params = {"symbol": s_bin, "interval": b_interval, "limit": limit}
     
     for url in base_urls:
         try:
@@ -220,6 +222,14 @@ def get_live_price_for_portfolio(coin_name, coin_map):
             except: return 0
         
         if not ticker_symbol: return 0
+                    # Try Binance first to avoid Yahoo rate limits for Crypto
+        if "USD" in ticker_symbol and "XAU" not in ticker_symbol and "EUR" not in ticker_symbol:
+            try:
+                s_bin = ticker_symbol.replace("-", "").replace("USD", "USDT")
+                r = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={s_bin}", timeout=3)
+                if r.status_code == 200:
+                    return float(r.json()['price'])
+            except: pass
         ticker = yf.Ticker(ticker_symbol)
         return ticker.fast_info['last_price']
     except: return 0
