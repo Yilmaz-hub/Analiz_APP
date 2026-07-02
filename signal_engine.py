@@ -407,8 +407,10 @@ def generate_composite_signal(df, timeframe="1d", supports=None, resistances=Non
 
     # === VERDICT & WHIPSAW FILTERS ===
     rsi_val = last.get('RSI', 50)
-    adx_cols = [c for c in df.columns if 'ADX' in c.upper()]
-    adx_val = last.get(adx_cols[0], 25) if adx_cols else 25
+    if pd.isna(rsi_val): rsi_val = 50
+    adx_val = last.get('ADX', 25)
+    if pd.isna(adx_val): adx_val = 25
+
     
     if signal.confidence < cfg.MIN_CONFIDENCE_TO_TRADE:
         signal.verdict = "BEKLE"
