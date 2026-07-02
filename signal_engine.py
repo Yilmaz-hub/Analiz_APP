@@ -405,28 +405,62 @@ def generate_composite_signal(df, timeframe="1d", supports=None, resistances=Non
     all_reasons = trend_reasons + momentum_reasons + volume_reasons + pattern_reasons + ml_reasons + advanced_reasons
     signal.reasons = all_reasons
 
-    # === VERDICT ===
+    # === VERDICT & WHIPSAW FILTERS ===
+    rsi_val = last.get('RSI', 50)
+    adx_cols = [c for c in df.columns if 'ADX' in c.upper()]
+    adx_val = last.get(adx_cols[0], 25) if adx_cols else 25
+    
     if signal.confidence < cfg.MIN_CONFIDENCE_TO_TRADE:
         signal.verdict = "BEKLE"
         signal.color = "gray"
         signal.emoji = "⚪"
         signal.reasons.insert(0, f"Güven düşük (%{signal.confidence:.0f}), işlem önerilmez")
+    elif adx_val < 20 and abs(final_score) < 60:
+        # Choppy market filter: Ignore weak signals if ADX is very low
+        signal.verdict = "BEKLE"
+        signal.color = "gray"
+        signal.emoji = "⚪"
+        signal.reasons.insert(0, f"Yatay piyasa tespit edildi (ADX: {adx_val:.1f}), sahte kırılım (whipsaw) riski!")
     elif final_score >= cfg.STRONG_BUY_THRESHOLD:
-        signal.verdict = "GÜÇLÜ AL"
-        signal.color = "green"
-        signal.emoji = "🟢"
+        if rsi_val > 75:
+            signal.verdict = "BEKLE"
+            signal.color = "gray"
+            signal.emoji = "⚪"
+            signal.reasons.insert(0, f"Güçlü Alım sinyali var ancak fiyat çok şişmiş (RSI: {rsi_val:.1f}), düzeltme beklenebilir.")
+        else:
+            signal.verdict = "GÜÇLÜ AL"
+            signal.color = "green"
+            signal.emoji = "🟢"
     elif final_score >= cfg.BUY_THRESHOLD:
-        signal.verdict = "AL"
-        signal.color = "lightgreen"
-        signal.emoji = "🟢"
+        if rsi_val > 70:
+            signal.verdict = "BEKLE"
+            signal.color = "gray"
+            signal.emoji = "⚪"
+            signal.reasons.insert(0, f"Alım sinyali var ancak fiyat şişmiş (RSI: {rsi_val:.1f}), riskli giriş.")
+        else:
+            signal.verdict = "AL"
+            signal.color = "lightgreen"
+            signal.emoji = "🟢"
     elif final_score <= cfg.STRONG_SELL_THRESHOLD:
-        signal.verdict = "GÜÇLÜ SAT"
-        signal.color = "red"
-        signal.emoji = "🔴"
+        if rsi_val < 25:
+            signal.verdict = "BEKLE"
+            signal.color = "gray"
+            signal.emoji = "⚪"
+            signal.reasons.insert(0, f"Güçlü Satış sinyali var ancak fiyat çok düşmüş (RSI: {rsi_val:.1f}), tepki yükselişi gelebilir.")
+        else:
+            signal.verdict = "GÜÇLÜ SAT"
+            signal.color = "red"
+            signal.emoji = "🔴"
     elif final_score <= cfg.SELL_THRESHOLD:
-        signal.verdict = "SAT"
-        signal.color = "orange"
-        signal.emoji = "🔴"
+        if rsi_val < 30:
+            signal.verdict = "BEKLE"
+            signal.color = "gray"
+            signal.emoji = "⚪"
+            signal.reasons.insert(0, f"Satış sinyali var ancak fiyat dipte (RSI: {rsi_val:.1f}), riskli açığa satış.")
+        else:
+            signal.verdict = "SAT"
+            signal.color = "orange"
+            signal.emoji = "🔴"
     else:
         signal.verdict = "BEKLE"
         signal.color = "gray"
