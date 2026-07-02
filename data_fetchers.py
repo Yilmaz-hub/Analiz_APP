@@ -121,9 +121,14 @@ def process_data(df: pd.DataFrame, src: str):
         try:
             if 'Volume' not in df.columns: df['Volume'] = 0
             
-            df['RSI'] = df.ta.rsi(length=IndicatorConfig.RSI_LENGTH)
-            df['EMA_50'] = df.ta.ema(length=IndicatorConfig.EMA_LONG)
-            df['EMA_20'] = df.ta.ema(length=IndicatorConfig.EMA_SHORT)
+            rsi = df.ta.rsi(length=IndicatorConfig.RSI_LENGTH)
+            df['RSI'] = rsi if rsi is not None else 50
+            
+            ema_50 = df.ta.ema(length=IndicatorConfig.EMA_LONG)
+            df['EMA_50'] = ema_50 if ema_50 is not None else df['Close']
+            
+            ema_20 = df.ta.ema(length=IndicatorConfig.EMA_SHORT)
+            df['EMA_20'] = ema_20 if ema_20 is not None else df['Close']
 
             bb = df.ta.bbands(length=IndicatorConfig.BOLLINGER_LENGTH, std=IndicatorConfig.BOLLINGER_STD)
             if bb is not None:
@@ -131,7 +136,17 @@ def process_data(df: pd.DataFrame, src: str):
                 cols = df.columns
                 df.rename(columns={cols[-5]: 'BB_Lower', cols[-3]: 'BB_Upper'}, inplace=True)
 
-            df['ATR'] = df.ta.atr(length=IndicatorConfig.ATR_LENGTH)
+            atr = df.ta.atr(length=IndicatorConfig.ATR_LENGTH)
+            df['ATR'] = atr if atr is not None else (df['Close'] * 0.02)
+            
+            adx_df = df.ta.adx(length=14)
+            if adx_df is not None and not adx_df.empty:
+                adx_col = [c for c in adx_df.columns if 'ADX' in c][0]
+                df['ADX'] = adx_df[adx_col]
+            else:
+                df['ADX'] = 25
+                
+            df = df.bfill().ffill()
             return df, src
         except Exception as e:
             logger.error(f"Process Error: {e}")

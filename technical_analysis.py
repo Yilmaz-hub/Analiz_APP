@@ -217,7 +217,7 @@ def calculate_trend_strength(df):
             dist_score = max(-25, min(25, distance_pct * 5))
             score += dist_score
         
-        # 3. ADX trend strength (+/- 25)
+        # 3. ADX trend strength (+/- 25 or penalty)
         adx_cols = [c for c in df.columns if 'ADX' in c.upper()]
         adx_val = 25  # default neutral
         if adx_cols:
@@ -232,7 +232,9 @@ def calculate_trend_strength(df):
         elif adx_val > 25:
             direction = 1 if score > 0 else -1
             score += direction * 10
-        # If ADX < 25, trend is weak — no additional boost
+        elif adx_val < 20:
+            # Choppy market (yatay piyasa) - heavily penalize trend score to avoid whipsaw
+            score = score * 0.3  # Reduce score by 70%
         
         # 4. Short-term slope (+/- 20)
         if len(df) >= 5:
