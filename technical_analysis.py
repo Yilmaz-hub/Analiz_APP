@@ -505,7 +505,7 @@ def run_strategy_backtest(df, initial_balance=10000):
             
             should_close = False
             close_reason = ""
-            if "SAT" in signal:
+            if "SAT" in signal or comp_signal.final_score <= -15:
                 should_close, close_reason = True, "Sinyal"
             elif price >= tp:
                 should_close, close_reason = True, "TP"
