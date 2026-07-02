@@ -479,7 +479,7 @@ def run_strategy_backtest(df, initial_balance=10000):
     equity_curve = []
     
     if len(df) < 100: return None
-    from signal_engine import generate_composite_signal
+  
     for i in range(50, len(df)):
         current_slice = df.iloc[:i]
         price = df['Close'].iloc[i]
@@ -487,8 +487,7 @@ def run_strategy_backtest(df, initial_balance=10000):
         
         supports, resistances = calculate_sr_advanced(current_slice, "1d")
         
-        comp_signal = generate_composite_signal(current_slice, "1d", supports, resistances)
-        signal = comp_signal.verdict
+        signal, color, _ = calculate_oracle_signal_v2(current_slice, supports, resistances)
         
         if position is None and "AL" in signal and balance > 0:
             qty = (balance * 0.95) / price
@@ -505,7 +504,7 @@ def run_strategy_backtest(df, initial_balance=10000):
             
             should_close = False
             close_reason = ""
-            if "SAT" in signal or comp_signal.final_score <= -15:
+            if "SAT" in signal:
                 should_close, close_reason = True, "Sinyal"
             elif price >= tp:
                 should_close, close_reason = True, "TP"
