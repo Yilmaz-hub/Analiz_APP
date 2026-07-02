@@ -477,39 +477,66 @@ def run_strategy_backtest(df, initial_balance=10000):
     position = None
     trades = []
     equity_curve = []
-    
+    cooldown = 0  # Bars to wait after a losing trade
     if len(df) < 100: return None
   
     for i in range(50, len(df)):
         current_slice = df.iloc[:i]
         price = df['Close'].iloc[i]
         date = df.index[i]
-        
+        last = current_slice.iloc[-1]
+        atr = last.get('ATR', price * 0.02)
+        if pd.isna(atr) or atr == 0: atr = price * 0.02
+        adx = last.get('ADX', 25)
+        if pd.isna(adx): adx = 25
+        rsi = last.get('RSI', 50)
+        if pd.isna(rsi): rsi = 50
+            
         supports, resistances = calculate_sr_advanced(current_slice, "1d")
         
         signal, color, _ = calculate_oracle_signal_v2(current_slice, supports, resistances)
-        
-        if position is None and "AL" in signal and balance > 0:
-            qty = (balance * 0.95) / price
-            position = {
-                'entry': price, 'entry_date': date, 'qty': qty, 'type': 'LONG'
-            }
-            balance -= (qty * price)
-            
+                # === ENTRY LOGIC (Stricter) ===
+        if position is None and balance > 0:
+            if cooldown > 0:
+                cooldown -= 1
+            elif "GÜÇLÜ AL" in signal and adx > 20 and rsi < 70:
+                # Only enter on strong buy + confirmed trend + not overbought
+                qty = (balance * 0.95) / price
+                position = {
+                    'entry': price, 'entry_date': date, 'qty': qty, 
+                    'type': 'LONG', 'highest': price,
+                    'sl': price - (atr * 2.0),   # Wider SL: 2 ATR
+                    'tp': price + (atr * 3.5),    # Better R:R: 3.5 ATR
+                }
+                balance -= (qty * price)
+
+         # === EXIT LOGIC (Trailing Stop + Smart Exits) ===    
         elif position is not None:
-            atr = current_slice.get('ATR', pd.Series([price*0.02])).iloc[-1]
-            if np.isnan(atr): atr = price * 0.02
-            tp = position['entry'] + (atr * 2.5)
-            sl = position['entry'] - (atr * 1.5)
+            # Update trailing stop: track highest price since entry
+            if price > position['highest']:
+                position['highest'] = price
+            
+            # Trailing SL: once price moves 1 ATR above entry, move SL to breakeven
+            profit_distance = position['highest'] - position['entry']
+            if profit_distance > atr * 2.0:
+                # Lock in 50% of max profit
+                new_sl = position['entry'] + (profit_distance * 0.5)
+                position['sl'] = max(position['sl'], new_sl)
+            elif profit_distance > atr * 1.0:
+                # Move SL to breakeven
+                position['sl'] = max(position['sl'], position['entry'])
             
             should_close = False
             close_reason = ""
-            if "SAT" in signal:
-                should_close, close_reason = True, "Sinyal"
-            elif price >= tp:
-                should_close, close_reason = True, "TP"
-            elif price <= sl:
+            # 1. Trailing Stop Loss hit
+            if price <= position['sl']:
                 should_close, close_reason = True, "SL"
+            # 2. Take Profit hit
+            elif price >= position['tp']:
+                should_close, close_reason = True, "TP"
+            # 3. Only exit on GÜÇLÜ SAT (strong sell), ignore weak "SAT (Kısmi)"
+            elif "GÜÇLÜ SAT" in signal:
+                should_close, close_reason = True, "Sinyal"
                 
             if should_close:
                 pnl = (price - position['entry']) * position['qty']
@@ -519,6 +546,9 @@ def run_strategy_backtest(df, initial_balance=10000):
                     'exit_date': date, 'pnl': pnl, 'pnl_pct': (pnl / (position['entry'] * position['qty'])) * 100,
                     'reason': close_reason
                 })
+                                # Cooldown after losing trade: wait 3 bars
+                if pnl < 0:
+                    cooldown = 3
                 position = None
                 
         current_equity = balance + (position['qty'] * price if position else 0)
