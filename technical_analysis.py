@@ -486,7 +486,9 @@ def run_strategy_backtest(df, initial_balance=10000):
         date = df.index[i]
         
         supports, resistances = calculate_sr_advanced(current_slice, "1d")
-        signal, color, _ = calculate_oracle_signal_v2(current_slice, supports, resistances)
+        from signal_engine import generate_composite_signal
+        comp_signal = generate_composite_signal(current_slice, "1d", supports, resistances)
+        signal = comp_signal.verdict
         
         if position is None and "AL" in signal and balance > 0:
             qty = (balance * 0.95) / price
