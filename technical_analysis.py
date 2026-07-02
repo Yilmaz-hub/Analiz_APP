@@ -232,16 +232,16 @@ def calculate_trend_strength(df):
         elif adx_val > 25:
             direction = 1 if score > 0 else -1
             score += direction * 10
-        elif adx_val < 20:
-            # Choppy market (yatay piyasa) - heavily penalize trend score to avoid whipsaw
-            score = score * 0.3  # Reduce score by 70%
         
         # 4. Short-term slope (+/- 20)
         if len(df) >= 5:
             slope_5 = (df['Close'].iloc[-1] - df['Close'].iloc[-5]) / df['Close'].iloc[-5] * 100
             slope_score = max(-20, min(20, slope_5 * 4))
             score += slope_score
-        
+                # Apply choppy market penalty AFTER all components are summed
+        if adx_val < 20:
+            score = score * 0.3  # Reduce total score by 70% in choppy markets
+            
         return max(-100, min(100, score))
     except Exception as e:
         logger.debug(f"Trend strength calculation error: {e}")
@@ -479,14 +479,14 @@ def run_strategy_backtest(df, initial_balance=10000):
     equity_curve = []
     
     if len(df) < 100: return None
-    
+    from signal_engine import generate_composite_signal
     for i in range(50, len(df)):
         current_slice = df.iloc[:i]
         price = df['Close'].iloc[i]
         date = df.index[i]
         
         supports, resistances = calculate_sr_advanced(current_slice, "1d")
-        from signal_engine import generate_composite_signal
+        
         comp_signal = generate_composite_signal(current_slice, "1d", supports, resistances)
         signal = comp_signal.verdict
         
