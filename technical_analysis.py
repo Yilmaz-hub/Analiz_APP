@@ -472,14 +472,45 @@ def calculate_trade_setup(df, signal_type):
         }
     return None
 
-def run_strategy_backtest(df, initial_balance=10000):
+def run_strategy_backtest(df, initial_balance=10000, timeframe="1d"):
     balance = initial_balance
     position = None
     trades = []
     equity_curve = []
-    cooldown = 0  # Bars to wait after a losing trade
+    cooldown = 0  
     if len(df) < 100: return None
-  
+      # === TIMEFRAME-ADAPTIVE PARAMETERS ===
+    if timeframe == "1wk":
+        # Weekly: Trends are clean, be strict on entry, let winners run
+        entry_signal = "GÜÇLÜ AL"
+        exit_signal = "GÜÇLÜ SAT"
+        sl_multiplier = 2.0
+        tp_multiplier = 3.5
+        trail_breakeven = 1.0   # Move SL to breakeven after 1 ATR profit
+        trail_lock_pct = 0.5    # Lock in 50% of max profit after 2 ATR
+        cooldown_bars = 3
+        min_adx = 20
+    elif timeframe == "4h":
+        # 4h: Very noisy, be lenient
+        entry_signal = "AL"
+        exit_signal = "SAT"
+        sl_multiplier = 1.5
+        tp_multiplier = 2.0
+        trail_breakeven = 1.5
+        trail_lock_pct = 0.4
+        cooldown_bars = 5
+        min_adx = 15
+    else:
+        # Daily: Balanced approach
+        entry_signal = "AL"
+        exit_signal = "SAT"
+        sl_multiplier = 1.8
+        tp_multiplier = 2.8
+        trail_breakeven = 1.0
+        trail_lock_pct = 0.5
+        cooldown_bars = 2
+        min_adx = 18
+    
     for i in range(50, len(df)):
         current_slice = df.iloc[:i]
         price = df['Close'].iloc[i]
@@ -492,50 +523,50 @@ def run_strategy_backtest(df, initial_balance=10000):
         rsi = last.get('RSI', 50)
         if pd.isna(rsi): rsi = 50
             
-        supports, resistances = calculate_sr_advanced(current_slice, "1d")
+        supports, resistances = calculate_sr_advanced(current_slice, timeframe)
         
         signal, color, _ = calculate_oracle_signal_v2(current_slice, supports, resistances)
-                # === ENTRY LOGIC (Stricter) ===
+                # === ENTRY LOGIC  ===
         if position is None and balance > 0:
             if cooldown > 0:
                 cooldown -= 1
-            elif "GÜÇLÜ AL" in signal and adx > 20 and rsi < 70:
+            elif entry_signal in signal and adx > min_adx and rsi < 70
                 # Only enter on strong buy + confirmed trend + not overbought
                 qty = (balance * 0.95) / price
                 position = {
                     'entry': price, 'entry_date': date, 'qty': qty, 
                     'type': 'LONG', 'highest': price,
-                    'sl': price - (atr * 2.0),   # Wider SL: 2 ATR
-                    'tp': price + (atr * 3.5),    # Better R:R: 3.5 ATR
+                    'sl': price - (atr * sl_multiplier),
+                    'tp': price + (atr * tp_multiplier),                    
                 }
                 balance -= (qty * price)
 
-         # === EXIT LOGIC (Trailing Stop + Smart Exits) ===    
+         # === EXIT LOGIC (Trailing Stop ) ===    
         elif position is not None:
-            # Update trailing stop: track highest price since entry
+           
             if price > position['highest']:
                 position['highest'] = price
             
-            # Trailing SL: once price moves 1 ATR above entry, move SL to breakeven
+            # Trailing SL: 
             profit_distance = position['highest'] - position['entry']
             if profit_distance > atr * 2.0:
                 # Lock in 50% of max profit
-                new_sl = position['entry'] + (profit_distance * 0.5)
+                new_sl = position['entry'] + (profit_distance * trail_lock_pct)
                 position['sl'] = max(position['sl'], new_sl)
-            elif profit_distance > atr * 1.0:
+            elif profit_distance > atr * trail_breakeven:
                 # Move SL to breakeven
                 position['sl'] = max(position['sl'], position['entry'])
             
             should_close = False
             close_reason = ""
-            # 1. Trailing Stop Loss hit
+            
             if price <= position['sl']:
                 should_close, close_reason = True, "SL"
-            # 2. Take Profit hit
+            
             elif price >= position['tp']:
                 should_close, close_reason = True, "TP"
-            # 3. Only exit on GÜÇLÜ SAT (strong sell), ignore weak "SAT (Kısmi)"
-            elif "GÜÇLÜ SAT" in signal:
+            
+            elif exit_signal in signal:
                 should_close, close_reason = True, "Sinyal"
                 
             if should_close:
@@ -546,9 +577,9 @@ def run_strategy_backtest(df, initial_balance=10000):
                     'exit_date': date, 'pnl': pnl, 'pnl_pct': (pnl / (position['entry'] * position['qty'])) * 100,
                     'reason': close_reason
                 })
-                                # Cooldown after losing trade: wait 3 bars
+                                
                 if pnl < 0:
-                    cooldown = 3
+                    cooldown = cooldown_bars
                 position = None
                 
         current_equity = balance + (position['qty'] * price if position else 0)
