@@ -530,7 +530,7 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d"):
         if position is None and balance > 0:
             if cooldown > 0:
                 cooldown -= 1
-            elif entry_signal in signal and adx > min_adx and rsi < 70
+            elif entry_signal in signal and adx > min_adx and rsi < 70:
                 # Only enter on strong buy + confirmed trend + not overbought
                 qty = (balance * 0.95) / price
                 position = {
