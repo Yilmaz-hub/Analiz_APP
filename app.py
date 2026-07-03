@@ -374,7 +374,7 @@ if df_view is not None:
             if st.button("🚀 Backtest Başlat"):
                 with st.spinner("Backtest çalışıyor..."):
                     import plotly.graph_objects as go
-                    bt_results = run_strategy_backtest(df_view, initial_balance=10000)
+                    bt_results = run_strategy_backtest(df_view, initial_balance=10000, timeframe=view_tf)
                     if bt_results is None:
                         st.warning("Yeterli işlem oluşmadı. Daha uzun veri gerekebilir.")
                     else:
