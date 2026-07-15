@@ -553,7 +553,8 @@ def calculate_regime_score(df):
 
 def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_callback=None,
                           sl_mult=None, tp_mult=None, entry_score=None, regime_ma_period=None,
-                          fee_rate=None):
+                          fee_rate=None, entry_mode=None, pullback_tol=0.005,
+                          pullback_min_score=10, rsi_cap=None, direction="long"):
     """
     Backtests the SAME signal the dashboard displays: the composite decision
     engine filtered through SignalStateMachine (confirmation bars + exit
@@ -568,6 +569,19 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
     for parameter tuning. regime_ma_period overrides the config's
     REGIME_MA_PERIOD (the SMA the signal engine's regime filter uses).
     fee_rate overrides BacktestConfig.FEE_RATE (fraction charged per side).
+
+    Entry-quality research overrides (defaults reproduce shipped behavior):
+      entry_mode: None/"breakout" = score >= min_entry_score (shipped);
+                  "pullback" = confirmed uptrend + last closed bar at/below
+                  EMA20*(1+pullback_tol) with score >= pullback_min_score;
+                  "hybrid" = either condition.
+      rsi_cap: skip NEW entries when the closed bar's RSI exceeds this.
+
+    direction="short" mirrors the long logic for SAT-side validation:
+    entries on confirmed short state (score <= -entry, regime <= 0,
+    breakout-only — entry_mode is ignored), SL above / TP below entry,
+    mirrored breakeven + profit-lock trailing, exit when the short state
+    dies. Margin model: 95% of balance reserved, linear P&L, fee per side.
     """
     # Lazy import: signal_engine imports this module, so a top-level import
     # here would be circular.
@@ -651,20 +665,90 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
         atr = bar["atr"]
         score = bar["score"]
 
-        # === ENTRY LOGIC ===
-        if position is None and balance > 0:
+        # === ENTRY LOGIC (SHORT) ===
+        if direction == "short" and position is None and balance > 0:
             if cooldown > 0:
                 cooldown -= 1
-            elif state == 1 and score >= min_entry_score and regime >= 0:
-                qty = (balance * 0.95) / price
-                cost = qty * price * (1 + fee_rate)  # entry fee paid on top
-                position = {
-                    'entry': price, 'entry_date': date, 'qty': qty,
-                    'type': 'LONG', 'highest': price, 'cost': cost,
-                    'sl': price - (atr * sl_multiplier),
-                    'tp': price + (atr * tp_multiplier),
-                }
-                balance -= cost
+            else:
+                entry_ok = score <= -min_entry_score
+                if rsi_cap is not None and bar["rsi"] < (100 - rsi_cap):
+                    entry_ok = False  # mirrored: don't short into oversold
+                if state == -1 and entry_ok and regime <= 0:
+                    margin = balance * 0.95
+                    qty = margin / price
+                    entry_fee = qty * price * fee_rate
+                    position = {
+                        'entry': price, 'entry_date': date, 'qty': qty,
+                        'type': 'SHORT', 'lowest': price, 'margin': margin,
+                        'cost': margin + entry_fee,
+                        'sl': price + (atr * sl_multiplier),
+                        'tp': price - (atr * tp_multiplier),
+                    }
+                    balance -= (margin + entry_fee)
+
+        # === EXIT LOGIC (SHORT) ===
+        elif direction == "short" and position is not None:
+            if price < position['lowest']:
+                position['lowest'] = price
+
+            profit_distance = position['entry'] - position['lowest']
+            if profit_distance > atr * 2.0:
+                new_sl = position['entry'] - (profit_distance * trail_lock_pct)
+                position['sl'] = min(position['sl'], new_sl)
+            elif profit_distance > atr * trail_breakeven:
+                position['sl'] = min(position['sl'], position['entry'])
+
+            should_close = False
+            close_reason = ""
+            if price >= position['sl']:
+                should_close, close_reason = True, "SL"
+            elif price <= position['tp']:
+                should_close, close_reason = True, "TP"
+            elif state != -1:
+                should_close, close_reason = True, "Sinyal"
+
+            if should_close:
+                exit_fee = position['qty'] * price * fee_rate
+                pnl = position['qty'] * (position['entry'] - price) - exit_fee - (position['cost'] - position['margin'])
+                balance += position['margin'] + position['qty'] * (position['entry'] - price) - exit_fee
+                trades.append({
+                    'entry': position['entry'], 'exit': price, 'entry_date': position['entry_date'],
+                    'exit_date': date, 'pnl': pnl, 'pnl_pct': (pnl / position['cost']) * 100,
+                    'reason': close_reason
+                })
+                if pnl < 0:
+                    cooldown = cooldown_bars
+                position = None
+
+        # === ENTRY LOGIC ===
+        elif position is None and balance > 0:
+            if cooldown > 0:
+                cooldown -= 1
+            else:
+                # Entry condition on the last CLOSED bar (i-1), like the signal
+                breakout_ok = score >= min_entry_score
+                if entry_mode in ("pullback", "hybrid"):
+                    prev_close = df['Close'].iloc[i - 1]
+                    ema20 = df['EMA_20'].iloc[i - 1] if 'EMA_20' in df.columns else prev_close
+                    pullback_ok = (not pd.isna(ema20)
+                                   and prev_close <= ema20 * (1 + pullback_tol)
+                                   and score >= pullback_min_score)
+                    entry_ok = pullback_ok if entry_mode == "pullback" else (breakout_ok or pullback_ok)
+                else:
+                    entry_ok = breakout_ok
+                if rsi_cap is not None and bar["rsi"] > rsi_cap:
+                    entry_ok = False
+
+                if state == 1 and entry_ok and regime >= 0:
+                    qty = (balance * 0.95) / price
+                    cost = qty * price * (1 + fee_rate)  # entry fee paid on top
+                    position = {
+                        'entry': price, 'entry_date': date, 'qty': qty,
+                        'type': 'LONG', 'highest': price, 'cost': cost,
+                        'sl': price - (atr * sl_multiplier),
+                        'tp': price + (atr * tp_multiplier),
+                    }
+                    balance -= cost
 
         # === EXIT LOGIC (Trailing Stop) ===
         elif position is not None:
@@ -703,14 +787,24 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
                     cooldown = cooldown_bars
                 position = None
                 
-        current_equity = balance + (position['qty'] * price if position else 0)
+        if position is None:
+            current_equity = balance
+        elif position['type'] == 'SHORT':
+            current_equity = balance + position['margin'] + position['qty'] * (position['entry'] - price)
+        else:
+            current_equity = balance + position['qty'] * price
         equity_curve.append({'date': date, 'equity': current_equity})
-        
+
     if position is not None:
         final_price = df['Close'].iloc[-1]
-        proceeds = position['qty'] * final_price * (1 - fee_rate)
-        pnl = proceeds - position['cost']
-        balance += proceeds
+        if position['type'] == 'SHORT':
+            exit_fee = position['qty'] * final_price * fee_rate
+            pnl = position['qty'] * (position['entry'] - final_price) - exit_fee - (position['cost'] - position['margin'])
+            balance += position['margin'] + position['qty'] * (position['entry'] - final_price) - exit_fee
+        else:
+            proceeds = position['qty'] * final_price * (1 - fee_rate)
+            pnl = proceeds - position['cost']
+            balance += proceeds
         trades.append({
             'entry': position['entry'], 'exit': final_price, 'pnl': pnl,
             'pnl_pct': (pnl / position['cost']) * 100, 'reason': 'Final'

@@ -1,0 +1,243 @@
+{
+ "created": "2026-07-15 21:41",
+ "assets": {
+  "Bitcoin (BTC)": {
+   "balance": 1000.0,
+   "position": null,
+   "cooldown": 0,
+   "trades": [],
+   "last_date": "2026-07-14",
+   "first_price": 65043.98
+  },
+  "Ethereum (ETH)": {
+   "balance": 1000.0,
+   "position": null,
+   "cooldown": 0,
+   "trades": [],
+   "last_date": "2026-07-14",
+   "first_price": 1891.87
+  },
+  "Solana (SOL)": {
+   "balance": 1000.0,
+   "position": null,
+   "cooldown": 0,
+   "trades": [],
+   "last_date": "2026-07-14",
+   "first_price": 77.87
+  },
+  "Ripple (XRP)": {
+   "balance": 1000.0,
+   "position": null,
+   "cooldown": 0,
+   "trades": [],
+   "last_date": "2026-07-14",
+   "first_price": 1.1117
+  },
+  "Avax (AVAX)": {
+   "balance": 1000.0,
+   "position": null,
+   "cooldown": 0,
+   "trades": [],
+   "last_date": "2026-07-14",
+   "first_price": 6.712
+  },
+  "Dogecoin (DOGE)": {
+   "balance": 1000.0,
+   "position": null,
+   "cooldown": 0,
+   "trades": [],
+   "last_date": "2026-07-14",
+   "first_price": 0.07445
+  },
+  "Pepe": {
+   "balance": 1000.0,
+   "position": null,
+   "cooldown": 0,
+   "trades": [],
+   "last_date": "2026-07-14",
+   "first_price": 2.81e-06
+  },
+  "ONS ALTIN ($)": {
+   "balance": 1000.0,
+   "position": null,
+   "cooldown": 0,
+   "trades": [],
+   "last_date": "2026-07-14",
+   "first_price": 4061.10009765625
+  },
+  "GRAM ALTIN (TL)": {
+   "balance": 1000.0,
+   "position": null,
+   "cooldown": 0,
+   "trades": [],
+   "last_date": "2026-07-14",
+   "first_price": 6139.613818783938
+  },
+  "EUR/USD": {
+   "balance": 1000.0,
+   "position": null,
+   "cooldown": 0,
+   "trades": [],
+   "last_date": "2026-07-14",
+   "first_price": 1.1384334564208984
+  },
+  "Türk Hava Yolları (THYAO)": {
+   "balance": 49.05000000000007,
+   "position": {
+    "entry": 333.5,
+    "entry_date": "2026-07-13",
+    "qty": 2.848575712143928,
+    "cost": 950.9499999999999,
+    "highest": 333.5,
+    "sl": 310.4693092216833,
+    "tp": 359.29437367171465
+   },
+   "cooldown": 0,
+   "trades": [],
+   "last_date": "2026-07-13",
+   "first_price": 333.5
+  },
+  "Pegasus (PGSUS)": {
+   "balance": 1000.0,
+   "position": null,
+   "cooldown": 0,
+   "trades": [],
+   "last_date": "2026-07-13",
+   "first_price": 165.39999389648438
+  }
+ },
+ "journal": [
+  {
+   "date": "2026-07-14",
+   "asset": "Bitcoin (BTC)",
+   "verdict": "BEKLE",
+   "raw_verdict": "SAT",
+   "score": -5.9,
+   "confidence": 56.0,
+   "bars_held": 7,
+   "price": 65043.98,
+   "backfilled": false
+  },
+  {
+   "date": "2026-07-14",
+   "asset": "Ethereum (ETH)",
+   "verdict": "BEKLE",
+   "raw_verdict": "AL",
+   "score": 16.1,
+   "confidence": 67.0,
+   "bars_held": 11,
+   "price": 1891.87,
+   "backfilled": false
+  },
+  {
+   "date": "2026-07-14",
+   "asset": "Solana (SOL)",
+   "verdict": "BEKLE",
+   "raw_verdict": "BEKLE",
+   "score": -0.2,
+   "confidence": 36.0,
+   "bars_held": 2,
+   "price": 77.87,
+   "backfilled": false
+  },
+  {
+   "date": "2026-07-14",
+   "asset": "Ripple (XRP)",
+   "verdict": "BEKLE",
+   "raw_verdict": "BEKLE",
+   "score": -9.1,
+   "confidence": 61.0,
+   "bars_held": 10,
+   "price": 1.1117,
+   "backfilled": false
+  },
+  {
+   "date": "2026-07-14",
+   "asset": "Avax (AVAX)",
+   "verdict": "SAT",
+   "raw_verdict": "SAT",
+   "score": -20.3,
+   "confidence": 74.0,
+   "bars_held": 15,
+   "price": 6.712,
+   "backfilled": false
+  },
+  {
+   "date": "2026-07-14",
+   "asset": "Dogecoin (DOGE)",
+   "verdict": "SAT",
+   "raw_verdict": "SAT",
+   "score": -25.1,
+   "confidence": 70.0,
+   "bars_held": 13,
+   "price": 0.07445,
+   "backfilled": false
+  },
+  {
+   "date": "2026-07-14",
+   "asset": "Pepe",
+   "verdict": "SAT",
+   "raw_verdict": "SAT",
+   "score": -5.2,
+   "confidence": 48.0,
+   "bars_held": 8,
+   "price": 2.81e-06,
+   "backfilled": false
+  },
+  {
+   "date": "2026-07-14",
+   "asset": "ONS ALTIN ($)",
+   "verdict": "SAT",
+   "raw_verdict": "SAT",
+   "score": -13.9,
+   "confidence": 47.0,
+   "bars_held": 13,
+   "price": 4061.10009765625,
+   "backfilled": false
+  },
+  {
+   "date": "2026-07-14",
+   "asset": "GRAM ALTIN (TL)",
+   "verdict": "BEKLE",
+   "raw_verdict": "BEKLE",
+   "score": -4.3,
+   "confidence": 48.0,
+   "bars_held": 15,
+   "price": 6139.613818783938,
+   "backfilled": false
+  },
+  {
+   "date": "2026-07-14",
+   "asset": "EUR/USD",
+   "verdict": "BEKLE",
+   "raw_verdict": "SAT",
+   "score": -21.2,
+   "confidence": 73.0,
+   "bars_held": 12,
+   "price": 1.1384334564208984,
+   "backfilled": false
+  },
+  {
+   "date": "2026-07-13",
+   "asset": "Türk Hava Yolları (THYAO)",
+   "verdict": "AL",
+   "raw_verdict": "AL",
+   "score": 13.5,
+   "confidence": 52.0,
+   "bars_held": 15,
+   "price": 333.5,
+   "backfilled": false
+  },
+  {
+   "date": "2026-07-13",
+   "asset": "Pegasus (PGSUS)",
+   "verdict": "BEKLE",
+   "raw_verdict": "BEKLE",
+   "score": 0.9,
+   "confidence": 46.0,
+   "bars_held": 15,
+   "price": 165.39999389648438,
+   "backfilled": false
+  }
+ ]
+}

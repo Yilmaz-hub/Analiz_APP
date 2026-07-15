@@ -106,8 +106,8 @@ for tf, label in intervals.items():
         st.sidebar.markdown(theme.sidebar_signal(label, comp_sig), unsafe_allow_html=True)
         if comp_sig.entry_price > 0 and "AL" in comp_sig.verdict:
             st.sidebar.caption(f"🎯 TP: ${comp_sig.take_profit_1:,.2f} | 🛑 SL: ${comp_sig.stop_loss:,.2f}")
-        elif comp_sig.entry_price > 0 and "SAT" in comp_sig.verdict:
-            st.sidebar.caption(f"🎯 TP: ${comp_sig.take_profit_1:,.2f} | 🛑 SL: ${comp_sig.stop_loss:,.2f}")
+        elif "SAT" in comp_sig.verdict:
+            st.sidebar.caption("⚠️ Çıkış sinyali — short önerisi değildir")
 
         adv_patterns = detect_advanced_patterns(df)
     
@@ -176,8 +176,11 @@ if df_view is not None:
     with dash_col1:
         st.markdown(theme.verdict_card(active_signal), unsafe_allow_html=True)
         
-        if "AL" in active_signal.verdict or "SAT" in active_signal.verdict:
+        if "AL" in active_signal.verdict:
             st.markdown(theme.trade_plan_card(active_signal), unsafe_allow_html=True)
+        elif "SAT" in active_signal.verdict:
+            # Short trades are backtest-falsified; SAT = exit/stay out only
+            st.markdown(theme.exit_warning_card(active_signal), unsafe_allow_html=True)
         else:
             st.info("ℹ️ İşlem sinyali yok. Piyasa izleniyor...")
     
@@ -295,6 +298,30 @@ if df_view is not None:
                         with st.expander("📋 Tüm İşlemler"):
                             trades_df = pd.DataFrame(bt_results['trades'])
                             st.dataframe(trades_df, width="stretch")
+
+    # --- KAĞIT TİCARET DOĞRULAMASI ---
+    with st.expander("🧪 Kağıt Ticaret Doğrulaması (Canlı Sinyal Takibi)", expanded=False):
+        st.info("Canlı sinyali (ML dahil) her gün kapanan mumda kaydeder ve backtest kurallarıyla "
+                "sanal işlem yapar. Birkaç hafta sonra gerçek davranış ile backtest beklentisi "
+                "karşılaştırılır. Günlük otomatik görev kuruluysa buton sadece kontrol içindir.")
+        from paper_trading import run_paper_update, paper_report
+        if st.button("📸 Bugünü Kaydet / Güncelle"):
+            pp_bar = st.progress(0.0)
+            pp_txt = st.empty()
+            status = run_paper_update(st.session_state['coin_map'], src_pref,
+                                      progress_callback=lambda p, n: (pp_bar.progress(min(1.0, p)), pp_txt.text(f"Kaydediliyor: {n}")))
+            pp_bar.empty(); pp_txt.empty()
+            if status["errors"]:
+                st.warning(f"{status['new_rows']} yeni kayıt. Veri alınamayan: {', '.join(status['errors'])}")
+            else:
+                st.success(f"{status['new_rows']} yeni kayıt eklendi ({status['assets']} varlık).")
+        paper_df, paper_totals = paper_report()
+        if len(paper_df):
+            st.dataframe(paper_df, width="stretch", hide_index=True)
+            st.caption(f"Başlangıç: {paper_totals['başlangıç']} | Ort. getiri: %{paper_totals['toplam_getiri_pct']} "
+                       f"| Al&Tut: %{paper_totals['al_tut_pct']} | Toplam kayıt: {paper_totals['kayıt']}")
+        else:
+            st.caption("Henüz kayıt yok — ilk kaydı almak için butona basın.")
 
     # --- AI PİYASA TARAYICI ---
     render_opportunity_scanner(st.session_state['coin_map'], src_pref, intervals)
@@ -454,8 +481,10 @@ if auto or st.session_state.get('auto_mode', False):
         cs = composite_signals.get(tf)
         if cs and ("AL" in cs.verdict or "SAT" in cs.verdict):
             msg_str += f"\n⏰ {label}: {cs.emoji} {cs.verdict} (Güven: %{cs.confidence:.0f})"
-            if cs.entry_price > 0:
+            if "AL" in cs.verdict and cs.entry_price > 0:
                 msg_str += f"\n   🎯 TP: ${cs.take_profit_1:,.2f} | 🛑 SL: ${cs.stop_loss:,.2f}"
+            elif "SAT" in cs.verdict:
+                msg_str += "\n   ⚠️ Çıkış sinyali — short önerisi değildir"
     
     if msg_str and tg_token and tg_chat:
         full_msg = f"🚨 **{sel_c} BOT** 🚨\n{msg_str}\nFiyat: {curr:.2f}"

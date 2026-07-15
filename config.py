@@ -228,6 +228,16 @@ class RegimeConfig:
     RANK_SIGNAL_WEIGHT = 0.6
     RANK_REGIME_WEIGHT = 0.4
 
+# POSITION SIZING (scanner allocation advice)
+class SizingConfig:
+    # Inverse-volatility sizing, validated 2026-07-15 on 3 samples (2 universes
+    # x 2 windows): sizing positions by 1/vol beat equal-weight on return AND
+    # drawdown in both recent samples and matched risk-adjusted return in the
+    # 2019-2023 bull. 30-bar lookback beat 90-bar.
+    VOL_LOOKBACK = 30      # bars of daily returns for realized volatility
+    ADJ_MIN = 0.5          # calmest/wildest asset gets at most/least this
+    ADJ_MAX = 1.5          #   multiple of the base allocation recommendation
+
 # ADVANCED ANALYSIS
 class AdvancedAnalysisConfig:
     # Elliott Wave
@@ -286,6 +296,7 @@ class Constants:
 class FileConfig:
     PORTFOLIO_FILE = 'portfolio.json'
     ASSETS_FILE = 'varliklar.json'
+    PAPER_FILE = 'paper_trading.json'
 
 #telegram
 class TelegramConfig:

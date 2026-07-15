@@ -4,7 +4,15 @@ import time
 from data_fetchers import get_market_data
 from signal_engine import generate_stable_signal
 from technical_analysis import calculate_regime_score
-from config import RegimeConfig
+from config import RegimeConfig, SizingConfig
+
+def vol_sizing_factor(asset_vol, median_vol):
+    """Inverse-volatility sizing multiplier (validated 2026-07-15, 3 samples):
+    calm assets get up to ADJ_MAX x the base allocation, wild ones as little
+    as ADJ_MIN x. Neutral (1.0) when volatility can't be measured."""
+    if not asset_vol or not median_vol or asset_vol <= 0 or median_vol <= 0:
+        return 1.0
+    return max(SizingConfig.ADJ_MIN, min(median_vol / asset_vol, SizingConfig.ADJ_MAX))
 
 def render_opportunity_scanner(coin_map, source_pref, intervals):
     """
@@ -95,6 +103,10 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
                                 regime_score = regime['score']
                                 row["Trend Rejimi"] = f"{regime['label']} ({regime['score']})"
 
+                            # Realized volatility for inverse-vol sizing
+                            asset_vol = d_scan['Close'].pct_change().tail(SizingConfig.VOL_LOOKBACK).std()
+                            row["_vol"] = float(asset_vol) if pd.notna(asset_vol) else 0.0
+
                         if tf == "1wk":
                             weekly_score = comp_signal.final_score
 
@@ -123,7 +135,7 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
                 row["Fırsat Puanı"] = round(rank_score, 1)
                 row["Karar Skoru"] = round(combined_score, 1)
                 row["Güven (%)"] = round(daily_confidence, 0)
-                row["Önerilen Kasa (%)"] = f"%{alloc_pct}" if alloc_pct > 0 else "-"
+                row["_alloc"] = alloc_pct  # finalized after the loop (needs cross-asset vol)
                 row["Sebep"] = ", ".join(all_reasons[:3]) if all_reasons else "Standart"
 
                 results_scan.append(row)
@@ -134,6 +146,18 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
 
             progress_bar.empty()
             status_text.empty()
+
+            # Inverse-volatility sizing: scale each base allocation by
+            # median_vol / asset_vol (clipped) so calm assets get more capital
+            # and volatile ones less — validated vs equal-weight on 3 samples.
+            vols = [r["_vol"] for r in results_scan if r.get("_vol", 0) > 0]
+            median_vol = float(pd.Series(vols).median()) if vols else 0.0
+            for r in results_scan:
+                alloc = r.pop("_alloc", 0)
+                v = r.pop("_vol", 0.0)
+                if alloc > 0:
+                    adj_alloc = alloc * vol_sizing_factor(v, median_vol)
+                    r["Önerilen Kasa (%)"] = f"%{adj_alloc:.1f}"
 
             # === EN İYİ FIRSAT KARTI ===
             if best_opp:

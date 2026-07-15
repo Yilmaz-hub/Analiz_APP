@@ -379,6 +379,21 @@ def trade_plan_card(sig) -> str:
   <div class="row"><span class="k">Risk / Ödül</span><span class="v">1:{sig.risk_reward:.1f}</span></div>
 </div>"""
 
+def exit_warning_card(sig) -> str:
+    """SAT verdict card. Short trades are backtest-falsified (12 assets,
+    avg -21%, 10/12 losers) — SAT's validated meaning is exit/stay out."""
+    color = PALETTE["down"]
+    return f"""
+<div class="at-plan" style="--vc:{color};">
+  <div class="title">POZİSYONDAN ÇIK / UZAK DUR</div>
+  <div class="row"><span class="k">Sinyal</span><span class="v down">{sig.verdict}</span></div>
+  <div class="row"><span class="k">Anlam</span><span class="v">Long pozisyonları kapat/azalt, yeni alım yapma</span></div>
+  <div style="font-size:12px; color:var(--muted); margin-top:8px;">
+    ⚠️ SAT sinyali short (açığa satış) önerisi DEĞİLDİR — short işlemler
+    backtest'te 12 varlıkta ortalama −%21 ile doğrulanamadı.
+  </div>
+</div>"""
+
 def dimension_bar(label: str, value: float, delay_idx: int = 0) -> str:
     v = max(-100.0, min(100.0, float(value)))
     color = PALETTE["up"] if v > 20 else (PALETTE["down"] if v < -20 else PALETTE["muted"])
