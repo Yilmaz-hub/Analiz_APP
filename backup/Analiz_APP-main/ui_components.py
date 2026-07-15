@@ -4,7 +4,6 @@ import pandas as pd
 import plotly.graph_objects as go
 from config import PATTERN_INFO, DEFAULT_COIN_MAP, UIConfig
 from technical_analysis import calculate_sr_advanced, detect_advanced_patterns, calculate_oracle_signal_v2, calculate_trade_setup
-import theme
 
 def render_sidebar_settings():
     st.sidebar.header("⚙️ Kontrol Paneli")
@@ -71,10 +70,7 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
             name='EMA 50 (Bulut Altı)'
         ))
 
-    fig.add_trace(go.Candlestick(
-        x=df_view.index, open=df_view['Open'], high=df_view['High'], low=df_view['Low'], close=df_view['Close'], name='Fiyat',
-        increasing_line_color=theme.CANDLE_UP, decreasing_line_color=theme.CANDLE_DOWN
-    ))
+    fig.add_trace(go.Candlestick(x=df_view.index, open=df_view['Open'], high=df_view['High'], low=df_view['Low'], close=df_view['Close'], name='Fiyat'))
     fig.add_hline(y=curr, line_dash="dot", line_color="cyan", annotation_text=f" {curr:,.2f}", annotation_position="right")
     
     if show_pred and len(f_dates) > 0:
@@ -182,9 +178,9 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
         else:
             zoom_end = df_view.index[-1]
 
-        base_layout = theme.plotly_base_layout()
-        base_layout.update(
+        fig.update_layout(
             height=900, 
+            template="plotly_dark", 
             xaxis_rangeslider_visible=False, 
             dragmode="pan",
             yaxis=dict(side="right", fixedrange=False, type=y_type, range=range_y, tickformat=".2f", exponentformat="none"),
@@ -192,7 +188,6 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
             margin=dict(l=10, r=60, t=10, b=20),
             hovermode='x unified'
         )
-        fig.update_layout(**base_layout)
 
         config = {
             'scrollZoom': True, 

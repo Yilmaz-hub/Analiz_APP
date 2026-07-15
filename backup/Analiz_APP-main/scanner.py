@@ -2,9 +2,8 @@ import streamlit as st
 import pandas as pd
 import time
 from data_fetchers import get_market_data
-from signal_engine import generate_stable_signal
-from technical_analysis import calculate_regime_score
-from config import RegimeConfig
+from technical_analysis import calculate_sr_advanced
+from signal_engine import generate_composite_signal
 
 def render_opportunity_scanner(coin_map, source_pref, intervals):
     """
@@ -15,7 +14,7 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
     st.header("💼 Varlık ve Fırsat Yönetimi")
 
     with st.expander("🔍 Piyasayı Tara & Fırsat Bul (AI)", expanded=False):
-        st.info("Karar Motoru ile tüm varlıkları tarar. Sonuçlar Fırsat Puanı'na göre sıralanır: sinyal gücü + trend rejimi. Strateji trendli varlıklarda kazandığı için zayıf rejimdeki varlıklara kasa önerilmez.")
+        st.info("Karar Motoru ile tüm varlıkları tarar. Günlük ve Haftalık sinyaller tek tabloda gösterilir.")
 
         if st.button("🚀 Taramayı Başlat"):
             best_opp = None
@@ -43,10 +42,8 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
                     "Coin": c_name,
                     "Günlük Sinyal": "—",
                     "Haftalık Sinyal": "—",
-                    "Trend Rejimi": "—",
                     "Fiyat": "—",
                     "RSI (1G)": "—",
-                    "Fırsat Puanı": 0,
                     "Karar Skoru": 0,
                     "Güven (%)": 0,
                     "Önerilen Kasa (%)": "-",
@@ -57,7 +54,6 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
                 weekly_score = 0
                 all_reasons = []
                 daily_confidence = 0
-                regime_score = 0
 
                 for tf, signal_col in [("1d", "Günlük Sinyal"), ("1wk", "Haftalık Sinyal")]:
                     try:
@@ -66,8 +62,9 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
                         d_scan = None
 
                     if isinstance(d_scan, pd.DataFrame) and not getattr(d_scan, 'empty', True) and len(d_scan) > 20:
-                        # Stable (whipsaw-filtered) composite signal — same as dashboard
-                        comp_signal = generate_stable_signal(d_scan, tf)
+                        # Use composite signal engine
+                        sup_list, res_list = calculate_sr_advanced(d_scan, tf)
+                        comp_signal = generate_composite_signal(d_scan, tf, sup_list, res_list)
 
                         # Display signal with emoji
                         if "AL" in comp_signal.verdict:
@@ -88,39 +85,21 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
                             daily_confidence = comp_signal.confidence
                             all_reasons.extend(comp_signal.reasons[:3])  # Top 3 reasons
 
-                            # Trend regime quality — the strategy's edge lives
-                            # in trending assets, so this drives the ranking
-                            regime = calculate_regime_score(d_scan)
-                            if regime:
-                                regime_score = regime['score']
-                                row["Trend Rejimi"] = f"{regime['label']} ({regime['score']})"
-
                         if tf == "1wk":
                             weekly_score = comp_signal.final_score
 
                 # Combined score (daily 60% + weekly 40%)
                 combined_score = daily_score * 0.6 + weekly_score * 0.4
 
-                # Opportunity rank: signal strength blended with trend regime
-                # (regime 0-100 mapped to -100..+100 so a choppy asset drags
-                # the rank down even when its signal score looks good)
-                rank_score = (RegimeConfig.RANK_SIGNAL_WEIGHT * combined_score
-                              + RegimeConfig.RANK_REGIME_WEIGHT * (regime_score * 2 - 100))
-
-                # Allocation recommendation — only in a tradeable trend regime,
-                # since the backtest shows the signal loses money on choppy assets
+                # Allocation recommendation based on combined score and confidence
                 alloc_pct = 0
-                if regime_score >= RegimeConfig.MIN_TRADEABLE_SCORE:
-                    if combined_score >= 50 and daily_confidence >= 60:
-                        alloc_pct = 10
-                    elif combined_score >= 30 and daily_confidence >= 50:
-                        alloc_pct = 5
-                    elif combined_score >= 15 and daily_confidence >= 40:
-                        alloc_pct = 2.5
-                elif combined_score >= 15:
-                    all_reasons.insert(0, "Zayıf trend rejimi — strateji bu profilde kanıtsız")
+                if combined_score >= 50 and daily_confidence >= 60:
+                    alloc_pct = 10
+                elif combined_score >= 30 and daily_confidence >= 50:
+                    alloc_pct = 5
+                elif combined_score >= 15 and daily_confidence >= 40:
+                    alloc_pct = 2.5
 
-                row["Fırsat Puanı"] = round(rank_score, 1)
                 row["Karar Skoru"] = round(combined_score, 1)
                 row["Güven (%)"] = round(daily_confidence, 0)
                 row["Önerilen Kasa (%)"] = f"%{alloc_pct}" if alloc_pct > 0 else "-"
@@ -128,8 +107,8 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
 
                 results_scan.append(row)
 
-                if rank_score > best_score:
-                    best_score = rank_score
+                if combined_score > best_score:
+                    best_score = combined_score
                     best_opp = results_scan[-1]
 
             progress_bar.empty()
@@ -138,12 +117,11 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
             # === EN İYİ FIRSAT KARTI ===
             if best_opp:
                 st.success(f"🌟 **EN İYİ FIRSAT:** {best_opp['Coin']}")
-                c1, c2, c3, c4, c5 = st.columns(5)
-                c1.metric("Fırsat Puanı", best_opp['Fırsat Puanı'])
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Karar Skoru", best_opp['Karar Skoru'])
                 c2.metric("Günlük Sinyal", best_opp['Günlük Sinyal'])
-                c3.metric("Trend Rejimi", best_opp['Trend Rejimi'])
-                c4.metric("Fiyat", best_opp['Fiyat'])
-                c5.metric("Önerilen Yatırım", best_opp['Önerilen Kasa (%)'])
+                c3.metric("Fiyat", best_opp['Fiyat'])
+                c4.metric("Önerilen Yatırım", best_opp['Önerilen Kasa (%)'])
                 st.caption(f"📌 Sebep: {best_opp['Sebep']}")
 
             # === TABLO ===
@@ -161,14 +139,14 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
                 with col_f2:
                     min_score = st.slider("Minimum Skor", -100, 100, -100)
 
-                display_cols = ["Coin", "Günlük Sinyal", "Haftalık Sinyal", "Trend Rejimi", "Fiyat", "RSI (1G)", "Fırsat Puanı", "Karar Skoru", "Güven (%)", "Önerilen Kasa (%)", "Sebep"]
+                display_cols = ["Coin", "Günlük Sinyal", "Haftalık Sinyal", "Fiyat", "RSI (1G)", "Karar Skoru", "Güven (%)", "Önerilen Kasa (%)", "Sebep"]
                 df_results = pd.DataFrame(results_scan)[display_cols]
 
                 # Filtreleme
                 mask = df_results['Günlük Sinyal'].str.contains('|'.join(filter_signal)) | \
                        df_results['Haftalık Sinyal'].str.contains('|'.join(filter_signal))
                 filtered_df = df_results[mask & (df_results['Karar Skoru'] >= min_score)].sort_values(
-                    by="Fırsat Puanı", ascending=False
+                    by="Karar Skoru", ascending=False
                 )
 
                 st.dataframe(filtered_df, width="stretch", height=400, hide_index=True)

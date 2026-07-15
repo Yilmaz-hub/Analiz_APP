@@ -156,7 +156,7 @@ class DecisionEngineConfig:
     # Risk management for trade setups
     CONSERVATIVE_RR = 1.5   # Risk:Reward for TP1
     AGGRESSIVE_RR = 3.0     # Risk:Reward for TP2
-    ATR_SL_MULTIPLIER = 2.5 # ATR multiplier for stop-loss distance (1.5 -> 2.5: grid showed tight stops bled money on daily crypto)
+    ATR_SL_MULTIPLIER = 1.5 # ATR multiplier for stop-loss distance
 
     # RSI divergence detection
     DIVERGENCE_LOOKBACK = 20
@@ -164,69 +164,6 @@ class DecisionEngineConfig:
 
     # Confidence calculation
     MIN_CONFIDENCE_TO_TRADE = 30  # Below this, always BEKLE
-
-    # --- SIGNAL STABILITY / ANTI-WHIPSAW ---
-    # The published verdict only changes direction after the raw signal
-    # holds the new direction for CONFIRMATION_BARS consecutive CLOSED bars.
-    CONFIRMATION_BARS = 2
-    # How many recent closed bars to replay through the state machine
-    # when producing the live (stable) signal. Must be > CONFIRMATION_BARS.
-    STABILITY_LOOKBACK = 15
-    # Hysteresis: once in AL, the score must fall below
-    # BUY_THRESHOLD - EXIT_SCORE_BUFFER before the signal starts dropping
-    # (mirrored for SAT). Prevents flip-flop around the entry threshold.
-    EXIT_SCORE_BUFFER = 10
-    # Score the last CLOSED candle only — the still-forming candle's
-    # indicators change continuously and cause intraday verdict flips.
-    DROP_UNCLOSED_CANDLE = True
-    # Choppy-market guard used by the state machine for NEW entries
-    CHOP_ADX_LIMIT = 20
-    CHOP_SCORE_OVERRIDE = 60  # |score| above this ignores the chop guard
-
-    # --- ENTRY QUALITY (backtest-validated 2026-07-15, 5 crypto assets 1d) ---
-    # Asymmetric thresholds: a NEW signal needs |score| >= ENTRY_SCORE, but an
-    # existing signal is held/exited via BUY/SELL_THRESHOLD ± EXIT_SCORE_BUFFER.
-    # Grid result: entry 15 -> 25 improved every asset tested.
-    ENTRY_SCORE = 25
-    # Regime filter: long entries only when the last closed bar is above this
-    # SMA (shorts only below). 0 disables. Backtest: improved every losing
-    # asset, never hurt a winning one.
-    REGIME_MA_PERIOD = 100
-
-# BACKTEST EXECUTION MODEL
-class BacktestConfig:
-    # Trading fee charged per side (entry AND exit), as a fraction of trade
-    # value. 0.001 = 0.1% (Binance spot taker). Without this the backtest
-    # overstates returns by ~0.2% per round trip.
-    FEE_RATE = 0.001
-
-# TREND REGIME SCORING (scanner asset ranking)
-class RegimeConfig:
-    # The composite strategy only has an edge on trending assets (BTC/XRP
-    # profile); choppy ones bleed. This 0-100 score ranks assets by trend
-    # quality so the scanner can steer capital toward the former.
-    MA_PERIOD = 100            # long-term SMA (matches DecisionEngineConfig.REGIME_MA_PERIOD)
-    PERSISTENCE_LOOKBACK = 50  # bars used for "% of time above the MA"
-    SLOPE_LOOKBACK = 20        # bars used for the MA slope
-    SLOPE_FULL_SCORE_PCT = 5.0 # MA slope (%) over SLOPE_LOOKBACK that earns full slope points
-    ADX_FLOOR = 15             # ADX at/below this earns 0 trend-strength points
-    ADX_CEIL = 35              # ADX at/above this earns full trend-strength points
-
-    # Component weights (must sum to 100)
-    PERSISTENCE_POINTS = 40
-    SLOPE_POINTS = 25
-    ADX_POINTS = 20
-    ALIGNMENT_POINTS = 15      # EMA20 > EMA50 > MA100 stack
-
-    # Scanner behavior. Per-trade validation (2026-07-15, 5 assets, 72 trades):
-    # entries below regime 35 netted ~0% combined; gating HIGHER than this
-    # (e.g. 55) drops big early-trend winners because the score lags new
-    # trends — do not raise it without re-running the per-trade analysis.
-    MIN_TRADEABLE_SCORE = 35   # below this, no allocation is recommended
-    # Opportunity rank = RANK_SIGNAL_WEIGHT * decision score
-    #                  + RANK_REGIME_WEIGHT * (regime score mapped to -100..+100)
-    RANK_SIGNAL_WEIGHT = 0.6
-    RANK_REGIME_WEIGHT = 0.4
 
 # ADVANCED ANALYSIS
 class AdvancedAnalysisConfig:

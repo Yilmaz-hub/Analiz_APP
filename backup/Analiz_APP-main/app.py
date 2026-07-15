@@ -8,20 +8,31 @@ from logger import logger
 
 # === YENİ MODÜLLERDEN IMPORTLAR ===
 from data_fetchers import get_market_data, get_fear_greed_index
-from technical_analysis import detect_advanced_patterns, calculate_extended_trendlines, detect_patterns, run_strategy_backtest
+from technical_analysis import calculate_sr_advanced, detect_advanced_patterns, calculate_oracle_signal_v2, calculate_trade_setup, calculate_extended_trendlines, detect_patterns, run_strategy_backtest
 from ml_models import calculate_smart_prediction_FIXED
 from portfolio import load_portfolio, save_portfolio, validate_portfolio_risk, check_active_positions_auto_close, multi_timeframe_confirmation
 from ui_components import render_sidebar_settings, render_asset_management, render_main_chart
 from scanner import render_opportunity_scanner
 from data_fetchers import get_live_price_for_portfolio
-from signal_engine import generate_stable_signal, CompositeSignal
+from signal_engine import generate_composite_signal, CompositeSignal
 from advanced_analysis import detect_elliott_wave, analyze_ichimoku, detect_wyckoff_phase, analyze_market_structure
-import theme
 
 st.set_page_config(layout="wide", page_title="Pro Trader V48 (Modular Edition)")
 
 # CSS
-theme.inject()
+st.markdown("""
+    <style>
+        .block-container { padding-top: 2rem; padding-bottom: 5rem; }
+        h1 { font-size: 2rem !important; margin-bottom: 0rem; }
+        .stMarkdown p { font-size: 14px; }
+        div[data-testid="stMetricValue"] { font-size: 1.4rem !important; }
+        div[data-testid="stMetricLabel"] { font-size: 0.9rem !important; }
+        .stButton>button { width: 100%; border-radius: 5px; font-weight: bold; }
+        .stExpander { border: 1px solid #333; border-radius: 8px; }
+        hr { margin: 1em 0; border-color: #333; }
+        .trade-card { background-color: #1E1E1E; padding: 15px; border-radius: 8px; border-left: 4px solid; margin-bottom: 10px; }
+    </style>
+""", unsafe_allow_html=True)
 
 # GİRİŞ VERİLERİNİ YÜKLE
 def load_assets():
@@ -98,17 +109,22 @@ for tf, label in intervals.items():
     results[tf] = df
     
     if df is not None:
-        # Stable (whipsaw-filtered) composite signal — closed candles only
-        comp_sig = generate_stable_signal(df, tf)
+        s_list, r_list = calculate_sr_advanced(df, tf)
+        # Use new composite signal engine
+        comp_sig = generate_composite_signal(df, tf, s_list, r_list)
         composite_signals[tf] = comp_sig
-
+        
         st.sidebar.markdown("---")
-        st.sidebar.markdown(theme.sidebar_signal(label, comp_sig), unsafe_allow_html=True)
+        st.sidebar.markdown(f"### {label}")
+        st.sidebar.markdown(f"<span style='color:{comp_sig.color}; font-weight:bold; font-size:20px'>{comp_sig.emoji} {comp_sig.verdict}</span>", unsafe_allow_html=True)
+        st.sidebar.caption(f"Güven: %{comp_sig.confidence:.0f} | Skor: {comp_sig.final_score:.0f}")
         if comp_sig.entry_price > 0 and "AL" in comp_sig.verdict:
             st.sidebar.caption(f"🎯 TP: ${comp_sig.take_profit_1:,.2f} | 🛑 SL: ${comp_sig.stop_loss:,.2f}")
         elif comp_sig.entry_price > 0 and "SAT" in comp_sig.verdict:
             st.sidebar.caption(f"🎯 TP: ${comp_sig.take_profit_1:,.2f} | 🛑 SL: ${comp_sig.stop_loss:,.2f}")
-
+        
+        # Also keep legacy for backward compat
+        status, color, target_msg = calculate_oracle_signal_v2(df, s_list, r_list)
         adv_patterns = detect_advanced_patterns(df)
     
         if adv_patterns:
@@ -119,8 +135,10 @@ for tf, label in intervals.items():
     else: 
         st.sidebar.warning(f"{label}: Bekleniyor...")
 
+st.title(f"📈 {sel_c} V48 (Modular & Re-Architected)")
 safe_src = str(active_src) if active_src else ""
-st.markdown(theme.page_header(sel_c, safe_src), unsafe_allow_html=True)
+c = "green" if "Binance" in safe_src else ("blue" if "OKX" in safe_src else "orange")
+st.markdown(f"**Veri Kaynağı:** <span style='color:{c}; font-weight:bold'>{safe_src}</span>", unsafe_allow_html=True)
 
 view_tf = st.selectbox("Periyot:", list(intervals.keys()), format_func=lambda x: intervals[x])
 df_view = results[view_tf]
@@ -164,7 +182,7 @@ if df_view is not None:
     # Get the composite signal for the current view timeframe
     active_signal = composite_signals.get(view_tf)
     if active_signal is None:
-        active_signal = generate_stable_signal(df_view, view_tf)
+        active_signal = generate_composite_signal(df_view, view_tf)
     
     # ═══════════════════════════════════════════
     # DECISION DASHBOARD (Karar Paneli)
@@ -174,14 +192,59 @@ if df_view is not None:
     dash_col1, dash_col2, dash_col3 = st.columns([1.5, 1, 1.5])
     
     with dash_col1:
-        st.markdown(theme.verdict_card(active_signal), unsafe_allow_html=True)
+        # Traffic Light — Main Verdict
+        verdict_bg = {
+            "GÜÇLÜ AL": "#00C853", "AL": "#4CAF50",
+            "BEKLE": "#616161",
+            "SAT": "#FF6D00", "GÜÇLÜ SAT": "#D50000"
+        }
+        bg_color = verdict_bg.get(active_signal.verdict, "#616161")
         
+        st.markdown(f"""
+        <div style="
+            background: linear-gradient(135deg, {bg_color}22, {bg_color}44);
+            border: 3px solid {bg_color};
+            border-radius: 16px;
+            padding: 25px;
+            text-align: center;
+            margin-bottom: 10px;
+        ">
+            <div style="font-size: 48px; margin-bottom: 8px;">{active_signal.emoji}</div>
+            <div style="font-size: 28px; font-weight: 900; color: {bg_color}; letter-spacing: 2px;">
+                {active_signal.verdict}
+            </div>
+            <div style="font-size: 14px; color: #aaa; margin-top: 8px;">
+                Güven: %{active_signal.confidence:.0f} | Skor: {active_signal.final_score:+.0f}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Trade Setup Card (only if signal is actionable)
         if "AL" in active_signal.verdict or "SAT" in active_signal.verdict:
-            st.markdown(theme.trade_plan_card(active_signal), unsafe_allow_html=True)
+            direction_label = "📈 LONG" if "AL" in active_signal.verdict else "📉 SHORT"
+            st.markdown(f"""
+            <div style="
+                background: #1a1a2e;
+                border-left: 4px solid {bg_color};
+                border-radius: 8px;
+                padding: 15px;
+                margin-top: 5px;
+            ">
+                <div style="font-weight: bold; margin-bottom: 8px; color: {bg_color};">{direction_label} İŞLEM PLANI</div>
+                <div>🔹 <b>Giriş:</b> ${active_signal.entry_price:,.2f}</div>
+                <div>🛑 <b>Stop Loss:</b> ${active_signal.stop_loss:,.2f} <span style="color:#888">(-%{active_signal.risk_amount_pct:.1f})</span></div>
+                <div>🎯 <b>TP1 (1.5:1):</b> ${active_signal.take_profit_1:,.2f}</div>
+                <div>🎯 <b>TP2 (3:1):</b> ${active_signal.take_profit_2:,.2f}</div>
+                <div style="margin-top: 8px; color: #888;">
+                    Risk/Ödül: 1:{active_signal.risk_reward:.1f}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
         else:
             st.info("ℹ️ İşlem sinyali yok. Piyasa izleniyor...")
     
     with dash_col2:
+        # Dimension Scores — Vertical Bars
         st.markdown("**📊 Boyut Skorları**")
         dim_labels = {
             "trend": ("📈 Trend", active_signal.dimension_scores.get("trend", 0)),
@@ -192,8 +255,18 @@ if df_view is not None:
             "advanced": ("🌊 Gelişmiş", active_signal.dimension_scores.get("advanced", 0))
         }
         
-        for idx, (key, (label, value)) in enumerate(dim_labels.items()):
-            st.markdown(theme.dimension_bar(label, value, delay_idx=idx), unsafe_allow_html=True)
+        for key, (label, value) in dim_labels.items():
+            bar_color = "#4CAF50" if value > 20 else ("#D50000" if value < -20 else "#888")
+            # Normalize -100..+100 to 0..100 for display width
+            bar_width = int(max(5, min(100, (value + 100) / 2)))
+            st.markdown(f"""
+            <div style="margin-bottom: 10px;">
+                <div style="font-size: 12px; color: #ccc; margin-bottom: 3px;">{label}: <b style="color:{bar_color}">{value:+.0f}</b></div>
+                <div style="background: #333; border-radius: 4px; height: 14px; overflow: hidden;">
+                    <div style="width: {bar_width}%; background: {bar_color}; height: 100%; border-radius: 4px; transition: width 0.3s;"></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
         
         # Market Summary Metrics
         st.markdown("---")
@@ -203,20 +276,24 @@ if df_view is not None:
         st.metric("RSI", f"{rsi_val:.1f}")
     
     with dash_col3:
+        # Signal Reasons
         st.markdown("**💡 Sinyal Gerekçeleri**")
         if active_signal.reasons:
-            for reason in active_signal.reasons[:8]:
-                st.markdown(theme.reason_line(reason), unsafe_allow_html=True)
+            for reason in active_signal.reasons[:8]:  # Show top 8 reasons
+                st.markdown(f"<div style='font-size:13px; padding:3px 0; border-bottom:1px solid #222;'>• {reason}</div>", unsafe_allow_html=True)
         else:
             st.write("Analiz tamamlandı, belirgin sinyal yok.")
         
+        # Multi-timeframe summary
         st.markdown("---")
         st.markdown("**🕐 Zaman Dilimleri Özeti**")
         for tf_key, tf_label in intervals.items():
             cs = composite_signals.get(tf_key)
             if cs:
-                st.markdown(theme.tf_row(tf_label, cs.verdict, cs.confidence), unsafe_allow_html=True)
+                tf_color = cs.color
+                st.markdown(f"<span style='color:{tf_color}; font-weight:bold;'>{cs.emoji} {tf_label}: {cs.verdict}</span> <span style='color:#888'>(%{cs.confidence:.0f})</span>", unsafe_allow_html=True)
         
+        # Pattern Detections
         st.markdown("---")
         st.markdown("**🧠 Tespitler**")
         if show_all_pats and items_raw:
@@ -233,43 +310,71 @@ if df_view is not None:
         adv_col1, adv_col2 = st.columns(2)
 
         with adv_col1:
+            # Elliott Wave
             ew = detect_elliott_wave(df_view)
             if ew["detected"]:
-                rows = f"<div>Tip: <b>{ew['type']}</b> | Yön: <b>{ew['direction']}</b></div><div>Güven: %{ew['confidence']}</div>"
-                targets = f"<br>🎯 Hedefler: {' | '.join(f'${t:,.2f}' for t in ew['targets'])}" if ew["targets"] else ""
-                st.markdown(theme.analysis_card("🌊 Elliott Wave", rows + targets, ew["direction"], ew["description"]), unsafe_allow_html=True)
+                ew_color = "green" if ew["direction"] == "BULLISH" else ("red" if ew["direction"] == "BEARISH" else "gray")
+                st.markdown(f"""
+                <div style="background:#1a1a2e; border-left:4px solid {ew_color}; border-radius:8px; padding:12px; margin-bottom:10px;">
+                    <div style="font-weight:bold; font-size:16px; margin-bottom:6px;">🌊 Elliott Wave</div>
+                    <div>Tip: <b>{ew['type']}</b> | Yön: <b style="color:{ew_color}">{ew['direction']}</b></div>
+                    <div>Güven: %{ew['confidence']}</div>
+                    <div style="margin-top:6px; font-size:13px; color:#ccc;">{ew['description']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+                if ew["targets"]:
+                    st.caption(f"🎯 Hedefler: {' | '.join(f'${t:,.2f}' for t in ew['targets'])}")
             else:
                 st.info("🌊 Elliott Wave: Geçerli dalga sayımı bulunamadı.")
 
+            # Wyckoff
             wyck = detect_wyckoff_phase(df_view)
-            rows = f"<div>Faz: <b>{wyck['phase']}</b></div>"
-            st.markdown(theme.analysis_card("📦 Wyckoff Fazı", rows, wyck["signal"], wyck["description"]), unsafe_allow_html=True)
+            wyck_color = "green" if wyck["signal"] == "BULLISH" else ("red" if wyck["signal"] == "BEARISH" else "gray")
+            st.markdown(f"""
+            <div style="background:#1a1a2e; border-left:4px solid {wyck_color}; border-radius:8px; padding:12px; margin-bottom:10px;">
+                <div style="font-weight:bold; font-size:16px; margin-bottom:6px;">📦 Wyckoff Fazı</div>
+                <div>Faz: <b style="color:{wyck_color}">{wyck['phase']}</b></div>
+                <div style="margin-top:6px; font-size:13px; color:#ccc;">{wyck['description']}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
         with adv_col2:
+            # Ichimoku
             ich = analyze_ichimoku(df_view)
-            rows = f"<div>Bulut: <b>{ich['cloud_status']}</b></div><div>TK: {ich['tk_cross']}</div><div>{ich['chikou']}</div><div style='margin-top:6px;'>Skor: <b>{ich['score']:+d}</b></div>"
-            st.markdown(theme.analysis_card("☁️ Ichimoku Cloud", rows, ich["signal"]), unsafe_allow_html=True)
+            ich_color = "green" if ich["signal"] == "BULLISH" else ("red" if ich["signal"] == "BEARISH" else "gray")
+            st.markdown(f"""
+            <div style="background:#1a1a2e; border-left:4px solid {ich_color}; border-radius:8px; padding:12px; margin-bottom:10px;">
+                <div style="font-weight:bold; font-size:16px; margin-bottom:6px;">☁️ Ichimoku Cloud</div>
+                <div>Bulut: <b>{ich['cloud_status']}</b></div>
+                <div>TK: {ich['tk_cross']}</div>
+                <div>{ich['chikou']}</div>
+                <div style="margin-top:6px;">Skor: <b style="color:{ich_color}">{ich['score']:+d}</b></div>
+            </div>
+            """, unsafe_allow_html=True)
 
+            # Market Structure
             ms = analyze_market_structure(df_view)
-            badges = ""
-            if ms["bos"]: badges += '<span class="at-badge">BOS</span>'
-            if ms["choch"]: badges += '<span class="at-badge alarm">CHoCH</span>'
-            rows = f"<div>Yapı: <b>{ms['structure']}</b></div>"
-            st.markdown(theme.analysis_card("📐 Piyasa Yapısı", rows, ms["signal"], ms["description"], badges), unsafe_allow_html=True)
+            ms_color = "green" if ms["signal"] == "BULLISH" else ("red" if ms["signal"] == "BEARISH" else "gray")
+            bos_badge = ' <span style="background:#FF6D00; color:white; padding:2px 6px; border-radius:4px; font-size:11px;">BOS</span>' if ms["bos"] else ""
+            choch_badge = ' <span style="background:#D50000; color:white; padding:2px 6px; border-radius:4px; font-size:11px;">CHoCH</span>' if ms["choch"] else ""
+            st.markdown(f"""
+            <div style="background:#1a1a2e; border-left:4px solid {ms_color}; border-radius:8px; padding:12px; margin-bottom:10px;">
+                <div style="font-weight:bold; font-size:16px; margin-bottom:6px;">📐 Piyasa Yapısı{bos_badge}{choch_badge}</div>
+                <div>Yapı: <b style="color:{ms_color}">{ms['structure']}</b></div>
+                <div style="margin-top:6px; font-size:13px; color:#ccc;">{ms['description']}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
 
     # --- BACKTEST ---
     if df_view is not None:
         st.divider()
         with st.expander("📊 Backtest: Strateji Performansı", expanded=False):
-            st.info("Ekranda gördüğünüz Karar Motoru sinyalini (onay + histerezis filtreli) geçmiş veride test eder. Not: ML boyutu hız nedeniyle backtestte devre dışıdır, ağırlığı diğer boyutlara dağıtılır.")
+            st.info("Mevcut sinyal sisteminizi geçmiş veride test eder. Gerçek sonuçları yansıtır.")
             if st.button("🚀 Backtest Başlat"):
                 with st.spinner("Backtest çalışıyor..."):
                     import plotly.graph_objects as go
-                    bt_progress = st.progress(0.0)
-                    bt_results = run_strategy_backtest(df_view, initial_balance=10000, timeframe=view_tf,
-                                                       progress_callback=lambda p: bt_progress.progress(min(1.0, p)))
-                    bt_progress.empty()
+                    bt_results = run_strategy_backtest(df_view, initial_balance=10000)
                     if bt_results is None:
                         st.warning("Yeterli işlem oluşmadı. Daha uzun veri gerekebilir.")
                     else:

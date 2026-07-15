@@ -2,6 +2,7 @@ import json
 import os
 import time
 from config import FileConfig, Constants
+from technical_analysis import calculate_sr_advanced, calculate_oracle_signal_v2
 from data_fetchers import get_market_data
 from logger import logger
 import pandas as pd
@@ -97,15 +98,14 @@ def multi_timeframe_confirmation(coin_name, symbol, source_pref):
     signals = {}
     scores = []
     
-    from signal_engine import generate_stable_signal  # lazy: avoids import cycle via technical_analysis
-
     for tf in ["4h", "1d", "1wk"]:
         try:
             df, _ = get_market_data(source_pref, symbol, tf)
             if isinstance(df, pd.DataFrame) and not getattr(df, 'empty', True) and len(df) > 50:  # type: ignore
-                status = generate_stable_signal(df, tf).verdict
-
-                if "AL" in status:
+                s_list, r_list = calculate_sr_advanced(df, tf)
+                status, color, _ = calculate_oracle_signal_v2(df, s_list, r_list)
+                
+                if "AL" in status: 
                     signals[tf] = "AL"
                     scores.append(1)
                 elif "SAT" in status: 

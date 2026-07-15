@@ -217,7 +217,7 @@ def calculate_trend_strength(df):
             dist_score = max(-25, min(25, distance_pct * 5))
             score += dist_score
         
-        # 3. ADX trend strength (+/- 25 or penalty)
+        # 3. ADX trend strength (+/- 25)
         adx_cols = [c for c in df.columns if 'ADX' in c.upper()]
         adx_val = 25  # default neutral
         if adx_cols:
@@ -232,16 +232,13 @@ def calculate_trend_strength(df):
         elif adx_val > 25:
             direction = 1 if score > 0 else -1
             score += direction * 10
+        # If ADX < 25, trend is weak — no additional boost
         
         # 4. Short-term slope (+/- 20)
         if len(df) >= 5:
             slope_5 = (df['Close'].iloc[-1] - df['Close'].iloc[-5]) / df['Close'].iloc[-5] * 100
             slope_score = max(-20, min(20, slope_5 * 4))
             score += slope_score
-        
-        # Apply choppy market penalty AFTER all components are summed
-        if adx_val < 20:
-            score = score * 0.3  # Reduce total score by 70% in choppy markets
         
         return max(-100, min(100, score))
     except Exception as e:
@@ -473,234 +470,52 @@ def calculate_trade_setup(df, signal_type):
         }
     return None
 
-def calculate_regime_score(df):
-    """
-    Trend-regime quality score (0-100) used by the scanner to rank assets.
-    The composite strategy only has an edge on cleanly trending assets, so
-    capital should be steered toward high scores.
-
-    Components (weights in RegimeConfig):
-      - persistence: % of recent bars closing above the long-term MA
-      - slope: long-term MA rise over SLOPE_LOOKBACK bars
-      - ADX: trend strength, counted only while price is above the MA
-      - alignment: EMA20 > EMA50 > MA stack
-
-    Returns {'score': int, 'label': str, 'components': dict}, or None when
-    there is not enough data.
-    """
-    from config import RegimeConfig as rc
-
-    min_bars = rc.MA_PERIOD + rc.SLOPE_LOOKBACK
-    if df is None or 'Close' not in getattr(df, 'columns', []) or len(df) < min_bars:
-        return None
-
-    close = df['Close']
-    ma = close.rolling(rc.MA_PERIOD).mean()
-    ma_now = ma.iloc[-1]
-
-    # Persistence: share of recent bars above the MA (only where MA exists)
-    ma_recent = ma.iloc[-rc.PERSISTENCE_LOOKBACK:]
-    close_recent = close.iloc[-rc.PERSISTENCE_LOOKBACK:]
-    valid = ma_recent.notna()
-    persistence_ratio = float((close_recent[valid] > ma_recent[valid]).mean()) if valid.any() else 0.0
-    persistence_pts = persistence_ratio * rc.PERSISTENCE_POINTS
-
-    # Slope of the long-term MA
-    ma_then = ma.iloc[-1 - rc.SLOPE_LOOKBACK]
-    slope_pct = 0.0
-    if not pd.isna(ma_then) and ma_then > 0 and not pd.isna(ma_now):
-        slope_pct = (ma_now / ma_then - 1) * 100
-    slope_pts = max(0.0, min(slope_pct / rc.SLOPE_FULL_SCORE_PCT, 1.0)) * rc.SLOPE_POINTS
-
-    # ADX strength — directionless, so it only earns points in an uptrend
-    above_ma = not pd.isna(ma_now) and close.iloc[-1] > ma_now
-    adx_val = float(df['ADX'].iloc[-1]) if 'ADX' in df.columns and not pd.isna(df['ADX'].iloc[-1]) else 20.0
-    adx_norm = max(0.0, min((adx_val - rc.ADX_FLOOR) / (rc.ADX_CEIL - rc.ADX_FLOOR), 1.0))
-    adx_pts = adx_norm * rc.ADX_POINTS if above_ma else 0.0
-
-    # EMA alignment
-    ema20 = df['EMA_20'].iloc[-1] if 'EMA_20' in df.columns else close.ewm(span=20).mean().iloc[-1]
-    ema50 = df['EMA_50'].iloc[-1] if 'EMA_50' in df.columns else close.ewm(span=50).mean().iloc[-1]
-    if not pd.isna(ma_now) and ema20 > ema50 > ma_now:
-        alignment_pts = rc.ALIGNMENT_POINTS
-    elif ema20 > ema50:
-        alignment_pts = rc.ALIGNMENT_POINTS * 0.5
-    else:
-        alignment_pts = 0.0
-
-    score = int(round(persistence_pts + slope_pts + adx_pts + alignment_pts))
-    score = max(0, min(score, 100))
-
-    if score >= 70:
-        label = "🟢 Güçlü Trend"
-    elif score >= 55:
-        label = "🟡 Trend Var"
-    elif score >= 35:
-        label = "⚪ Zayıf/Yatay"
-    else:
-        label = "🔴 Trend Yok/Düşüş"
-
-    return {
-        'score': score,
-        'label': label,
-        'components': {
-            'persistence': round(persistence_pts, 1),
-            'slope': round(slope_pts, 1),
-            'adx': round(adx_pts, 1),
-            'alignment': round(alignment_pts, 1),
-        },
-    }
-
-def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_callback=None,
-                          sl_mult=None, tp_mult=None, entry_score=None, regime_ma_period=None,
-                          fee_rate=None):
-    """
-    Backtests the SAME signal the dashboard displays: the composite decision
-    engine filtered through SignalStateMachine (confirmation bars + exit
-    hysteresis), on closed candles only. The ML dimension is skipped for
-    speed (training a model per bar is infeasible); its weight is
-    redistributed, exactly as generate_stable_signal does on replay bars.
-
-    Execution model: signal decided on bar i-1's close, executed at bar i's
-    close — no lookahead.
-
-    sl_mult / tp_mult / entry_score override the timeframe defaults — used
-    for parameter tuning. regime_ma_period overrides the config's
-    REGIME_MA_PERIOD (the SMA the signal engine's regime filter uses).
-    fee_rate overrides BacktestConfig.FEE_RATE (fraction charged per side).
-    """
-    # Lazy import: signal_engine imports this module, so a top-level import
-    # here would be circular.
-    from signal_engine import _compute_bar_score, SignalStateMachine
-    from config import DecisionEngineConfig as cfg
-    from config import BacktestConfig
-
-    if fee_rate is None:
-        fee_rate = BacktestConfig.FEE_RATE
-
+def run_strategy_backtest(df, initial_balance=10000):
     balance = initial_balance
     position = None
     trades = []
     equity_curve = []
-    cooldown = 0
-
+    
     if len(df) < 100: return None
-
-    # === TIMEFRAME-ADAPTIVE PARAMETERS ===
-    if timeframe == "1wk":
-        # Weekly: Trends are clean, be strict on entry, let winners run
-        min_entry_score = cfg.STRONG_BUY_THRESHOLD
-        sl_multiplier = 2.5
-        tp_multiplier = 3.5
-        trail_breakeven = 1.0   # Move SL to breakeven after 1 ATR profit
-        trail_lock_pct = 0.5    # Lock in 50% of max profit after 2 ATR
-        cooldown_bars = 3
-    elif timeframe == "4h":
-        # 4h: Very noisy, longer cooldown after losses
-        min_entry_score = cfg.ENTRY_SCORE
-        sl_multiplier = 1.5
-        tp_multiplier = 2.0
-        trail_breakeven = 1.5
-        trail_lock_pct = 0.4
-        cooldown_bars = 5
-    else:
-        # Daily: entry 25 / SL 2.5 ATR validated on 5 assets (2026-07-15 grid)
-        min_entry_score = cfg.ENTRY_SCORE
-        sl_multiplier = 2.5
-        tp_multiplier = 2.8
-        trail_breakeven = 1.0
-        trail_lock_pct = 0.5
-        cooldown_bars = 2
-
-    # Tuning overrides
-    if sl_mult is not None: sl_multiplier = sl_mult
-    if tp_mult is not None: tp_multiplier = tp_mult
-    if entry_score is not None: min_entry_score = entry_score
-
-    # Custom regime MA for tuning (config's REGIME_MA_PERIOD applies otherwise
-    # inside _compute_bar_score)
-    custom_regime_ma = None
-    if regime_ma_period:
-        custom_regime_ma = df['Close'].rolling(regime_ma_period).mean()
-
-    machine = SignalStateMachine(cfg)
-    total_bars = len(df) - 60
-
-    for i in range(60, len(df)):
+    
+    for i in range(50, len(df)):
         current_slice = df.iloc[:i]
         price = df['Close'].iloc[i]
         date = df.index[i]
-
-        if progress_callback and (i - 60) % 25 == 0 and total_bars > 0:
-            progress_callback((i - 60) / total_bars)
-
-        bar = _compute_bar_score(current_slice, timeframe, include_ml=False)
-        if bar is None:
-            continue
-
-        regime = bar.get("regime", 0)
-        if custom_regime_ma is not None:
-            ma_val = custom_regime_ma.iloc[i - 1]
-            if pd.isna(ma_val):
-                regime = 0
-            else:
-                regime = 1 if df['Close'].iloc[i - 1] > ma_val else -1
-
-        state, _ = machine.update(bar["score"], bar["confidence"], bar["rsi"], bar["adx"], regime)
-
-        atr = bar["atr"]
-        score = bar["score"]
-
-        # === ENTRY LOGIC ===
-        if position is None and balance > 0:
-            if cooldown > 0:
-                cooldown -= 1
-            elif state == 1 and score >= min_entry_score and regime >= 0:
-                qty = (balance * 0.95) / price
-                cost = qty * price * (1 + fee_rate)  # entry fee paid on top
-                position = {
-                    'entry': price, 'entry_date': date, 'qty': qty,
-                    'type': 'LONG', 'highest': price, 'cost': cost,
-                    'sl': price - (atr * sl_multiplier),
-                    'tp': price + (atr * tp_multiplier),
-                }
-                balance -= cost
-
-        # === EXIT LOGIC (Trailing Stop) ===
+        
+        supports, resistances = calculate_sr_advanced(current_slice, "1d")
+        signal, color, _ = calculate_oracle_signal_v2(current_slice, supports, resistances)
+        
+        if position is None and "AL" in signal and balance > 0:
+            qty = (balance * 0.95) / price
+            position = {
+                'entry': price, 'entry_date': date, 'qty': qty, 'type': 'LONG'
+            }
+            balance -= (qty * price)
+            
         elif position is not None:
-            if price > position['highest']:
-                position['highest'] = price
-
-            # Trailing SL logic
-            profit_distance = position['highest'] - position['entry']
-            if profit_distance > atr * 2.0:
-                new_sl = position['entry'] + (profit_distance * trail_lock_pct)
-                position['sl'] = max(position['sl'], new_sl)
-            elif profit_distance > atr * trail_breakeven:
-                position['sl'] = max(position['sl'], position['entry'])
-
+            atr = current_slice.get('ATR', pd.Series([price*0.02])).iloc[-1]
+            if np.isnan(atr): atr = price * 0.02
+            tp = position['entry'] + (atr * 2.5)
+            sl = position['entry'] - (atr * 1.5)
+            
             should_close = False
             close_reason = ""
-
-            if price <= position['sl']:
-                should_close, close_reason = True, "SL"
-            elif price >= position['tp']:
-                should_close, close_reason = True, "TP"
-            elif state != 1:
-                # Confirmed signal loss (state machine exited the long)
+            if "SAT" in signal:
                 should_close, close_reason = True, "Sinyal"
+            elif price >= tp:
+                should_close, close_reason = True, "TP"
+            elif price <= sl:
+                should_close, close_reason = True, "SL"
                 
             if should_close:
-                proceeds = position['qty'] * price * (1 - fee_rate)  # exit fee
-                pnl = proceeds - position['cost']
-                balance += proceeds
+                pnl = (price - position['entry']) * position['qty']
+                balance += (position['qty'] * price)
                 trades.append({
                     'entry': position['entry'], 'exit': price, 'entry_date': position['entry_date'],
-                    'exit_date': date, 'pnl': pnl, 'pnl_pct': (pnl / position['cost']) * 100,
+                    'exit_date': date, 'pnl': pnl, 'pnl_pct': (pnl / (position['entry'] * position['qty'])) * 100,
                     'reason': close_reason
                 })
-                if pnl < 0:
-                    cooldown = cooldown_bars
                 position = None
                 
         current_equity = balance + (position['qty'] * price if position else 0)
@@ -708,12 +523,11 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
         
     if position is not None:
         final_price = df['Close'].iloc[-1]
-        proceeds = position['qty'] * final_price * (1 - fee_rate)
-        pnl = proceeds - position['cost']
-        balance += proceeds
+        pnl = (final_price - position['entry']) * position['qty']
+        balance += (position['qty'] * final_price)
         trades.append({
             'entry': position['entry'], 'exit': final_price, 'pnl': pnl,
-            'pnl_pct': (pnl / position['cost']) * 100, 'reason': 'Final'
+            'pnl_pct': (pnl / (position['entry'] * position['qty'])) * 100, 'reason': 'Final'
         })
         
     if not trades: return None
