@@ -82,13 +82,27 @@ Class-level fitness for a candidate weight vector = **median** of
 ## Search algorithm
 
 `scipy.optimize.differential_evolution` (already a dependency — no new
-package needed). Searches 5 free weights (`trend, momentum, volume,
-pattern, ml`) each bounded `[0, 1]`; the 6th (`advanced`) =
-`1 - sum(others)`. If that's negative, the candidate is infeasible and
-gets `REJECT_SCORE` (simple rejection, not clipping/renormalizing — avoids
-misleading the optimizer with a flattened gradient at the boundary).
+package needed).
 
-`differential_evolution(objective, bounds=[(0,1)]*5, seed=42, maxiter=40,
+**`ML_WEIGHT` is fixed, not searched.** `run_strategy_backtest` always
+calls `_compute_bar_score` with `include_ml=False` (training a model per
+bar is too slow to backtest — existing, intentional behavior). When ML is
+inactive, `_compute_bar_score`'s redistribution logic excludes it from the
+score entirely and spreads its weight across the other five *proportionally*
+via a shared `redistribution_factor`. That means the ML weight's value
+never contributes a real score during backtesting, but it does uniformly
+scale every other dimension's effective contribution — so searching over it
+would just reward inflating that number as a magnitude trick, not tune
+anything real. It stays fixed at `DecisionEngineConfig.ML_WEIGHT`.
+
+So the search is over 4 free weights (`trend, momentum, volume, pattern`),
+each bounded `[0, 1]`; the 5th (`advanced`) =
+`1 - DecisionEngineConfig.ML_WEIGHT - sum(the 4 free ones)`. If that's
+negative, the candidate is infeasible and gets `REJECT_SCORE` (simple
+rejection, not clipping/renormalizing — avoids misleading the optimizer
+with a flattened gradient at the boundary).
+
+`differential_evolution(objective, bounds=[(0,1)]*4, seed=42, maxiter=40,
 popsize=15, tol=0.01)` — seeded for reproducibility (matching the
 project's existing `random_state=42` convention). `maxiter=40` /
 `popsize=15` is a starting point balancing search quality against runtime;
