@@ -597,7 +597,7 @@ def _check_exit(position, price, state, direction):
 def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_callback=None,
                           sl_mult=None, tp_mult=None, entry_score=None, regime_ma_period=None,
                           fee_rate=None, entry_mode=None, pullback_tol=0.005,
-                          pullback_min_score=10, rsi_cap=None, direction="long"):
+                          pullback_min_score=10, rsi_cap=None, direction="long", weights=None):
     """
     Backtests the SAME signal the dashboard displays: the composite decision
     engine filtered through SignalStateMachine (confirmation bars + exit
@@ -625,6 +625,11 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
     breakout-only — entry_mode is ignored), SL above / TP below entry,
     mirrored breakeven + profit-lock trailing, exit when the short state
     dies. Margin model: 95% of balance reserved, linear P&L, fee per side.
+
+    weights: optional dict overriding DecisionEngineConfig's dimension
+    weights (trend/momentum/volume/pattern/ml/advanced), e.g. a tuned
+    per-asset-class profile from weight_profiles.py. None (default)
+    reproduces today's shipped behavior exactly.
     """
     # Lazy import: signal_engine imports this module, so a top-level import
     # here would be circular.
@@ -678,7 +683,7 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
         if progress_callback and (i - 60) % 25 == 0 and total_bars > 0:
             progress_callback((i - 60) / total_bars)
 
-        bar = _compute_bar_score(current_slice, timeframe, include_ml=False)
+        bar = _compute_bar_score(current_slice, timeframe, include_ml=False, weights=weights)
         if bar is None:
             continue
 
