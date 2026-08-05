@@ -279,13 +279,34 @@ if df_view is not None:
             if st.button("🚀 Backtest Başlat"):
                 with st.spinner("Backtest çalışıyor..."):
                     import plotly.graph_objects as go
+                    tuned_weights = get_weights_for_symbol(symbol) if view_tf == "1d" else None
+
                     bt_progress = st.progress(0.0)
                     bt_results = run_strategy_backtest(df_view, initial_balance=10000, timeframe=view_tf,
+                                                       weights=tuned_weights,
                                                        progress_callback=lambda p: bt_progress.progress(min(1.0, p)))
                     bt_progress.empty()
+
                     if bt_results is None:
                         st.warning("Yeterli işlem oluşmadı. Daha uzun veri gerekebilir.")
                     else:
+                        if tuned_weights:
+                            st.caption("🎯 Bu varlık sınıfı için ayarlanmış ağırlıklar kullanılıyor.")
+                            bt_default = run_strategy_backtest(df_view, initial_balance=10000, timeframe=view_tf, weights=None)
+                            if bt_default is not None:
+                                comp_col1, comp_col2 = st.columns(2)
+                                with comp_col1:
+                                    st.markdown("**Varsayılan Ağırlıklar**")
+                                    st.metric("Toplam Getiri", f"%{bt_default['total_return']:.2f}")
+                                    st.metric("Kazanma Oranı", f"%{bt_default['win_rate']:.1f}")
+                                with comp_col2:
+                                    st.markdown("**Ayarlanmış Ağırlıklar**")
+                                    st.metric("Toplam Getiri", f"%{bt_results['total_return']:.2f}",
+                                               delta=f"{bt_results['total_return'] - bt_default['total_return']:+.2f}")
+                                    st.metric("Kazanma Oranı", f"%{bt_results['win_rate']:.1f}",
+                                               delta=f"{bt_results['win_rate'] - bt_default['win_rate']:+.1f}")
+                                st.divider()
+
                         col1, col2, col3, col4 = st.columns(4)
                         col1.metric("Toplam Getiri", f"%{bt_results['total_return']:.2f}")
                         col2.metric("Kazanma Oranı", f"%{bt_results['win_rate']:.1f}")
