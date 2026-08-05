@@ -3,6 +3,7 @@ import pandas as pd
 import time
 from data_fetchers import get_market_data
 from signal_engine import generate_stable_signal
+from weight_profiles import get_weights_for_symbol
 from technical_analysis import calculate_regime_score
 from config import RegimeConfig, SizingConfig
 
@@ -75,7 +76,8 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
 
                     if isinstance(d_scan, pd.DataFrame) and not getattr(d_scan, 'empty', True) and len(d_scan) > 20:
                         # Stable (whipsaw-filtered) composite signal — same as dashboard
-                        comp_signal = generate_stable_signal(d_scan, tf)
+                        scan_weights = get_weights_for_symbol(sym) if tf == "1d" else None
+                        comp_signal = generate_stable_signal(d_scan, tf, weights=scan_weights)
 
                         # Display signal with emoji
                         if "AL" in comp_signal.verdict:
