@@ -68,3 +68,10 @@ def test_get_weights_for_symbol_malformed_profile_returns_none(tmp_path, monkeyp
     bad_weights = {"trend": 0.5, "momentum": 0.5, "volume": 0.5, "pattern": 0.5, "ml": 0.5, "advanced": 0.5}
     wp.save_profiles({"crypto": {"weights": bad_weights}})  # sums to 3.0, not 1.0
     assert wp.get_weights_for_symbol("BTC-USD") is None
+
+
+def test_get_weights_for_symbol_non_dict_entry_returns_none(tmp_path, monkeypatch):
+    target = tmp_path / "weight_profiles.json"
+    monkeypatch.setattr(wp.FileConfig, "WEIGHT_PROFILES_FILE", str(target))
+    wp.save_profiles({"crypto": 5})  # malformed: entry isn't even a dict
+    assert wp.get_weights_for_symbol("BTC-USD") is None

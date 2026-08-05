@@ -66,7 +66,7 @@ def get_weights_for_symbol(symbol):
     if asset_class is None:
         return None
     entry = load_profiles().get(asset_class)
-    if not entry or "weights" not in entry:
+    if not isinstance(entry, dict) or "weights" not in entry:
         return None
     weights = entry["weights"]
     if not _valid_weights(weights):
