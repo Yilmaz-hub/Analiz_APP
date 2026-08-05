@@ -15,6 +15,7 @@ from ui_components import render_sidebar_settings, render_asset_management, rend
 from scanner import render_opportunity_scanner
 from data_fetchers import get_live_price_for_portfolio
 from signal_engine import generate_stable_signal, CompositeSignal
+from weight_profiles import get_weights_for_symbol
 from advanced_analysis import detect_elliott_wave, analyze_ichimoku, detect_wyckoff_phase, analyze_market_structure
 import theme
 
@@ -103,8 +104,11 @@ for tf, label in intervals.items():
     results[tf] = df
     
     if df is not None:
+        # Tuned weights only apply to the daily signal — the optimizer
+        # only ever validates against daily data (see weight_profiles.py).
+        sig_weights = get_weights_for_symbol(symbol) if tf == "1d" else None
         # Stable (whipsaw-filtered) composite signal — closed candles only
-        comp_sig = generate_stable_signal(df, tf)
+        comp_sig = generate_stable_signal(df, tf, weights=sig_weights)
         composite_signals[tf] = comp_sig
 
         st.sidebar.markdown("---")
@@ -169,7 +173,8 @@ if df_view is not None:
     # Get the composite signal for the current view timeframe
     active_signal = composite_signals.get(view_tf)
     if active_signal is None:
-        active_signal = generate_stable_signal(df_view, view_tf)
+        fallback_weights = get_weights_for_symbol(symbol) if view_tf == "1d" else None
+        active_signal = generate_stable_signal(df_view, view_tf, weights=fallback_weights)
     
     # ═══════════════════════════════════════════
     # DECISION DASHBOARD (Karar Paneli)

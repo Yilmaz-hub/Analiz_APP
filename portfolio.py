@@ -108,12 +108,14 @@ def multi_timeframe_confirmation(coin_name, symbol, source_pref):
     scores = []
     
     from signal_engine import generate_stable_signal  # lazy: avoids import cycle via technical_analysis
+    from weight_profiles import get_weights_for_symbol
 
     for tf in ["4h", "1d", "1wk"]:
         try:
             df, _ = get_market_data(source_pref, symbol, tf)
             if isinstance(df, pd.DataFrame) and not getattr(df, 'empty', True) and len(df) > 50:  # type: ignore
-                status = generate_stable_signal(df, tf).verdict
+                tf_weights = get_weights_for_symbol(symbol) if tf == "1d" else None
+                status = generate_stable_signal(df, tf, weights=tf_weights).verdict
 
                 if "AL" in status:
                     signals[tf] = "AL"

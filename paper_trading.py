@@ -117,6 +117,7 @@ def run_paper_update(coin_map, source_pref="Binance", progress_callback=None):
     short status dict: {"new_rows": int, "assets": int, "errors": [names]}."""
     from data_fetchers import get_market_data
     from signal_engine import generate_stable_signal
+    from weight_profiles import get_weights_for_symbol
 
     state = _load_state()
     if state["created"] is None:
@@ -146,7 +147,7 @@ def run_paper_update(coin_map, source_pref="Binance", progress_callback=None):
                 # Live-signal input as of bar k's close: bars 0..k+1, where
                 # k+1 was the then-forming candle the engine drops itself.
                 slice_df = df.iloc[:k + 2]
-                sig = generate_stable_signal(slice_df, "1d")
+                sig = generate_stable_signal(slice_df, "1d", weights=get_weights_for_symbol(sym))
                 price = float(closed['Close'].iloc[k])
                 atr = float(closed['ATR'].iloc[k]) if 'ATR' in closed.columns else price * 0.02
                 date_str = str(closed.index[k].date())
