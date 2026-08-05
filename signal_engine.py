@@ -7,6 +7,9 @@ Each dimension scores from -100 (strongly bearish) to +100 (strongly bullish).
 Final verdict is a weighted average with confidence based on dimension agreement.
 """
 
+import threading
+from collections import OrderedDict
+
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass, field
@@ -19,6 +22,33 @@ from technical_analysis import (
 )
 from advanced_analysis import calculate_advanced_score
 from logger import logger
+
+
+class _BoundedCache:
+    """Thread-safe, fixed-size LRU cache. Evicts only the single
+    least-recently-used entry on overflow — unlike a plain dict manually
+    cleared in full once it passes a size threshold, which drops every
+    cached signal at once and forces every concurrent user's next render to
+    recompute simultaneously."""
+
+    def __init__(self, maxsize=256):
+        self._maxsize = maxsize
+        self._data = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, key, default=None):
+        with self._lock:
+            if key not in self._data:
+                return default
+            self._data.move_to_end(key)
+            return self._data[key]
+
+    def set(self, key, value):
+        with self._lock:
+            self._data[key] = value
+            self._data.move_to_end(key)
+            while len(self._data) > self._maxsize:
+                self._data.popitem(last=False)
 
 
 @dataclass
@@ -646,7 +676,35 @@ def generate_composite_signal(df, timeframe="1d", supports=None, resistances=Non
 # =============================================
 # STABLE SIGNAL (public entry point for UI/scanner)
 # =============================================
-_stable_cache = {}
+_stable_cache = _BoundedCache(maxsize=256)
+
+# Per-bar dimension-score cache. STABILITY_LOOKBACK bars are replayed on
+# every generate_stable_signal() call; as new candles close, that window
+# slides forward by one bar but mostly re-scores the SAME historical bars
+# it scored on the previous call. This reuses those instead of rerunning
+# the full 6-dimension analysis (pattern detection, Elliott/Ichimoku/
+# Wyckoff/market-structure, etc.) for bars whose data hasn't changed.
+# Sized larger than _stable_cache since entries are per-(asset, timeframe,
+# bar) rather than per-(asset, timeframe) final result.
+_bar_score_cache = _BoundedCache(maxsize=4096)
+
+
+def _cached_bar_score(df_slice, timeframe, include_ml):
+    try:
+        key = (timeframe, str(df_slice.index[-1]),
+               round(float(df_slice['Close'].iloc[-1]), 8), len(df_slice), include_ml)
+    except Exception:
+        key = None
+
+    if key is not None:
+        cached = _bar_score_cache.get(key)
+        if cached is not None:
+            return cached
+
+    result = _compute_bar_score(df_slice, timeframe, include_ml=include_ml)
+    if key is not None and result is not None:
+        _bar_score_cache.set(key, result)
+    return result
 
 
 def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, include_ml=True):
@@ -684,8 +742,10 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
                      round(float(work['Close'].iloc[-1]), 8), len(work), include_ml)
     except Exception:
         cache_key = None
-    if cache_key is not None and cache_key in _stable_cache:
-        return _stable_cache[cache_key]
+    if cache_key is not None:
+        cached_signal = _stable_cache.get(cache_key)
+        if cached_signal is not None:
+            return cached_signal
 
     machine = SignalStateMachine(cfg)
     lookback = min(cfg.STABILITY_LOOKBACK, len(work) - 50)
@@ -695,7 +755,7 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
     for k in range(lookback - 1, -1, -1):
         s = work.iloc[:len(work) - k]
         is_final = (k == 0)
-        b = _compute_bar_score(s, timeframe, include_ml=(include_ml and is_final))
+        b = _cached_bar_score(s, timeframe, include_ml=(include_ml and is_final))
         if b is None:
             continue
         _, raw_dir = machine.update(b["score"], b["confidence"], b["rsi"], b["adx"], b.get("regime", 0))
@@ -757,7 +817,5 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
     _apply_trade_setup(signal, bar["price"], bar["atr"], cfg)
 
     if cache_key is not None:
-        if len(_stable_cache) > 256:
-            _stable_cache.clear()
-        _stable_cache[cache_key] = signal
+        _stable_cache.set(cache_key, signal)
     return signal

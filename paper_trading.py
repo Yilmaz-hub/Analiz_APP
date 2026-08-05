@@ -28,12 +28,15 @@ from config import FileConfig, BacktestConfig, DecisionEngineConfig
 from logger import logger
 
 PER_ASSET_BALANCE = 1000.0
-# Daily-timeframe execution params — keep in sync with run_strategy_backtest
-SL_MULT = 2.5
-TP_MULT = 2.8
-TRAIL_BREAKEVEN = 1.0
-TRAIL_LOCK_PCT = 0.5
-COOLDOWN_BARS = 2
+# Daily-timeframe execution params — read from the same shared source as
+# run_strategy_backtest (BacktestConfig.TIMEFRAME_PARAMS) so this journal
+# can never silently drift from what the backtest actually validated.
+_DAILY_PARAMS = BacktestConfig.TIMEFRAME_PARAMS["1d"]
+SL_MULT = _DAILY_PARAMS["sl_mult"]
+TP_MULT = _DAILY_PARAMS["tp_mult"]
+TRAIL_BREAKEVEN = _DAILY_PARAMS["trail_breakeven"]
+TRAIL_LOCK_PCT = _DAILY_PARAMS["trail_lock_pct"]
+COOLDOWN_BARS = _DAILY_PARAMS["cooldown_bars"]
 MAX_BACKFILL = 10  # ML makes replay slow; cap catch-up bars per asset
 
 

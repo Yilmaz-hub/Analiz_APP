@@ -200,6 +200,34 @@ class BacktestConfig:
     # overstates returns by ~0.2% per round trip.
     FEE_RATE = 0.001
 
+    # Per-timeframe execution parameters. This is the SINGLE source both
+    # technical_analysis.run_strategy_backtest and paper_trading.py's live
+    # journal read from, so the two can never silently drift apart (they
+    # used to duplicate these as separate hardcoded constants).
+    TIMEFRAME_PARAMS = {
+        # Weekly: trends are clean, be strict on entry, let winners run.
+        "1wk": {
+            "sl_mult": 2.5, "tp_mult": 3.5,
+            "trail_breakeven": 1.0,   # move SL to breakeven after 1 ATR profit
+            "trail_lock_pct": 0.5,    # lock in 50% of max profit after 2 ATR
+            "cooldown_bars": 3,
+        },
+        # 4h: very noisy, longer cooldown after losses.
+        "4h": {
+            "sl_mult": 1.5, "tp_mult": 2.0,
+            "trail_breakeven": 1.5,
+            "trail_lock_pct": 0.4,
+            "cooldown_bars": 5,
+        },
+        # Daily: entry 25 / SL 2.5 ATR validated on 5 assets (2026-07-15 grid).
+        "1d": {
+            "sl_mult": 2.5, "tp_mult": 2.8,
+            "trail_breakeven": 1.0,
+            "trail_lock_pct": 0.5,
+            "cooldown_bars": 2,
+        },
+    }
+
 # TREND REGIME SCORING (scanner asset ranking)
 class RegimeConfig:
     # The composite strategy only has an edge on trending assets (BTC/XRP

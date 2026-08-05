@@ -551,6 +551,32 @@ def calculate_regime_score(df):
         },
     }
 
+def _update_trailing_stop(position, price, atr, direction, trail_breakeven, trail_lock_pct):
+    """Advance one open position's trailing stop by one bar.
+    direction: +1 for LONG, -1 for SHORT. Shared by both backtest branches
+    below (they were previously ~30 lines of mirrored sign-flipped code)."""
+    extreme_key = 'highest' if direction == 1 else 'lowest'
+    position[extreme_key] = max(position[extreme_key], price) if direction == 1 else min(position[extreme_key], price)
+
+    profit_distance = direction * (position[extreme_key] - position['entry'])
+    if profit_distance > atr * 2.0:
+        candidate = position['entry'] + direction * profit_distance * trail_lock_pct
+        position['sl'] = max(position['sl'], candidate) if direction == 1 else min(position['sl'], candidate)
+    elif profit_distance > atr * trail_breakeven:
+        position['sl'] = max(position['sl'], position['entry']) if direction == 1 else min(position['sl'], position['entry'])
+
+
+def _check_exit(position, price, state, direction):
+    """Return a close reason ('SL'/'TP'/'Sinyal') or None, for either direction."""
+    if direction * (position['sl'] - price) >= 0:
+        return "SL"
+    if direction * (price - position['tp']) >= 0:
+        return "TP"
+    if state != direction:
+        return "Sinyal"
+    return None
+
+
 def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_callback=None,
                           sl_mult=None, tp_mult=None, entry_score=None, regime_ma_period=None,
                           fee_rate=None, entry_mode=None, pullback_tol=0.005,
@@ -601,30 +627,17 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
     if len(df) < 100: return None
 
     # === TIMEFRAME-ADAPTIVE PARAMETERS ===
-    if timeframe == "1wk":
-        # Weekly: Trends are clean, be strict on entry, let winners run
-        min_entry_score = cfg.STRONG_BUY_THRESHOLD
-        sl_multiplier = 2.5
-        tp_multiplier = 3.5
-        trail_breakeven = 1.0   # Move SL to breakeven after 1 ATR profit
-        trail_lock_pct = 0.5    # Lock in 50% of max profit after 2 ATR
-        cooldown_bars = 3
-    elif timeframe == "4h":
-        # 4h: Very noisy, longer cooldown after losses
-        min_entry_score = cfg.ENTRY_SCORE
-        sl_multiplier = 1.5
-        tp_multiplier = 2.0
-        trail_breakeven = 1.5
-        trail_lock_pct = 0.4
-        cooldown_bars = 5
-    else:
-        # Daily: entry 25 / SL 2.5 ATR validated on 5 assets (2026-07-15 grid)
-        min_entry_score = cfg.ENTRY_SCORE
-        sl_multiplier = 2.5
-        tp_multiplier = 2.8
-        trail_breakeven = 1.0
-        trail_lock_pct = 0.5
-        cooldown_bars = 2
+    # Sourced from BacktestConfig.TIMEFRAME_PARAMS — the single shared place
+    # (also read by paper_trading.py) so the two can't silently drift apart.
+    params = BacktestConfig.TIMEFRAME_PARAMS.get(timeframe, BacktestConfig.TIMEFRAME_PARAMS["1d"])
+    # Weekly trends are clean enough to be strict on entry; other timeframes
+    # use the shared entry-score threshold.
+    min_entry_score = cfg.STRONG_BUY_THRESHOLD if timeframe == "1wk" else cfg.ENTRY_SCORE
+    sl_multiplier = params["sl_mult"]
+    tp_multiplier = params["tp_mult"]
+    trail_breakeven = params["trail_breakeven"]
+    trail_lock_pct = params["trail_lock_pct"]
+    cooldown_bars = params["cooldown_bars"]
 
     # Tuning overrides
     if sl_mult is not None: sl_multiplier = sl_mult
@@ -688,26 +701,10 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
 
         # === EXIT LOGIC (SHORT) ===
         elif direction == "short" and position is not None:
-            if price < position['lowest']:
-                position['lowest'] = price
+            _update_trailing_stop(position, price, atr, -1, trail_breakeven, trail_lock_pct)
+            close_reason = _check_exit(position, price, state, -1)
 
-            profit_distance = position['entry'] - position['lowest']
-            if profit_distance > atr * 2.0:
-                new_sl = position['entry'] - (profit_distance * trail_lock_pct)
-                position['sl'] = min(position['sl'], new_sl)
-            elif profit_distance > atr * trail_breakeven:
-                position['sl'] = min(position['sl'], position['entry'])
-
-            should_close = False
-            close_reason = ""
-            if price >= position['sl']:
-                should_close, close_reason = True, "SL"
-            elif price <= position['tp']:
-                should_close, close_reason = True, "TP"
-            elif state != -1:
-                should_close, close_reason = True, "Sinyal"
-
-            if should_close:
+            if close_reason:
                 exit_fee = position['qty'] * price * fee_rate
                 pnl = position['qty'] * (position['entry'] - price) - exit_fee - (position['cost'] - position['margin'])
                 balance += position['margin'] + position['qty'] * (position['entry'] - price) - exit_fee
@@ -752,29 +749,10 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
 
         # === EXIT LOGIC (Trailing Stop) ===
         elif position is not None:
-            if price > position['highest']:
-                position['highest'] = price
+            _update_trailing_stop(position, price, atr, 1, trail_breakeven, trail_lock_pct)
+            close_reason = _check_exit(position, price, state, 1)
 
-            # Trailing SL logic
-            profit_distance = position['highest'] - position['entry']
-            if profit_distance > atr * 2.0:
-                new_sl = position['entry'] + (profit_distance * trail_lock_pct)
-                position['sl'] = max(position['sl'], new_sl)
-            elif profit_distance > atr * trail_breakeven:
-                position['sl'] = max(position['sl'], position['entry'])
-
-            should_close = False
-            close_reason = ""
-
-            if price <= position['sl']:
-                should_close, close_reason = True, "SL"
-            elif price >= position['tp']:
-                should_close, close_reason = True, "TP"
-            elif state != 1:
-                # Confirmed signal loss (state machine exited the long)
-                should_close, close_reason = True, "Sinyal"
-                
-            if should_close:
+            if close_reason:
                 proceeds = position['qty'] * price * (1 - fee_rate)  # exit fee
                 pnl = proceeds - position['cost']
                 balance += proceeds
