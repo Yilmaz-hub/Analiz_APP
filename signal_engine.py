@@ -51,6 +51,16 @@ class _BoundedCache:
                 self._data.popitem(last=False)
 
 
+def _weights_fingerprint(weights):
+    """Turn a weights dict into a hashable tuple for cache keys, or None
+    when weights is None (the default-config case) — so a cache entry
+    computed under one weight vector is never returned for another."""
+    if weights is None:
+        return None
+    return tuple(round(float(weights[k]), 6) for k in
+                 ("trend", "momentum", "volume", "pattern", "ml", "advanced"))
+
+
 @dataclass
 class CompositeSignal:
     verdict: str = "BEKLE"           # GÜÇLÜ AL | AL | BEKLE | SAT | GÜÇLÜ SAT
@@ -341,7 +351,7 @@ def _score_ml(df):
 # =============================================
 # PER-BAR SCORING (shared by live signal & backtest)
 # =============================================
-def _compute_bar_score(df, timeframe="1d", include_ml=True):
+def _compute_bar_score(df, timeframe="1d", include_ml=True, weights=None):
     """
     Score the LAST bar of `df` across all 6 dimensions and combine them into
     a weighted composite score + confidence. Pure computation — no verdict
@@ -350,6 +360,11 @@ def _compute_bar_score(df, timeframe="1d", include_ml=True):
     include_ml=False skips the RandomForest dimension (its weight is
     redistributed to the other dimensions) — required for bar-by-bar
     backtesting where training a model per bar would be far too slow.
+
+    weights: optional dict with keys trend/momentum/volume/pattern/ml/advanced
+    overriding DecisionEngineConfig's fixed weights (e.g. a per-asset-class
+    profile from weight_profiles.py). None (default) uses the config values,
+    unchanged from today's behavior.
     """
     if df is None or len(df) < 50:
         return None
@@ -382,14 +397,19 @@ def _compute_bar_score(df, timeframe="1d", include_ml=True):
 
     # === ADAPTIVE WEIGHTED COMPOSITE ===
     cfg = DecisionEngineConfig
+    w = weights or {
+        "trend": cfg.TREND_WEIGHT, "momentum": cfg.MOMENTUM_WEIGHT,
+        "volume": cfg.VOLUME_WEIGHT, "pattern": cfg.PATTERN_WEIGHT,
+        "ml": cfg.ML_WEIGHT, "advanced": cfg.ADVANCED_WEIGHT,
+    }
 
     dim_weights = {
-        "trend": (trend_score, cfg.TREND_WEIGHT),
-        "momentum": (momentum_score, cfg.MOMENTUM_WEIGHT),
-        "volume": (volume_score, cfg.VOLUME_WEIGHT),
-        "pattern": (pattern_score, cfg.PATTERN_WEIGHT),
-        "ml": (ml_score, cfg.ML_WEIGHT),
-        "advanced": (advanced_score, cfg.ADVANCED_WEIGHT),
+        "trend": (trend_score, w["trend"]),
+        "momentum": (momentum_score, w["momentum"]),
+        "volume": (volume_score, w["volume"]),
+        "pattern": (pattern_score, w["pattern"]),
+        "ml": (ml_score, w["ml"]),
+        "advanced": (advanced_score, w["advanced"]),
     }
 
     # Separate active (has meaningful data) vs inactive dimensions.
@@ -583,7 +603,7 @@ class SignalStateMachine:
 # =============================================
 # COMPOSITE SIGNAL GENERATOR (raw, single-bar)
 # =============================================
-def generate_composite_signal(df, timeframe="1d", supports=None, resistances=None, include_ml=True):
+def generate_composite_signal(df, timeframe="1d", supports=None, resistances=None, include_ml=True, weights=None):
     """
     Raw single-bar verdict — scores the latest bar with no persistence.
     Kept for compatibility/diagnostics; the UI should prefer
@@ -594,7 +614,7 @@ def generate_composite_signal(df, timeframe="1d", supports=None, resistances=Non
     signal = CompositeSignal(timeframe=timeframe)
     cfg = DecisionEngineConfig
 
-    bar = _compute_bar_score(df, timeframe, include_ml)
+    bar = _compute_bar_score(df, timeframe, include_ml, weights=weights)
     if bar is None:
         signal.verdict = "BEKLE"
         signal.reasons = ["Yetersiz veri"]
@@ -689,10 +709,11 @@ _stable_cache = _BoundedCache(maxsize=256)
 _bar_score_cache = _BoundedCache(maxsize=4096)
 
 
-def _cached_bar_score(df_slice, timeframe, include_ml):
+def _cached_bar_score(df_slice, timeframe, include_ml, weights=None):
     try:
         key = (timeframe, str(df_slice.index[-1]),
-               round(float(df_slice['Close'].iloc[-1]), 8), len(df_slice), include_ml)
+               round(float(df_slice['Close'].iloc[-1]), 8), len(df_slice), include_ml,
+               _weights_fingerprint(weights))
     except Exception:
         key = None
 
@@ -701,13 +722,13 @@ def _cached_bar_score(df_slice, timeframe, include_ml):
         if cached is not None:
             return cached
 
-    result = _compute_bar_score(df_slice, timeframe, include_ml=include_ml)
+    result = _compute_bar_score(df_slice, timeframe, include_ml=include_ml, weights=weights)
     if key is not None and result is not None:
         _bar_score_cache.set(key, result)
     return result
 
 
-def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, include_ml=True):
+def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, include_ml=True, weights=None):
     """
     Whipsaw-resistant signal — this is what the UI should display and what
     run_strategy_backtest() trades, so backtest numbers match live behavior.
@@ -723,6 +744,9 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
 
     ML runs only on the final bar (replay bars skip it for speed; its 10%
     weight is redistributed there).
+
+    weights: optional per-asset-class dimension weights (see
+    _compute_bar_score). None uses DecisionEngineConfig defaults.
     """
     cfg = DecisionEngineConfig
     signal = CompositeSignal(timeframe=timeframe)
@@ -739,7 +763,8 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
     # Output only changes when a new candle closes — cache on the last bar.
     try:
         cache_key = (timeframe, str(work.index[-1]),
-                     round(float(work['Close'].iloc[-1]), 8), len(work), include_ml)
+                     round(float(work['Close'].iloc[-1]), 8), len(work), include_ml,
+                     _weights_fingerprint(weights))
     except Exception:
         cache_key = None
     if cache_key is not None:
@@ -755,7 +780,7 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
     for k in range(lookback - 1, -1, -1):
         s = work.iloc[:len(work) - k]
         is_final = (k == 0)
-        b = _cached_bar_score(s, timeframe, include_ml=(include_ml and is_final))
+        b = _cached_bar_score(s, timeframe, include_ml=(include_ml and is_final), weights=weights)
         if b is None:
             continue
         _, raw_dir = machine.update(b["score"], b["confidence"], b["rsi"], b["adx"], b.get("regime", 0))
