@@ -44,7 +44,7 @@ def test_get_weights_for_symbol_returns_valid_profile(tmp_path, monkeypatch):
     target = tmp_path / "weight_profiles.json"
     monkeypatch.setattr(wp.FileConfig, "WEIGHT_PROFILES_FILE", str(target))
     weights = {"trend": 0.3, "momentum": 0.2, "volume": 0.15, "pattern": 0.1, "ml": 0.1, "advanced": 0.15}
-    wp.save_profiles({"crypto": {"weights": weights}})
+    wp.save_profiles({"crypto": {"weights": weights, "test_score": 8.8}})
     assert wp.get_weights_for_symbol("BTC-USD") == weights
 
 
@@ -74,4 +74,38 @@ def test_get_weights_for_symbol_non_dict_entry_returns_none(tmp_path, monkeypatc
     target = tmp_path / "weight_profiles.json"
     monkeypatch.setattr(wp.FileConfig, "WEIGHT_PROFILES_FILE", str(target))
     wp.save_profiles({"crypto": 5})  # malformed: entry isn't even a dict
+    assert wp.get_weights_for_symbol("BTC-USD") is None
+
+
+def test_get_weights_for_symbol_failed_validation_returns_none(tmp_path, monkeypatch):
+    # Mirrors the real committed profile that triggered this fix: a tiny
+    # sanity-check tuning run whose held-out test_score was REJECT_SCORE.
+    target = tmp_path / "weight_profiles.json"
+    monkeypatch.setattr(wp.FileConfig, "WEIGHT_PROFILES_FILE", str(target))
+    weights = {"trend": 0.3, "momentum": 0.2, "volume": 0.15, "pattern": 0.1, "ml": 0.1, "advanced": 0.15}
+    wp.save_profiles({"crypto": {"weights": weights, "train_score": 8.8, "test_score": -1000000.0}})
+    assert wp.get_weights_for_symbol("BTC-USD") is None
+
+
+def test_get_weights_for_symbol_zero_test_score_returns_none(tmp_path, monkeypatch):
+    target = tmp_path / "weight_profiles.json"
+    monkeypatch.setattr(wp.FileConfig, "WEIGHT_PROFILES_FILE", str(target))
+    weights = {"trend": 0.3, "momentum": 0.2, "volume": 0.15, "pattern": 0.1, "ml": 0.1, "advanced": 0.15}
+    wp.save_profiles({"crypto": {"weights": weights, "test_score": 0}})
+    assert wp.get_weights_for_symbol("BTC-USD") is None
+
+
+def test_get_weights_for_symbol_missing_test_score_returns_none(tmp_path, monkeypatch):
+    target = tmp_path / "weight_profiles.json"
+    monkeypatch.setattr(wp.FileConfig, "WEIGHT_PROFILES_FILE", str(target))
+    weights = {"trend": 0.3, "momentum": 0.2, "volume": 0.15, "pattern": 0.1, "ml": 0.1, "advanced": 0.15}
+    wp.save_profiles({"crypto": {"weights": weights}})  # no test_score key at all
+    assert wp.get_weights_for_symbol("BTC-USD") is None
+
+
+def test_get_weights_for_symbol_non_numeric_test_score_returns_none(tmp_path, monkeypatch):
+    target = tmp_path / "weight_profiles.json"
+    monkeypatch.setattr(wp.FileConfig, "WEIGHT_PROFILES_FILE", str(target))
+    weights = {"trend": 0.3, "momentum": 0.2, "volume": 0.15, "pattern": 0.1, "ml": 0.1, "advanced": 0.15}
+    wp.save_profiles({"crypto": {"weights": weights, "test_score": "n/a"}})
     assert wp.get_weights_for_symbol("BTC-USD") is None

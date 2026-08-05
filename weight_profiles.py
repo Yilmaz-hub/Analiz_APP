@@ -61,7 +61,8 @@ def _valid_weights(weights):
 def get_weights_for_symbol(symbol):
     """Return the tuned weight dict for symbol's asset class, or None if
     no class matches / no profile exists / the stored profile is
-    malformed (caller falls back to DecisionEngineConfig defaults)."""
+    malformed / the profile's held-out test_score doesn't clear the bar
+    (caller falls back to DecisionEngineConfig defaults in every case)."""
     asset_class = classify_asset(symbol)
     if asset_class is None:
         return None
@@ -71,5 +72,10 @@ def get_weights_for_symbol(symbol):
     weights = entry["weights"]
     if not _valid_weights(weights):
         logger.warning(f"Malformed weight profile for class '{asset_class}', using defaults")
+        return None
+    test_score = entry.get("test_score")
+    if not isinstance(test_score, (int, float)) or isinstance(test_score, bool) or test_score <= 0:
+        logger.warning(f"Weight profile for class '{asset_class}' failed held-out validation "
+                        f"(test_score={test_score}), using defaults")
         return None
     return {k: float(weights[k]) for k in WEIGHT_KEYS}
