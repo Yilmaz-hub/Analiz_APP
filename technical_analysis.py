@@ -336,26 +336,41 @@ def detect_advanced_patterns(df):
             resistance_slope = (work_slice['High'].iloc[peak_indices[-1]] - work_slice['High'].iloc[peak_indices[-2]]) / (peak_indices[-1] - peak_indices[-2])
             support_slope = (work_slice['Low'].iloc[trough_indices[-1]] - work_slice['Low'].iloc[trough_indices[-2]]) / (trough_indices[-1] - trough_indices[-2])
             current_price = df['Close'].iloc[-1]
-            
+
+            # A triangle has TWO boundary lines (resistance from the peaks,
+            # support from the troughs) — both are always stored so the
+            # chart can draw the full shape, not just whichever single pivot
+            # pair happened to be used for the slope test below. Each line
+            # is extrapolated to the last bar along its own slope so
+            # converging/diverging lines actually look converging/diverging.
+            last_pos = len(work_slice) - 1
+            resistance_y_end = work_slice['High'].iloc[peak_indices[-1]] + resistance_slope * (last_pos - peak_indices[-1])
+            support_y_end = work_slice['Low'].iloc[trough_indices[-1]] + support_slope * (last_pos - trough_indices[-1])
+            resistance_line = {
+                "x0": work_slice.index[peak_indices[-2]], "y0": work_slice['High'].iloc[peak_indices[-2]],
+                "x1": work_slice.index[-1], "y1": resistance_y_end,
+            }
+            support_line = {
+                "x0": work_slice.index[trough_indices[-2]], "y0": work_slice['Low'].iloc[trough_indices[-2]],
+                "x1": work_slice.index[-1], "y1": support_y_end,
+            }
+
             if abs(resistance_slope) < 0.001 and support_slope > 0.001:
                 patterns.append({
                     "type": "triangle", "name": "Yükselen Üçgen ▲", "color": "green",
-                    "x0": work_slice.index[peak_indices[-2]], "y0": work_slice['High'].iloc[peak_indices[-2]],
-                    "x1": work_slice.index[-1], "y1": work_slice['High'].iloc[peak_indices[-1]],
+                    "lines": [resistance_line, support_line],
                     "direction": "BULLISH", "target": current_price * 1.08, "confidence": 75
                 })
             elif abs(support_slope) < 0.001 and resistance_slope < -0.001:
                 patterns.append({
                     "type": "triangle", "name": "Düşen Üçgen ▼", "color": "red",
-                    "x0": work_slice.index[trough_indices[-2]], "y0": work_slice['Low'].iloc[trough_indices[-2]],
-                    "x1": work_slice.index[-1], "y1": work_slice['Low'].iloc[trough_indices[-1]],
+                    "lines": [resistance_line, support_line],
                     "direction": "BEARISH", "target": current_price * 0.92, "confidence": 75
                 })
             elif resistance_slope < -0.001 and support_slope > 0.001:
                 patterns.append({
                     "type": "triangle", "name": "Simetrik Üçgen ◇", "color": "yellow",
-                    "x0": work_slice.index[peak_indices[-2]], "y0": work_slice['High'].iloc[peak_indices[-2]],
-                    "x1": work_slice.index[-1], "y1": work_slice['Low'].iloc[trough_indices[-1]],
+                    "lines": [resistance_line, support_line],
                     "direction": "NEUTRAL", "target": current_price, "confidence": 60
                 })
     except Exception as e:
@@ -423,7 +438,9 @@ def detect_advanced_patterns(df):
                 target = neckline - (head - neckline)
                 patterns.append({
                     "type": "reversal", "name": "Baş-Omuz 👤", "color": "red",
-                    "x0": dates[all_peaks[-3]], "y0": left_s, "x1": dates[all_peaks[-1]], "y1": right_s,
+                    "x0": dates[all_peaks[-3]], "y0": left_s,
+                    "head_x": dates[all_peaks[-2]], "head_y": head,
+                    "x1": dates[all_peaks[-1]], "y1": right_s,
                     "neckline": neckline, "direction": "BEARISH", "target": target, "confidence": 90
                 })
     except Exception as e:

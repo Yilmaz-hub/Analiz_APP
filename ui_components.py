@@ -129,21 +129,36 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
                
                 for adv in advanced_items:
                     if adv['type'] == 'triangle':
-                        fig.add_shape(type="line", x0=adv['x0'], y0=adv['y0'], x1=adv['x1'], y1=adv['y1'], line=dict(color=adv['color'], width=3, dash='dot'))
+                        # Draw BOTH boundary lines (resistance + support) so
+                        # the actual triangle shape shows, not just one edge.
+                        for line in adv.get('lines', []):
+                            fig.add_shape(type="line", x0=line['x0'], y0=line['y0'], x1=line['x1'], y1=line['y1'],
+                                          line=dict(color=adv['color'], width=2, dash='dot'))
                         fig.add_hline(y=adv['target'], line_dash="dashdot", line_color=adv['color'], annotation_text=f"🎯 {adv['name']}")
-                    
+
                     elif adv['type'] == 'harmonic':
                         points = adv['points']
                         for i in range(len(points) - 1):
                             fig.add_shape(type="line", x0=df_view.index[points[i]['idx']], y0=points[i]['price'], x1=df_view.index[points[i+1]['idx']], y1=points[i+1]['price'], line=dict(color=adv['color'], width=2))
                         fig.add_annotation(x=df_view.index[points[2]['idx']], y=points[2]['price'], text=adv['name'], showarrow=True, arrowhead=2, bgcolor=adv['color'], font=dict(color='white'))
-                    
+
                     elif adv['type'] == 'reversal':
+                        # Draw the actual left-shoulder -> head -> right-shoulder
+                        # shape (previously only the neckline/target were shown).
+                        if 'head_x' in adv:
+                            fig.add_shape(type="line", x0=adv['x0'], y0=adv['y0'], x1=adv['head_x'], y1=adv['head_y'], line=dict(color=adv['color'], width=2))
+                            fig.add_shape(type="line", x0=adv['head_x'], y0=adv['head_y'], x1=adv['x1'], y1=adv['y1'], line=dict(color=adv['color'], width=2))
+                            fig.add_annotation(x=adv['head_x'], y=adv['head_y'], text="Baş", showarrow=True, arrowhead=2, bgcolor=adv['color'], font=dict(color='white'))
                         fig.add_hline(y=adv['neckline'], line_dash="solid", line_color=adv['color'], annotation_text="Boyun Çizgisi")
                         fig.add_hline(y=adv['target'], line_dash="dot", line_color="red", annotation_text=f"🎯 {adv['name']}")
-                    
-                    elif adv['type'] in ['continuation', 'wedge']:
-                        fig.add_annotation(x=df_view.index[-5], y=df_view['High'].iloc[-5], text=adv['name'], showarrow=False, bgcolor=adv['color'], font=dict(size=12, color='black'))
+
+                    elif adv['type'] == 'continuation':
+                        # Draw the flag/pole channel as a shaded box (previously
+                        # this coordinate data was computed but discarded — only
+                        # a text label was shown, which is the "one line" bug).
+                        fig.add_shape(type="rect", x0=adv['x0'], y0=adv['y0'], x1=adv['x1'], y1=adv['y1'],
+                                      line=dict(color=adv['color'], width=2), fillcolor=adv['color'], opacity=0.15)
+                        fig.add_hline(y=adv['target'], line_dash="dashdot", line_color=adv['color'], annotation_text=f"🎯 {adv['name']}")
             except Exception as e:
                 st.error(f"Gelişmiş formasyon çizim hatası: {e}")
 
