@@ -49,8 +49,14 @@ def _load_state():
 
 
 def _save_state(state):
-    with open(FileConfig.PAPER_FILE, 'w', encoding='utf-8') as fh:
+    # Atomic write (temp file + os.replace) so the live app and the
+    # scheduled task writing concurrently can't leave paper_trading.json
+    # half-written or corrupted.
+    target = FileConfig.PAPER_FILE
+    tmp = f"{target}.tmp"
+    with open(tmp, 'w', encoding='utf-8') as fh:
         json.dump(state, fh, ensure_ascii=False, indent=1)
+    os.replace(tmp, target)
 
 
 def _blank_book():

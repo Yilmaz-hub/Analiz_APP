@@ -132,9 +132,14 @@ def process_data(df: pd.DataFrame, src: str):
 
             bb = df.ta.bbands(length=IndicatorConfig.BOLLINGER_LENGTH, std=IndicatorConfig.BOLLINGER_STD)
             if bb is not None:
-                df = pd.concat([df, bb], axis=1)
-                cols = df.columns
-                df.rename(columns={cols[-5]: 'BB_Lower', cols[-3]: 'BB_Upper'}, inplace=True)
+                # Match by name prefix (BBL_/BBU_), not column position — the
+                # exact suffix (e.g. "20_2.0") depends on pandas_ta's version
+                # and formatting, but the BBL/BBU prefixes are stable.
+                bbl_col = next((c for c in bb.columns if c.startswith('BBL_')), None)
+                bbu_col = next((c for c in bb.columns if c.startswith('BBU_')), None)
+                if bbl_col and bbu_col:
+                    df['BB_Lower'] = bb[bbl_col]
+                    df['BB_Upper'] = bb[bbu_col]
 
             atr = df.ta.atr(length=IndicatorConfig.ATR_LENGTH)
             df['ATR'] = atr if atr is not None else (df['Close'] * 0.02)
@@ -205,37 +210,40 @@ def get_fear_greed_index():
 def get_live_price_for_portfolio(coin_name, coin_map):
     try:
         ticker_symbol = coin_map.get(coin_name)
-        
+
         if ticker_symbol == "GRAM_TRY":
              ons_price = 0
              try: ons_price = yf.Ticker("GC=F").fast_info['last_price']
-             except: pass
-             
+             except Exception as e: logger.debug(f"GC=F price fetch failed: {e}")
+
              if not ons_price:
                  try: ons_price = yf.Ticker("GC=F").fast_info['last_price']
-                 except: pass
-             
+                 except Exception as e: logger.debug(f"GC=F price retry failed: {e}")
+
              usd_price = 0
              try: usd_price = yf.Ticker("TRY=X").fast_info['last_price']
-             except: pass
-             
+             except Exception as e: logger.debug(f"TRY=X price fetch failed: {e}")
+
              if not usd_price:
                  try: usd_price = yf.Ticker("USDTRY=X").fast_info['last_price']
-                 except: pass
+                 except Exception as e: logger.debug(f"USDTRY=X price fetch failed: {e}")
 
              if ons_price and usd_price:
                  return (ons_price * usd_price) / Constants.OUNCE_TO_GRAMS
              return 0
 
-        if ticker_symbol == "XAU_GOLD": 
+        if ticker_symbol == "XAU_GOLD":
             try:
                 price = yf.Ticker("GC=F").fast_info['last_price']
                 if price and price > 0: return price
-            except: pass
+            except Exception as e:
+                logger.debug(f"GC=F price fetch failed: {e}")
             try:
                 return yf.Ticker("GC=F").fast_info['last_price']
-            except: return 0
-        
+            except Exception as e:
+                logger.debug(f"GC=F price retry failed: {e}")
+                return 0
+
         if not ticker_symbol: return 0
                     # Try Binance first to avoid Yahoo rate limits for Crypto
         if "USD" in ticker_symbol and "XAU" not in ticker_symbol and "EUR" not in ticker_symbol:
@@ -244,8 +252,11 @@ def get_live_price_for_portfolio(coin_name, coin_map):
                 r = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={s_bin}", timeout=3)
                 if r.status_code == 200:
                     return float(r.json()['price'])
-            except: pass
+            except Exception as e:
+                logger.debug(f"Binance price fetch failed for {ticker_symbol}: {e}")
 
         ticker = yf.Ticker(ticker_symbol)
         return ticker.fast_info['last_price']
-    except: return 0
+    except Exception as e:
+        logger.debug(f"get_live_price_for_portfolio failed for {coin_name}: {e}")
+        return 0

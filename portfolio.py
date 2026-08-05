@@ -1,7 +1,7 @@
 import json
 import os
 import time
-from config import FileConfig, Constants
+from config import FileConfig, Constants, RiskConfig
 from data_fetchers import get_market_data
 from logger import logger
 import pandas as pd
@@ -14,28 +14,38 @@ def load_portfolio():
                 data = json.load(file)
                 if 'balance' not in data: data['balance'] = Constants.DEFAULT_PORTFOLIO_BALANCE
                 return data
-        except:
-            return {"positions": [], "history": [], "balance": Constants.DEFAULT_PORTFOLIO_BALANCE}
+        except Exception as e:
+            logger.error(f"Portfolio load error, using defaults: {e}")
+            return {"positions": [], "balance": Constants.DEFAULT_PORTFOLIO_BALANCE}
     else:
         return {"positions": [], "history": [], "balance": Constants.DEFAULT_PORTFOLIO_BALANCE}
 
 def save_portfolio(data):
-    with open(FileConfig.PORTFOLIO_FILE, 'w') as f:
+    # Write to a temp file then atomically replace the target, so a crash or
+    # a concurrent writer (another tab, the scheduled task) can never leave
+    # portfolio.json half-written / corrupted. os.replace() is atomic on
+    # both POSIX and Windows.
+    target = FileConfig.PORTFOLIO_FILE
+    tmp = f"{target}.tmp"
+    with open(tmp, 'w') as f:
         json.dump(data, f, indent=4)
+    os.replace(tmp, target)
 
 def validate_portfolio_risk(new_investment, current_balance, open_positions):
     """
     Kelly Criterion ve maksimum pozisyon büyüklüğü kontrolü
     """
     total_equity = current_balance + sum([p.get('Yatırım', 0) for p in open_positions if p.get('Status') == 'ACTIVE'])
-    
-    if new_investment > total_equity * 0.20:
-        return False, "⚠️ Tek pozisyon toplam varlığın %20'sini aşamaz!"
-    
+
+    if new_investment > total_equity * RiskConfig.MAX_POSITION_SIZE:
+        pct = int(RiskConfig.MAX_POSITION_SIZE * 100)
+        return False, f"⚠️ Tek pozisyon toplam varlığın %{pct}'sini aşamaz!"
+
     total_exposure = sum([p.get('Yatırım', 0) for p in open_positions if p.get('Status') == 'ACTIVE']) + new_investment
-    if total_exposure > total_equity * 0.50:
-        return False, "⚠️ Toplam açık pozisyon %50'yi geçemez!"
-    
+    if total_exposure > total_equity * RiskConfig.MAX_TOTAL_EXPOSURE:
+        pct = int(RiskConfig.MAX_TOTAL_EXPOSURE * 100)
+        return False, f"⚠️ Toplam açık pozisyon %{pct}'yi geçemez!"
+
     return True, "✅ Risk kabul edilebilir"
 
 def check_active_positions_auto_close(portfolio_data, coin_map):

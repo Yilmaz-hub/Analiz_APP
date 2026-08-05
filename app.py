@@ -3,7 +3,7 @@ import pandas as pd
 import time
 import requests
 import traceback
-from config import DEFAULT_COIN_MAP, PATTERN_INFO, UIConfig, FileConfig
+from config import DEFAULT_COIN_MAP, PATTERN_INFO, UIConfig, FileConfig, DataFetchConfig
 from logger import logger
 
 # === YENİ MODÜLLERDEN IMPORTLAR ===
@@ -31,14 +31,18 @@ def load_assets():
         try:
             with open(f, 'r', encoding='utf-8') as file:
                 return json.load(file)
-        except: return DEFAULT_COIN_MAP.copy()
+        except Exception as e:
+            logger.error(f"Asset list load error, using defaults: {e}")
+            return DEFAULT_COIN_MAP.copy()
     return DEFAULT_COIN_MAP.copy()
 
 def save_assets(data):
     f = FileConfig.ASSETS_FILE
-    import json
-    with open(f, 'w', encoding='utf-8') as file:
+    import json, os
+    tmp = f"{f}.tmp"
+    with open(tmp, 'w', encoding='utf-8') as file:
         json.dump(data, file, ensure_ascii=False, indent=4)
+    os.replace(tmp, f)
 
 if 'coin_map' not in st.session_state:
     st.session_state['coin_map'] = load_assets()
@@ -84,7 +88,8 @@ try:
     fg_color = "green" if fg_value < 30 else ("red" if fg_value > 70 else "orange")
     st.sidebar.markdown("---")
     st.sidebar.markdown(f"**😱 Piyasa Duygusu:** <span style='color:{fg_color}'>{fg_class} ({fg_value})</span>", unsafe_allow_html=True)
-except: pass
+except Exception as e:
+    logger.debug(f"Fear & Greed sidebar render failed: {e}")
 
 intervals = {"4h": "4 Saatlik", "1d": "Günlük", "1wk": "Haftalık"}
 results = {}
@@ -472,8 +477,10 @@ if st.session_state.get('portfolio_data'):
             st.sidebar.success(f"{emoji} {trade['coin']}: {trade['type']} | ${trade['profit']:.2f} (%{trade['pct']:.1f})")
 
 def send_tg(token, chat_id, msg):
-    try: requests.get(f"https://api.telegram.org/bot{token}/sendMessage", params={"chat_id": chat_id, "text": msg, "parse_mode": "Markdown"})
-    except: pass
+    try:
+        requests.get(f"https://api.telegram.org/bot{token}/sendMessage", params={"chat_id": chat_id, "text": msg, "parse_mode": "Markdown"})
+    except Exception as e:
+        logger.warning(f"Telegram notification failed: {e}")
 
 if auto or st.session_state.get('auto_mode', False):
     msg_str = ""
@@ -491,6 +498,13 @@ if auto or st.session_state.get('auto_mode', False):
         if 'last_msg' not in st.session_state or st.session_state['last_msg'] != full_msg:
             send_tg(tg_token, tg_chat, full_msg)
             st.session_state['last_msg'] = full_msg
-    time.sleep(14400) 
+    # Re-check on the market-data cache's own TTL instead of sleeping for
+    # hours: a multi-hour sleep() blocks this session's server thread the
+    # entire time (no reruns, no UI responsiveness, likely killed by a
+    # reverse-proxy/browser idle timeout long before it completes). Sleeping
+    # only as long as the cached data stays fresh (DataFetchConfig.CACHE_TTL)
+    # keeps the bot checking signals promptly while each blocking window
+    # stays short enough that the app remains usable between checks.
+    time.sleep(DataFetchConfig.CACHE_TTL)
     st.rerun()
 

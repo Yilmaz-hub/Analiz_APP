@@ -57,23 +57,21 @@ def calculate_smart_prediction_FIXED(df, periods=15):
         work_df['Price_Distance'] = (work_df['Close'] - work_df['Price_SMA50']) / work_df['Price_SMA50'] * 100
         
         bb = work_df.ta.bbands(length=20, std=2)
-        if bb is not None:
-            work_df['BB_Width'] = (bb.iloc[:, -3] - bb.iloc[:, -5]) / work_df['Close'] * 100
+        bbl_col = next((c for c in bb.columns if c.startswith('BBL_')), None) if bb is not None else None
+        bbu_col = next((c for c in bb.columns if c.startswith('BBU_')), None) if bb is not None else None
+        if bbl_col and bbu_col:
+            # Match by name prefix, not column position (see data_fetchers.process_data).
+            work_df['BB_Width'] = (bb[bbu_col] - bb[bbl_col]) / work_df['Close'] * 100
         else:
             work_df['BB_Width'] = 2
             
         work_df['Return'] = work_df['Close'].pct_change()
         work_df['Return_5'] = work_df['Close'].pct_change(5)
         work_df['Volatility'] = work_df['Return'].rolling(20).std()
-        
+
         for lag in [1, 2, 3, 5]:
             work_df[f'Lag{lag}'] = work_df['Return'].shift(lag)
-            
-        work_df['Target'] = work_df['Return'].shift(-1)
-        
-        work_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        work_df.dropna(inplace=True)
-        
+
         features = [
             'RSI', 'MACD', 'MACD_Signal', 'CCI', 'StochRSI_K',
             'ADX', 'BB_Width', 'Price_Distance',
@@ -81,10 +79,23 @@ def calculate_smart_prediction_FIXED(df, periods=15):
             'Return', 'Return_5', 'Volatility',
             'Lag1', 'Lag2', 'Lag3', 'Lag5'
         ]
-        
-        X = work_df[features].values
-        y = work_df['Target'].values
-        
+
+        # Drop only indicator warm-up NaNs here so the newest row (today's
+        # closed bar) survives — it's what the forecast walk below starts
+        # from. Target (next-bar return) is attached and NaN-dropped
+        # SEPARATELY, on a copy, so building the labeled training set can no
+        # longer delete the newest row before its features are used as the
+        # forecast seed (that used to silently anchor every prediction one
+        # bar in the past).
+        work_df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        feat_df = work_df.dropna(subset=features).copy()
+
+        feat_df['Target'] = feat_df['Return'].shift(-1)
+        labeled_df = feat_df.dropna(subset=['Target'])
+
+        X = labeled_df[features].values
+        y = labeled_df['Target'].values
+
         # 1️⃣ ÖNCE VERİYİ BÖL (Ham haliyle)
         test_size = int(len(X) * MLConfig.TEST_SIZE_RATIO)
         X_train_raw = X[:-test_size]
@@ -138,11 +149,11 @@ def calculate_smart_prediction_FIXED(df, periods=15):
         future_dates = []
         predictions = []
         
-        last_date = work_df.index[-1]
-        time_delta = work_df.index[-1] - work_df.index[-2]
-        current_price = work_df['Close'].iloc[-1]
-        
-        sim_state = work_df[features].iloc[-1].copy()
+        last_date = feat_df.index[-1]
+        time_delta = feat_df.index[-1] - feat_df.index[-2]
+        current_price = feat_df['Close'].iloc[-1]
+
+        sim_state = feat_df[features].iloc[-1].copy()
         confidence_decay = MLConfig.CONFIDENCE_DECAY
         
         for step in range(1, periods + 1):
@@ -237,8 +248,11 @@ def calculate_ml_direction_signal(df):
         work_df['Price_Distance'] = (work_df['Close'] - work_df['Price_SMA50']) / work_df['Price_SMA50'] * 100
 
         bb = work_df.ta.bbands(length=20, std=2)
-        if bb is not None:
-            work_df['BB_Width'] = (bb.iloc[:, -3] - bb.iloc[:, -5]) / work_df['Close'] * 100
+        bbl_col = next((c for c in bb.columns if c.startswith('BBL_')), None) if bb is not None else None
+        bbu_col = next((c for c in bb.columns if c.startswith('BBU_')), None) if bb is not None else None
+        if bbl_col and bbu_col:
+            # Match by name prefix, not column position (see data_fetchers.process_data).
+            work_df['BB_Width'] = (bb[bbu_col] - bb[bbl_col]) / work_df['Close'] * 100
         else:
             work_df['BB_Width'] = 2
 
@@ -249,19 +263,13 @@ def calculate_ml_direction_signal(df):
         for lag in [1, 2, 3, 5]:
             work_df[f'Lag{lag}'] = work_df['Return'].shift(lag)
 
-        # === CLASSIFICATION TARGET ===
-        # Next-period return
-        next_return = work_df['Close'].pct_change().shift(-1)
-        # Classify: > +0.5% → BULLISH (1), < -0.5% → BEARISH (-1), else NEUTRAL (0)
-        threshold = 0.005
-        work_df['Direction'] = 0
-        work_df.loc[next_return > threshold, 'Direction'] = 1
-        work_df.loc[next_return < -threshold, 'Direction'] = -1
-        work_df['Next_Return'] = next_return
-
-        work_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        work_df.dropna(inplace=True)
-
+        # === FEATURES ===
+        # Drop only indicator warm-up NaNs here so the newest row (today's
+        # closed bar, whose next candle hasn't happened yet) survives — it's
+        # the row we predict on. Previously this dropna() ran AFTER the
+        # shift(-1) target was attached, which always deletes the newest row
+        # (its target is NaN by construction) and silently shifted every
+        # "live" prediction one bar into the past.
         features = [
             'RSI', 'MACD', 'MACD_Signal', 'CCI', 'StochRSI_K',
             'ADX', 'BB_Width', 'Price_Distance',
@@ -269,18 +277,29 @@ def calculate_ml_direction_signal(df):
             'Return', 'Return_5', 'Volatility',
             'Lag1', 'Lag2', 'Lag3', 'Lag5'
         ]
+        work_df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        feat_df = work_df.dropna(subset=features)
 
-        X = work_df[features].values
-        y = work_df['Direction'].values
+        # === CLASSIFICATION TARGET ===
+        # Next-period return, computed only where knowable. The newest row's
+        # value is NaN (no next candle yet) and is used for prediction only.
+        next_return = feat_df['Close'].pct_change().shift(-1)
+        threshold = 0.005  # > +0.5% -> BULLISH (1), < -0.5% -> BEARISH (-1)
+        y_direction = pd.Series(0, index=feat_df.index)
+        y_direction[next_return > threshold] = 1
+        y_direction[next_return < -threshold] = -1
 
-        if len(X) < 100:
+        # Train on every row with a known outcome; predict on the newest row.
+        train_df = feat_df.iloc[:-1]
+        y_train_raw = y_direction.iloc[:-1].values
+        next_return_train = next_return.iloc[:-1].values
+
+        if len(train_df) < 100:
             return None
 
-        # Train on all data except last point
         scaler = MinMaxScaler()
-        X_train = scaler.fit_transform(X[:-1])
-        y_train = y[:-1]
-        X_last = scaler.transform(X[-1:])
+        X_train = scaler.fit_transform(train_df[features].values)
+        X_last = scaler.transform(feat_df[features].iloc[-1:].values)
 
         clf = RandomForestClassifier(
             n_estimators=200,
@@ -289,7 +308,7 @@ def calculate_ml_direction_signal(df):
             random_state=42,
             class_weight='balanced'
         )
-        clf.fit(X_train, y_train)
+        clf.fit(X_train, y_train_raw)
 
         # Predict
         prediction = clf.predict(X_last)[0]
@@ -302,7 +321,7 @@ def calculate_ml_direction_signal(df):
 
         # Predicted change (from regressor for magnitude)
         lr = LinearRegression()
-        lr.fit(X_train, work_df['Next_Return'].values[:-1])
+        lr.fit(X_train, next_return_train)
         predicted_change = lr.predict(X_last)[0] * 100  # as percentage
 
         if prediction == 1:
