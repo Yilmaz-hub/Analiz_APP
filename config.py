@@ -325,6 +325,7 @@ class FileConfig:
     PORTFOLIO_FILE = 'portfolio.json'
     ASSETS_FILE = 'varliklar.json'
     PAPER_FILE = 'paper_trading.json'
+    WEIGHT_PROFILES_FILE = 'weight_profiles.json'
 
 #telegram
 class TelegramConfig:
