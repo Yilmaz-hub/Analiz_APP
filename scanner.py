@@ -70,7 +70,7 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
 
                 for tf, signal_col in [("1d", "Günlük Sinyal"), ("1wk", "Haftalık Sinyal")]:
                     try:
-                        d_scan, _ = get_market_data("Yahoo Finance", sym, tf)
+                        d_scan, _ = get_market_data(source_pref, sym, tf)
                     except Exception:
                         d_scan = None
 

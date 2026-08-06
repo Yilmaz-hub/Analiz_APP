@@ -335,8 +335,10 @@ def detect_wyckoff_phase(df, lookback=60):
                 result["phase"] = "RANGING"
                 result["description"] = "Yatay bant — Wyckoff fazı netleşmedi."
 
-        # DISTRIBUTION: Range-bound at highs with UTAD
-        elif price_range < 15 and abs(price_trend) < 5:
+        # DISTRIBUTION: a range that follows an advance, then starts to roll
+        # over.  The old condition duplicated the accumulation branch above,
+        # so this branch was unreachable.
+        elif price_range < 15 and price_trend >= 5 and recent_trend < 0:
             max_price = np.max(highs)
             last_10_max = np.max(highs[-10:])
 

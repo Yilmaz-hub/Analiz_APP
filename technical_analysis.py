@@ -583,27 +583,58 @@ def _update_trailing_stop(position, price, atr, direction, trail_breakeven, trai
         position['sl'] = max(position['sl'], position['entry']) if direction == 1 else min(position['sl'], position['entry'])
 
 
-def _check_exit(position, price, state, direction):
-    """Return a close reason ('SL'/'TP'/'Sinyal') or None, for either direction."""
-    if direction * (position['sl'] - price) >= 0:
-        return "SL"
-    if direction * (price - position['tp']) >= 0:
-        return "TP"
+def _check_exit(position, ohlc, state, direction):
+    """Return ``(reason, fill_price)`` for an open position, or ``(None, None)``.
+
+    Stops and targets are intrabar orders, so testing only the close misses
+    genuine fills.  A gap fills at the opening price.  If both a stop and
+    target are touched within a bar, their order is unknowable from OHLC; use
+    the conservative stop-first assumption rather than overstating results.
+    """
+    open_ = ohlc["open"]
+    high = ohlc["high"]
+    low = ohlc["low"]
+    close = ohlc["close"]
+    sl = position["sl"]
+    tp = position["tp"]
+
+    if direction == 1:
+        if open_ <= sl:
+            return "SL", open_
+        if open_ >= tp:
+            return "TP", open_
+        hit_sl, hit_tp = low <= sl, high >= tp
+        if hit_sl:
+            return "SL", sl
+        if hit_tp:
+            return "TP", tp
+    else:
+        if open_ >= sl:
+            return "SL", open_
+        if open_ <= tp:
+            return "TP", open_
+        hit_sl, hit_tp = high >= sl, low <= tp
+        if hit_sl:
+            return "SL", sl
+        if hit_tp:
+            return "TP", tp
+
     if state != direction:
-        return "Sinyal"
-    return None
+        return "Sinyal", close
+    return None, None
 
 
 def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_callback=None,
                           sl_mult=None, tp_mult=None, entry_score=None, regime_ma_period=None,
                           fee_rate=None, entry_mode=None, pullback_tol=0.005,
-                          pullback_min_score=10, rsi_cap=None, direction="long", weights=None):
+                          pullback_min_score=10, rsi_cap=None, direction="long", weights=None,
+                          include_ml=False, start_index=0):
     """
     Backtests the SAME signal the dashboard displays: the composite decision
     engine filtered through SignalStateMachine (confirmation bars + exit
-    hysteresis), on closed candles only. The ML dimension is skipped for
-    speed (training a model per bar is infeasible); its weight is
-    redistributed, exactly as generate_stable_signal does on replay bars.
+    hysteresis), on closed candles only. ``include_ml=False`` is the fast,
+    technical-only validation mode; its ML weight is redistributed. Set it
+    to True only for a slow, fully ML-inclusive parity run.
 
     Execution model: signal decided on bar i-1's close, executed at bar i's
     close — no lookahead.
@@ -630,6 +661,10 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
     weights (trend/momentum/volume/pattern/ml/advanced), e.g. a tuned
     per-asset-class profile from weight_profiles.py. None (default)
     reproduces today's shipped behavior exactly.
+
+    start_index: delay entries until this bar while replaying prior bars
+    through the state machine. Used for walk-forward validation so the test
+    period receives only historical state.
     """
     # Lazy import: signal_engine imports this module, so a top-level import
     # here would be circular.
@@ -679,11 +714,17 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
         current_slice = df.iloc[:i]
         price = df['Close'].iloc[i]
         date = df.index[i]
+        ohlc = {
+            "open": df['Open'].iloc[i] if 'Open' in df.columns else price,
+            "high": df['High'].iloc[i] if 'High' in df.columns else price,
+            "low": df['Low'].iloc[i] if 'Low' in df.columns else price,
+            "close": price,
+        }
 
         if progress_callback and (i - 60) % 25 == 0 and total_bars > 0:
             progress_callback((i - 60) / total_bars)
 
-        bar = _compute_bar_score(current_slice, timeframe, include_ml=False, weights=weights)
+        bar = _compute_bar_score(current_slice, timeframe, include_ml=include_ml, weights=weights)
         if bar is None:
             continue
 
@@ -701,7 +742,7 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
         score = bar["score"]
 
         # === ENTRY LOGIC (SHORT) ===
-        if direction == "short" and position is None and balance > 0:
+        if direction == "short" and position is None and balance > 0 and i >= start_index:
             if cooldown > 0:
                 cooldown -= 1
             else:
@@ -723,24 +764,27 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
 
         # === EXIT LOGIC (SHORT) ===
         elif direction == "short" and position is not None:
-            _update_trailing_stop(position, price, atr, -1, trail_breakeven, trail_lock_pct)
-            close_reason = _check_exit(position, price, state, -1)
+            close_reason, exit_price = _check_exit(position, ohlc, state, -1)
 
             if close_reason:
-                exit_fee = position['qty'] * price * fee_rate
-                pnl = position['qty'] * (position['entry'] - price) - exit_fee - (position['cost'] - position['margin'])
-                balance += position['margin'] + position['qty'] * (position['entry'] - price) - exit_fee
+                exit_fee = position['qty'] * exit_price * fee_rate
+                pnl = position['qty'] * (position['entry'] - exit_price) - exit_fee - (position['cost'] - position['margin'])
+                balance += position['margin'] + position['qty'] * (position['entry'] - exit_price) - exit_fee
                 trades.append({
-                    'entry': position['entry'], 'exit': price, 'entry_date': position['entry_date'],
+                    'entry': position['entry'], 'exit': exit_price, 'entry_date': position['entry_date'],
                     'exit_date': date, 'pnl': pnl, 'pnl_pct': (pnl / position['cost']) * 100,
                     'reason': close_reason
                 })
                 if pnl < 0:
                     cooldown = cooldown_bars
                 position = None
+            else:
+                # A close-derived trail becomes active on the next bar; using
+                # it against this bar's earlier low/high would be look-ahead.
+                _update_trailing_stop(position, price, atr, -1, trail_breakeven, trail_lock_pct)
 
         # === ENTRY LOGIC ===
-        elif position is None and balance > 0:
+        elif position is None and balance > 0 and i >= start_index:
             if cooldown > 0:
                 cooldown -= 1
             else:
@@ -771,21 +815,24 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
 
         # === EXIT LOGIC (Trailing Stop) ===
         elif position is not None:
-            _update_trailing_stop(position, price, atr, 1, trail_breakeven, trail_lock_pct)
-            close_reason = _check_exit(position, price, state, 1)
+            close_reason, exit_price = _check_exit(position, ohlc, state, 1)
 
             if close_reason:
-                proceeds = position['qty'] * price * (1 - fee_rate)  # exit fee
+                proceeds = position['qty'] * exit_price * (1 - fee_rate)  # exit fee
                 pnl = proceeds - position['cost']
                 balance += proceeds
                 trades.append({
-                    'entry': position['entry'], 'exit': price, 'entry_date': position['entry_date'],
+                    'entry': position['entry'], 'exit': exit_price, 'entry_date': position['entry_date'],
                     'exit_date': date, 'pnl': pnl, 'pnl_pct': (pnl / position['cost']) * 100,
                     'reason': close_reason
                 })
                 if pnl < 0:
                     cooldown = cooldown_bars
                 position = None
+            else:
+                # See the short branch: this bar's close is not known when
+                # the intrabar high/low stop checks occur.
+                _update_trailing_stop(position, price, atr, 1, trail_breakeven, trail_lock_pct)
                 
         if position is None:
             current_equity = balance
@@ -824,5 +871,5 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
         'final_balance': balance, 'total_return': total_return, 'total_trades': len(trades),
         'winning_trades': len(winning), 'losing_trades': len(losing), 'win_rate': win_rate,
         'avg_win': avg_win, 'avg_loss': avg_loss, 'profit_factor': profit_factor,
-        'trades': trades, 'equity_curve': equity_curve
+        'trades': trades, 'equity_curve': equity_curve, 'include_ml': include_ml,
     }

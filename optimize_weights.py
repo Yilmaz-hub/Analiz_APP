@@ -4,8 +4,11 @@ Offline per-asset-class signal weight optimizer.
 Finds better DecisionEngineConfig dimension weights (trend/momentum/volume/
 pattern — ml is fixed, advanced is derived; see the design doc for why) per
 asset class (crypto/BIST/commodity/forex) by backtesting candidate weight
-vectors with scipy.optimize.differential_evolution, validated on a held-out
-test split. Writes results to weight_profiles.json.
+vectors with scipy.optimize.differential_evolution (searched with
+include_ml=False for speed), then validates them on multiple chronological
+walk-forward windows with include_ml=True -- matching what the live signal
+actually scores, so a profile can't pass validation on a strategy variant
+users never see. Writes results to weight_profiles.json.
 
 Fitness/validation pools every asset's trades into one combined sample
 (_pool_score) rather than scoring each asset independently and requiring
@@ -42,6 +45,9 @@ from logger import logger
 TRAIN_FRACTION = 0.7
 MIN_TRADES = 5
 REJECT_SCORE = -1e6
+WALK_FORWARD_FOLDS = 3
+MIN_WALK_FORWARD_TRAIN_BARS = 120
+MIN_WALK_FORWARD_TEST_BARS = 60
 
 
 def _load_asset_map():
@@ -121,6 +127,25 @@ def _split_train_test(df):
     return df.iloc[:split], df.iloc[split:]
 
 
+def _walk_forward_splits(df, n_splits=WALK_FORWARD_FOLDS,
+                         min_train_bars=MIN_WALK_FORWARD_TRAIN_BARS,
+                         min_test_bars=MIN_WALK_FORWARD_TEST_BARS):
+    """Return expanding-train, strictly later validation windows."""
+    if n_splits < 2 or len(df) < min_train_bars + n_splits * min_test_bars:
+        return []
+    test_size = (len(df) - min_train_bars) // n_splits
+    if test_size < min_test_bars:
+        return []
+
+    windows = []
+    train_end = min_train_bars
+    for fold in range(n_splits):
+        test_end = len(df) if fold == n_splits - 1 else train_end + test_size
+        windows.append((df.iloc[:train_end], df.iloc[train_end:test_end]))
+        train_end = test_end
+    return windows
+
+
 def _class_fitness(x, train_dfs):
     """differential_evolution MINIMIZES, so this returns the negative of
     the class's pooled score (maximizing score = minimizing -score)."""
@@ -135,18 +160,18 @@ def _class_fitness(x, train_dfs):
 def optimize_class(asset_class, assets, maxiter, popsize, source_pref="Binance"):
     """assets: list of (name, symbol) tuples. Returns a profile dict, or
     None if there wasn't enough usable data to run."""
-    train_dfs, test_dfs, used_assets = [], [], []
+    train_dfs, walk_forward_dfs, used_assets = [], [], []
     for name, symbol in assets:
         df, _ = get_market_data(source_pref, symbol, "1d")
         if df is None or len(df) < 200:
             logger.warning(f"[{asset_class}] skipping {name} ({symbol}): insufficient data")
             continue
-        train_df, test_df = _split_train_test(df)
-        if len(train_df) < 100 or len(test_df) < 30:
-            logger.warning(f"[{asset_class}] skipping {name} ({symbol}): split too small")
+        windows = _walk_forward_splits(df)
+        if not windows:
+            logger.warning(f"[{asset_class}] skipping {name} ({symbol}): insufficient walk-forward history")
             continue
-        train_dfs.append(train_df)
-        test_dfs.append(test_df)
+        train_dfs.append(windows[0][0])
+        walk_forward_dfs.append((df, windows))
         used_assets.append(symbol)
 
     if not train_dfs:
@@ -188,9 +213,26 @@ def optimize_class(asset_class, assets, maxiter, popsize, source_pref="Binance")
     best_weights = _weights_from_vector(result.x) or {k: (1 - DecisionEngineConfig.ML_WEIGHT) / 5 if k != "ml" else DecisionEngineConfig.ML_WEIGHT for k in WEIGHT_KEYS}
     train_score = float(-result.fun)
 
-    test_bt_results = [run_strategy_backtest(df, initial_balance=10000, timeframe="1d", weights=best_weights)
-                        for df in test_dfs]
-    test_score = _pool_score(test_bt_results)
+    # Validation folds run with include_ml=True: this is what the user's
+    # live signal actually scores (ML runs on the actionable bar), so a
+    # profile that only clears a technical-only backtest wouldn't validate
+    # what's shipped. The search above stays include_ml=False for speed --
+    # the ML weight is fixed, not searched (see module docstring), so
+    # scoring it during the search wouldn't change which candidate wins.
+    fold_scores = []
+    for fold_idx in range(WALK_FORWARD_FOLDS):
+        fold_bt_results = []
+        for full_df, windows in walk_forward_dfs:
+            train_df, test_df = windows[fold_idx]
+            end = len(train_df) + len(test_df)
+            fold_bt_results.append(run_strategy_backtest(
+                full_df.iloc[:end], initial_balance=10000, timeframe="1d",
+                weights=best_weights, start_index=len(train_df), include_ml=True,
+            ))
+        fold_scores.append(float(_pool_score(fold_bt_results)))
+
+    # Store the median so a single exceptional regime cannot dominate.
+    test_score = float(np.median(fold_scores))
 
     print(f"[{asset_class}] done in {elapsed:.0f}s — train_score={train_score:.2f} test_score={test_score:.2f}")
     print(f"[{asset_class}] weights: {best_weights}")
@@ -201,6 +243,7 @@ def optimize_class(asset_class, assets, maxiter, popsize, source_pref="Binance")
         "train_assets": used_assets,
         "train_score": round(train_score, 2),
         "test_score": round(test_score, 2),
+        "walk_forward_scores": [round(score, 2) for score in fold_scores],
     }
 
 

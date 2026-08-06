@@ -1,3 +1,6 @@
+import numpy as np
+import pandas as pd
+
 from advanced_analysis import (
     detect_elliott_wave,
     analyze_ichimoku,
@@ -22,6 +25,18 @@ def test_ichimoku_schema_and_bounds(processed_df):
 def test_wyckoff_schema_and_bounds(processed_df):
     result = detect_wyckoff_phase(processed_df)
     assert -100 <= result["score"] <= 100
+
+
+def test_wyckoff_distribution_branch_is_reachable():
+    """A post-advance range rolling over is distribution, not accumulation."""
+    idx = pd.date_range("2024-01-01", periods=60, freq="D")
+    close = np.r_[np.linspace(100, 110, 30), np.linspace(110, 105, 30)]
+    df = pd.DataFrame({
+        "Open": close, "High": close + 1, "Low": close - 1,
+        "Close": close, "Volume": np.full(60, 1000.0),
+    }, index=idx)
+    result = detect_wyckoff_phase(df)
+    assert result["phase"].startswith("DISTRIBUTION")
 
 
 def test_market_structure_schema_and_bounds(processed_df):

@@ -1,4 +1,6 @@
-from signal_engine import _BoundedCache, generate_stable_signal, _bar_score_cache
+import pandas as pd
+
+from signal_engine import _BoundedCache, _frame_fingerprint, generate_stable_signal, _bar_score_cache
 
 
 def test_bounded_cache_evicts_lru_not_everything():
@@ -12,6 +14,14 @@ def test_bounded_cache_evicts_lru_not_everything():
     assert cache.get("c") == 3
     assert cache.get("d") == 4
     assert cache.get("b") is None
+
+
+def test_frame_fingerprint_changes_when_history_is_corrected():
+    idx = pd.date_range("2024-01-01", periods=3, freq="D")
+    base = pd.DataFrame({"Close": [10.0, 11.0, 12.0]}, index=idx)
+    corrected = base.copy()
+    corrected.iloc[0, 0] = 9.0
+    assert _frame_fingerprint(base) != _frame_fingerprint(corrected)
 
 
 def test_repeated_signal_calls_reuse_bar_score_cache(processed_df):

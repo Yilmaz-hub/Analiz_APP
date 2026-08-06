@@ -130,6 +130,18 @@ def process_data(df: pd.DataFrame, src: str):
             ema_20 = df.ta.ema(length=IndicatorConfig.EMA_SHORT)
             df['EMA_20'] = ema_20 if ema_20 is not None else df['Close']
 
+            macd = df.ta.macd(
+                fast=IndicatorConfig.MACD_FAST,
+                slow=IndicatorConfig.MACD_SLOW,
+                signal=IndicatorConfig.MACD_SIGNAL,
+            )
+            if macd is not None and not macd.empty:
+                macd_col = next((c for c in macd.columns if c.startswith('MACD_')), None)
+                signal_col = next((c for c in macd.columns if c.startswith('MACDs_')), None)
+                if macd_col is not None and signal_col is not None:
+                    df['MACD'] = macd[macd_col]
+                    df['MACD_Signal'] = macd[signal_col]
+
             bb = df.ta.bbands(length=IndicatorConfig.BOLLINGER_LENGTH, std=IndicatorConfig.BOLLINGER_STD)
             if bb is not None:
                 # Match by name prefix (BBL_/BBU_), not column position — the
@@ -151,7 +163,11 @@ def process_data(df: pd.DataFrame, src: str):
             else:
                 df['ADX'] = 25
                 
-            df = df.bfill().ffill()
+            # Never back-fill indicator warm-up values: doing so lets an
+            # earlier bar use an indicator calculated from future prices and
+            # contaminates historical signals/backtests.  Forward-fill is
+            # only retained for provider-side gaps after an indicator exists.
+            df = df.ffill()
             return df, src
         except Exception as e:
             logger.error(f"Process Error: {e}")

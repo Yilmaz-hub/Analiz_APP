@@ -1,7 +1,7 @@
 import pandas as pd
 
 from config import DecisionEngineConfig
-from optimize_weights import _weights_from_vector, _pool_score, _split_train_test, MIN_TRADES, REJECT_SCORE
+from optimize_weights import _weights_from_vector, _pool_score, _split_train_test, _walk_forward_splits, MIN_TRADES, REJECT_SCORE
 
 
 def test_weights_from_vector_fills_ml_and_derives_advanced():
@@ -73,3 +73,13 @@ def test_split_train_test_is_chronological_and_70_30():
     assert len(test) == 30
     assert train.iloc[-1]["Close"] < test.iloc[0]["Close"]  # train is strictly earlier
     assert list(train["Close"]) + list(test["Close"]) == list(df["Close"])  # no gaps/overlap
+
+
+def test_walk_forward_splits_are_expanding_and_chronological():
+    df = pd.DataFrame({"Close": range(360)})
+    windows = _walk_forward_splits(df, n_splits=3, min_train_bars=120, min_test_bars=60)
+    assert len(windows) == 3
+    assert len(windows[0][0]) == 120
+    assert all(train.index[-1] < test.index[0] for train, test in windows)
+    assert [len(train) for train, _ in windows] == sorted(len(train) for train, _ in windows)
+    assert windows[-1][1].index[-1] == df.index[-1]

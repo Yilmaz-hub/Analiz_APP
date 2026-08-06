@@ -7,7 +7,9 @@ Each dimension scores from -100 (strongly bearish) to +100 (strongly bullish).
 Final verdict is a weighted average with confidence based on dimension agreement.
 """
 
+import hashlib
 import threading
+from copy import deepcopy
 from collections import OrderedDict
 
 import pandas as pd
@@ -59,6 +61,24 @@ def _weights_fingerprint(weights):
         return None
     return tuple(round(float(weights[k]), 6) for k in
                  ("trend", "momentum", "volume", "pattern", "ml", "advanced"))
+
+
+def _frame_fingerprint(df):
+    """Return a compact content fingerprint for cache keys.
+
+    Timestamp/last-close/length keys collide for different assets and miss a
+    historical-data correction that leaves the final candle unchanged.  The
+    score can depend on the entire price history (recursive indicators), so
+    cache correctness requires the frame content as well as its final bar.
+    """
+    try:
+        columns = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns]
+        if not columns:
+            return None
+        hashed = pd.util.hash_pandas_object(df[columns], index=True).values.tobytes()
+        return hashlib.blake2b(hashed, digest_size=12).hexdigest()
+    except Exception:
+        return None
 
 
 @dataclass
@@ -580,9 +600,16 @@ class SignalStateMachine:
         # clears the entry score with the regime agreeing. Latched until the
         # direction state changes.
         entry_score = getattr(self.cfg, "ENTRY_SCORE", self.cfg.BUY_THRESHOLD)
-        if self.state == 1 and score >= entry_score and regime >= 0:
+        # A configured regime filter must be known and agree with direction.
+        # regime == 0 means either insufficient history or an explicitly
+        # disabled filter; distinguish those cases so a 100-bar filter cannot
+        # silently allow trades during its warm-up period.
+        regime_filter_enabled = getattr(self.cfg, "REGIME_MA_PERIOD", 0) > 0
+        long_regime_ok = (regime == 1) if regime_filter_enabled else True
+        short_regime_ok = (regime == -1) if regime_filter_enabled else True
+        if self.state == 1 and score >= entry_score and long_regime_ok:
             self.armed = True
-        elif self.state == -1 and score <= -entry_score and regime <= 0:
+        elif self.state == -1 and score <= -entry_score and short_regime_ok:
             self.armed = True
         elif self.state == 0:
             self.armed = False
@@ -713,7 +740,7 @@ def _cached_bar_score(df_slice, timeframe, include_ml, weights=None):
     try:
         key = (timeframe, str(df_slice.index[-1]),
                round(float(df_slice['Close'].iloc[-1]), 8), len(df_slice), include_ml,
-               _weights_fingerprint(weights))
+               _weights_fingerprint(weights), _frame_fingerprint(df_slice))
     except Exception:
         key = None
 
@@ -764,13 +791,15 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
     try:
         cache_key = (timeframe, str(work.index[-1]),
                      round(float(work['Close'].iloc[-1]), 8), len(work), include_ml,
-                     _weights_fingerprint(weights))
+                     _weights_fingerprint(weights), _frame_fingerprint(work))
     except Exception:
         cache_key = None
     if cache_key is not None:
         cached_signal = _stable_cache.get(cache_key)
         if cached_signal is not None:
-            return cached_signal
+            # Cached objects must not be shared with UI callers, which can
+            # otherwise mutate a future caller's signal in place.
+            return deepcopy(cached_signal)
 
     machine = SignalStateMachine(cfg)
     lookback = min(cfg.STABILITY_LOOKBACK, len(work) - 50)
@@ -842,5 +871,5 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
     _apply_trade_setup(signal, bar["price"], bar["atr"], cfg)
 
     if cache_key is not None:
-        _stable_cache.set(cache_key, signal)
+        _stable_cache.set(cache_key, deepcopy(signal))
     return signal

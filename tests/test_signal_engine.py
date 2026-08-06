@@ -1,10 +1,19 @@
 from signal_engine import generate_stable_signal, _compute_bar_score, SignalStateMachine
-from technical_analysis import run_strategy_backtest
+from technical_analysis import _check_exit, run_strategy_backtest
 
 
 def test_process_data_has_required_columns(processed_df):
-    for c in ["RSI", "ADX", "ATR", "EMA_20", "EMA_50"]:
+    for c in ["RSI", "ADX", "ATR", "EMA_20", "EMA_50", "MACD", "MACD_Signal"]:
         assert c in processed_df.columns
+
+
+def test_process_data_does_not_backfill_indicator_warmup():
+    """ADX needs 13 bars of history and must not be filled from future bars."""
+    from conftest import make_ohlcv
+    from data_fetchers import process_data
+
+    df, _ = process_data(make_ohlcv(segments=[(80, 0.001)]), "test")
+    assert df["ADX"].iloc[:13].isna().all()
 
 
 def test_stable_signal_is_deterministic(processed_df):
@@ -34,6 +43,29 @@ def test_state_machine_reduces_whipsaw(processed_df):
             stable_flips += 1
         prev_raw, prev_stable = raw, state
     assert stable_flips < raw_flips
+
+
+def test_state_machine_does_not_arm_with_unknown_enabled_regime():
+    machine = SignalStateMachine()
+    for _ in range(2):
+        machine.update(score=40, confidence=90, rsi=50, adx=30, regime=0)
+    assert machine.state == 1
+    assert machine.signal == 0
+
+    machine.update(score=40, confidence=90, rsi=50, adx=30, regime=1)
+    assert machine.signal == 1
+
+
+def test_backtest_uses_conservative_intrabar_stop_fill():
+    position = {"sl": 95.0, "tp": 105.0}
+    # Both levels trade during this candle; OHLC cannot know their order.
+    reason, fill = _check_exit(
+        position,
+        {"open": 100.0, "high": 106.0, "low": 94.0, "close": 101.0},
+        state=1,
+        direction=1,
+    )
+    assert (reason, fill) == ("SL", 95.0)
 
 
 def test_short_data_guard(processed_df):

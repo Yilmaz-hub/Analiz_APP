@@ -109,3 +109,12 @@ def test_get_weights_for_symbol_non_numeric_test_score_returns_none(tmp_path, mo
     weights = {"trend": 0.3, "momentum": 0.2, "volume": 0.15, "pattern": 0.1, "ml": 0.1, "advanced": 0.15}
     wp.save_profiles({"crypto": {"weights": weights, "test_score": "n/a"}})
     assert wp.get_weights_for_symbol("BTC-USD") is None
+
+
+def test_get_weights_for_symbol_rejects_failed_walk_forward_score(tmp_path, monkeypatch):
+    target = tmp_path / "weight_profiles.json"
+    monkeypatch.setattr(wp.FileConfig, "WEIGHT_PROFILES_FILE", str(target))
+    weights = {"trend": 0.3, "momentum": 0.2, "volume": 0.15, "pattern": 0.1, "ml": 0.1, "advanced": 0.15}
+    wp.save_profiles({"crypto": {"weights": weights, "test_score": 1.0,
+                                  "walk_forward_scores": [1.2, -0.1, 0.8]}})
+    assert wp.get_weights_for_symbol("BTC-USD") is None
