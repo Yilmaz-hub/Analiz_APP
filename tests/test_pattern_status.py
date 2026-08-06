@@ -194,6 +194,46 @@ def test_symmetric_triangle_degenerate_height_falls_back_to_forming():
     assert status["target"] is None
 
 
+def test_triangle_height_compares_boundaries_at_same_timestamp():
+    """The resistance/support y0 values may come from different pivot bars.
+    The measured move must interpolate both lines at their first shared x,
+    rather than subtracting prices observed at different timestamps."""
+    pattern = {
+        "type": "triangle", "name": "Simetrik Üçgen ◇", "color": "yellow",
+        "lines": [
+            {"x0": 0, "y0": 120.0, "x1": 10, "y1": 100.0},
+            {"x0": 5, "y0": 90.0, "x1": 10, "y1": 98.0},
+        ],
+        "direction": "NEUTRAL", "target": 100.0, "confidence": 60,
+    }
+
+    status = get_pattern_status(pattern, current_price=105.0)
+
+    # At the shared x=5, resistance is 110 and support is 90, so the
+    # boundary-anchored target is 100 + 20. Raw y0 subtraction would give 130.
+    assert status["stage"] == "broke_out"
+    assert status["target"] == 120.0
+
+
+def test_misaligned_y0_values_do_not_hide_a_valid_breakout():
+    """Raw y0 subtraction is negative here even though the boundaries have
+    a valid positive separation once compared at their shared timestamp."""
+    pattern = {
+        "type": "triangle", "name": "Simetrik Üçgen ◇", "color": "yellow",
+        "lines": [
+            {"x0": 0, "y0": 80.0, "x1": 10, "y1": 100.0},
+            {"x0": 5, "y0": 85.0, "x1": 10, "y1": 95.0},
+        ],
+        "direction": "NEUTRAL", "target": 97.0, "confidence": 60,
+    }
+
+    status = get_pattern_status(pattern, current_price=103.0)
+
+    # At x=5 resistance=90 and support=85, yielding target 105.
+    assert status["stage"] == "broke_out"
+    assert status["target"] == 105.0
+
+
 def test_symmetric_triangle_bullish_breakout_recomputes_real_target():
     """Regression test: the stored target (100.0, == current_price at
     detection time) must NOT be used once broken out -- a real

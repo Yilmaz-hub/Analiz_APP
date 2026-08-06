@@ -480,8 +480,10 @@ def get_pattern_status(pattern, current_price):
     name = pattern["name"]
 
     if ptype == "triangle":
-        resistance_at_last = pattern["lines"][0]["y1"]
-        support_at_last = pattern["lines"][1]["y1"]
+        resistance_line = pattern["lines"][0]
+        support_line = pattern["lines"][1]
+        resistance_at_last = resistance_line["y1"]
+        support_at_last = support_line["y1"]
         broke_up = current_price > resistance_at_last
         broke_down = current_price < support_at_last
 
@@ -490,23 +492,40 @@ def get_pattern_status(pattern, current_price):
         elif pattern["direction"] == "BEARISH":
             broke_up = False    # descending triangle only ever breaks down
 
-        # Measured-move height at the triangle's widest point, used for
-        # every variant's target. The detector's stored `target` must
+        # Measured-move height at the first timestamp shared by both
+        # boundaries. Their x0 values come from independently detected
+        # peaks/troughs and usually differ, so subtracting the raw y0 values
+        # would compare prices from different bars rather than a vertical
+        # triangle height.
+        shared_x = max(resistance_line["x0"], support_line["x0"])
+
+        def _value_at(line, x):
+            span = line["x1"] - line["x0"]
+            if span == 0:
+                return None
+            ratio = (x - line["x0"]) / span
+            return line["y0"] + ratio * (line["y1"] - line["y0"])
+
+        resistance_at_shared = _value_at(resistance_line, shared_x)
+        support_at_shared = _value_at(support_line, shared_x)
+        height = (resistance_at_shared - support_at_shared
+                  if resistance_at_shared is not None and support_at_shared is not None
+                  else None)
+
+        # The detector's stored `target` must
         # NEVER be used here: for the symmetric triangle it's == current_price
         # at detection, and for ascending/descending it's
         # current_price*1.08 / *0.92 -- both recomputed fresh from
         # whatever the CURRENT price is on every call, so a target_reached
         # check against them can never succeed (they always sit a fixed
         # amount ahead of whatever price triggered the check).
-        height = pattern["lines"][0]["y0"] - pattern["lines"][1]["y0"]
-
         if not broke_up and not broke_down:
             # Still forming. Ascending/descending triangles already know
             # their eventual breakout direction from the slope pattern, so
             # project a real target now; a symmetric triangle doesn't know
             # its direction yet, so there's nothing meaningful to show.
             target = None
-            if height > 0:
+            if height is not None and height > 0:
                 if pattern["direction"] == "BULLISH":
                     target = resistance_at_last + height
                 elif pattern["direction"] == "BEARISH":
@@ -515,10 +534,9 @@ def get_pattern_status(pattern, current_price):
                     "message": f"🔍 {name}: giriş koşulları sağlandı, kırılım bekleniyor"}
 
         direction = "BULLISH" if broke_up else "BEARISH"
-        if height <= 0:
-            # The two boundary y0s come from different pivot bars, so for
-            # an oddly-shaped triangle this "height" can be non-positive --
-            # not reliably measurable. Fall back to forming rather than
+        if height is None or height <= 0:
+            # Degenerate or crossed boundaries are not reliably measurable.
+            # Fall back to forming rather than
             # reporting a wrong-side or already-"reached" target.
             return {"stage": "forming", "target": None, "direction": None,
                     "message": f"🔍 {name}: giriş koşulları sağlandı, kırılım bekleniyor"}
