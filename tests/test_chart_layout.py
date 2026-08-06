@@ -46,7 +46,8 @@ def test_chart_uses_thin_crosshair_not_unified_hover(monkeypatch, processed_df):
     render_main_chart(**_base_kwargs(processed_df))
 
     layout = captured["fig"].layout
-    assert layout.hovermode == "closest"
+    assert layout.hovermode == "y unified"
+    assert layout.yaxis.unifiedhovertitle.text == "Fiyat: $%{y:,.2f}"
     assert layout.xaxis.showspikes is True
     assert layout.yaxis.showspikes is True
     assert layout.xaxis.spikethickness == 1
@@ -168,3 +169,5 @@ def test_transparent_hover_layer_reports_cursor_price_in_future_space(monkeypatc
     assert "Fiyat" in hover_layer.hovertemplate
     assert len(hover_layer.y) == 401
     assert pd.Timestamp(hover_layer.x[-1]) >= _prediction_kwargs(df_view)["f_dates"][-1]
+    assert captured["fig"].layout.hovermode == "y unified"
+    assert captured["fig"].layout.yaxis.unifiedhovertitle.text == "Fiyat: $%{y:,.2f}"

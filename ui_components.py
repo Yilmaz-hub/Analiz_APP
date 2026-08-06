@@ -272,10 +272,18 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
             height=900,
             xaxis_rangeslider_visible=False,
             dragmode="pan",
-            yaxis=dict(side="right", fixedrange=False, type=y_type, range=range_y, tickformat=".2f", exponentformat="none", **spike_style),
+            yaxis=dict(
+                side="right", fixedrange=False, type=y_type, range=range_y,
+                tickformat=".2f", exponentformat="none",
+                unifiedhovertitle=dict(text="Fiyat: $%{y:,.2f}"),
+                **spike_style,
+            ),
             xaxis=dict(range=[zoom_start, zoom_end], type="date", **spike_style),
             margin=dict(l=10, r=60, t=10, b=20),
-            hovermode='closest',
+            # A y-unified label stays against the chart edge and exposes the
+            # transparent hover layer's cursor price, which is the closest
+            # Plotly equivalent to TradingView's dynamic price-axis badge.
+            hovermode='y unified',
             hoverdistance=-1,
         )
         fig.update_layout(**base_layout)
