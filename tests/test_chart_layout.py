@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 
+import ui_components
 from ui_components import render_main_chart
 
 
@@ -119,3 +120,31 @@ def test_prediction_line_extends_visible_y_range(monkeypatch, processed_df):
     y_range = captured["fig"].layout.yaxis.range
     predicted_price = kwargs["f_prices"][0]
     assert y_range[1] >= predicted_price
+
+
+def test_prediction_points_expose_future_price_on_hover(monkeypatch):
+    """Forecast dates need real hover targets and an explicit price tooltip;
+    a line alone can be difficult to hit in the empty future chart area."""
+    captured = {}
+
+    def fake_plotly_chart(fig, **kwargs):
+        captured["fig"] = fig
+
+    index = pd.date_range("2026-01-01", periods=3, freq="D")
+    df_view = pd.DataFrame({
+        "Open": [100.0, 101.0, 102.0],
+        "High": [102.0, 103.0, 104.0],
+        "Low": [99.0, 100.0, 101.0],
+        "Close": [101.0, 102.0, 103.0],
+    }, index=index)
+    monkeypatch.setattr(st, "plotly_chart", fake_plotly_chart)
+    monkeypatch.setattr(ui_components, "calculate_sr_advanced", lambda df, tf: ([], []))
+    kwargs = _prediction_kwargs(df_view)
+    render_main_chart(**kwargs)
+
+    prediction = next(trace for trace in captured["fig"].data
+                      if trace.name.startswith("AI Tahmini"))
+    assert prediction.mode == "lines+markers"
+    assert list(prediction.marker.size)[1:] == [5] * len(kwargs["f_dates"])
+    assert "Tahmini Fiyat" in prediction.hovertemplate
+    assert "%{y:,.2f}" in prediction.hovertemplate

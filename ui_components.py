@@ -81,11 +81,20 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
     fig.add_hline(y=curr, line_dash="dot", line_color="cyan", annotation_text=f" {curr:,.2f}", annotation_position="right")
     
     if show_pred and len(f_dates) > 0:
+        prediction_x = [df_view.index[-1]] + list(f_dates)
+        prediction_y = [df_view['Close'].iloc[-1]] + list(f_prices)
         fig.add_trace(go.Scatter(
-            x=[df_view.index[-1]]+f_dates, 
-            y=[df_view['Close'].iloc[-1]]+list(f_prices), 
-            mode='lines', 
-            line=dict(color='yellow', width=2, dash='dash'), 
+            x=prediction_x,
+            y=prediction_y,
+            mode='lines+markers',
+            line=dict(color='yellow', width=2, dash='dash'),
+            marker=dict(color='yellow', size=[0] + [5] * len(f_dates)),
+            customdata=['Başlangıç'] + ['AI Tahmini'] * len(f_dates),
+            hovertemplate=(
+                '<b>%{customdata}</b><br>'
+                'Tarih: %{x|%d.%m.%Y}<br>'
+                'Tahmini Fiyat: $%{y:,.2f}<extra></extra>'
+            ),
             name=f'AI Tahmini (Güven: %{ai_score:.0f})'
         ))
         
