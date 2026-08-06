@@ -197,25 +197,31 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
         else:
             zoom_end = df_view.index[-1]
 
+        spike_style = dict(
+            showspikes=True, spikemode='across', spikesnap='cursor',
+            spikethickness=1, spikedash='solid',
+            spikecolor='rgba(230,234,242,0.35)',
+        )
         base_layout = theme.plotly_base_layout()
         base_layout.update(
-            height=900, 
-            xaxis_rangeslider_visible=False, 
+            height=900,
+            xaxis_rangeslider_visible=False,
             dragmode="pan",
-            yaxis=dict(side="right", fixedrange=False, type=y_type, range=range_y, tickformat=".2f", exponentformat="none"),
-            xaxis=dict(range=[zoom_start, zoom_end], type="date"),
+            yaxis=dict(side="right", fixedrange=False, type=y_type, range=range_y, tickformat=".2f", exponentformat="none", **spike_style),
+            xaxis=dict(range=[zoom_start, zoom_end], type="date", **spike_style),
             margin=dict(l=10, r=60, t=10, b=20),
-            hovermode='x unified'
+            hovermode='x'
         )
         fig.update_layout(**base_layout)
 
         config = {
-            'scrollZoom': True, 
-            'displayModeBar': True, 
-            'editable': False, 
+            'scrollZoom': True,
+            'displayModeBar': True,
+            'editable': False,
             'showAxisRangeEntryBoxes': False,
             'modeBarButtonsToRemove': ['select2d', 'lasso2d', 'autoScale2d', 'resetScale2d'],
-            'displaylogo': False
+            'displaylogo': False,
+            'responsive': True
         }
         
         st.plotly_chart(fig, use_container_width=True, config=config, key="main_price_chart")
