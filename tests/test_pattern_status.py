@@ -104,6 +104,50 @@ def test_symmetric_triangle_forming_inside_boundary():
     assert status["stage"] == "forming"
 
 
+def test_symmetric_triangle_forming_has_no_target():
+    """Regression test: a still-forming symmetric triangle must not draw a
+    target line at the current price (the stored target is a pre-breakout
+    placeholder == current_price at detection time -- passing it through
+    would render a misleading hline right on today's candle)."""
+    status = get_pattern_status(_symmetric_triangle(), current_price=100.0)
+    assert status["stage"] == "forming"
+    assert status["target"] is None
+
+
+def test_ascending_triangle_forming_keeps_real_target():
+    """Ascending/descending triangles have a genuine percentage-based
+    projection even before breakout -- their forming-stage target must NOT
+    be nulled out by the symmetric-triangle fix."""
+    status = get_pattern_status(_ascending_triangle(target=110.0), current_price=99.0)
+    assert status["stage"] == "forming"
+    assert status["target"] == 110.0
+
+
+def test_descending_triangle_forming_keeps_real_target():
+    status = get_pattern_status(_descending_triangle(target=80.0), current_price=94.0)
+    assert status["stage"] == "forming"
+    assert status["target"] == 80.0
+
+
+def test_symmetric_triangle_degenerate_height_falls_back_to_forming():
+    """Regression test: if the two boundary y0s (from different pivot bars)
+    produce a non-positive measured-move height, the breakout target can't
+    be reliably computed. Must fall back to forming/target=None rather than
+    reporting a wrong-side target or a false 'already reached'."""
+    degenerate = {
+        "type": "triangle", "name": "Simetrik Üçgen ◇", "color": "yellow",
+        "lines": [
+            {"x0": 0, "y0": 90.0, "x1": 10, "y1": 102.0},    # resistance y0 <= support y0
+            {"x0": 0, "y0": 95.0, "x1": 10, "y1": 98.0},     # support
+        ],
+        "direction": "NEUTRAL", "target": 100.0, "confidence": 60,
+    }
+    # current_price above lines[0]['y1'] (102) would otherwise register as a bullish breakout
+    status = get_pattern_status(degenerate, current_price=105.0)
+    assert status["stage"] == "forming"
+    assert status["target"] is None
+
+
 def test_symmetric_triangle_bullish_breakout_recomputes_real_target():
     """Regression test: the stored target (100.0, == current_price at
     detection time) must NOT be used once broken out -- a real
@@ -163,6 +207,17 @@ def test_continuation_breaks_out_above_box():
 def test_continuation_reaches_target():
     status = get_pattern_status(_continuation(box_top=105.0, target=115.0), current_price=116.0)
     assert status["stage"] == "target_reached"
+
+
+def test_forming_and_target_reached_messages_name_the_pattern():
+    """Regression test: forming/target_reached messages must include the
+    pattern's name so two different active patterns don't render as
+    identical, indistinguishable lines in the decision panel."""
+    forming = get_pattern_status(_ascending_triangle(), current_price=99.0)
+    assert "Yükselen Üçgen" in forming["message"]
+
+    target_reached = get_pattern_status(_continuation(box_top=105.0, target=115.0), current_price=116.0)
+    assert "Boğa Bayrağı" in target_reached["message"]
 
 
 def test_target_reached_takes_priority_over_broke_out():

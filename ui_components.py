@@ -139,8 +139,9 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
                                           line=dict(color=adv['color'], width=2, dash='dot'))
                         status = get_pattern_status(adv, curr)
                         target = status['target'] if status else adv['target']
-                        fig.add_hline(y=target, line_dash="longdash", line_width=3, line_color=TARGET_LINE_COLOR,
-                                      annotation_text=f"🎯 Hedef: ${target:,.2f}")
+                        if target is not None:
+                            fig.add_hline(y=target, line_dash="longdash", line_width=3, line_color=TARGET_LINE_COLOR,
+                                          annotation_text=f"🎯 Hedef: ${target:,.2f}")
                         if status:
                             pattern_statuses.append(status['message'])
 
@@ -160,8 +161,9 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
                         fig.add_hline(y=adv['neckline'], line_dash="solid", line_color=adv['color'], annotation_text="Boyun Çizgisi")
                         status = get_pattern_status(adv, curr)
                         target = status['target'] if status else adv['target']
-                        fig.add_hline(y=target, line_dash="longdash", line_width=3, line_color=TARGET_LINE_COLOR,
-                                      annotation_text=f"🎯 Hedef: ${target:,.2f}")
+                        if target is not None:
+                            fig.add_hline(y=target, line_dash="longdash", line_width=3, line_color=TARGET_LINE_COLOR,
+                                          annotation_text=f"🎯 Hedef: ${target:,.2f}")
                         if status:
                             pattern_statuses.append(status['message'])
 
@@ -173,8 +175,9 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
                                       line=dict(color=adv['color'], width=2), fillcolor=adv['color'], opacity=0.15)
                         status = get_pattern_status(adv, curr)
                         target = status['target'] if status else adv['target']
-                        fig.add_hline(y=target, line_dash="longdash", line_width=3, line_color=TARGET_LINE_COLOR,
-                                      annotation_text=f"🎯 Hedef: ${target:,.2f}")
+                        if target is not None:
+                            fig.add_hline(y=target, line_dash="longdash", line_width=3, line_color=TARGET_LINE_COLOR,
+                                          annotation_text=f"🎯 Hedef: ${target:,.2f}")
                         if status:
                             pattern_statuses.append(status['message'])
             except Exception as e:

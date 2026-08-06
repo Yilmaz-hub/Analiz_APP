@@ -491,8 +491,15 @@ def get_pattern_status(pattern, current_price):
             broke_up = False    # descending triangle only ever breaks down
 
         if not broke_up and not broke_down:
-            return {"stage": "forming", "target": pattern["target"], "direction": None,
-                    "message": "🔍 Formasyon giriş koşulları sağlandı, kırılım bekleniyor"}
+            # The symmetric triangle's stored target is a pre-breakout
+            # placeholder (== current_price at detection time) -- there is
+            # no real target yet until it actually breaks out, so don't
+            # pass it through (it would render as a target line sitting
+            # right on today's price). Ascending/descending triangles have
+            # a genuine percentage-based projection even before breakout.
+            target = None if pattern["direction"] == "NEUTRAL" else pattern["target"]
+            return {"stage": "forming", "target": target, "direction": None,
+                    "message": f"🔍 {name}: giriş koşulları sağlandı, kırılım bekleniyor"}
 
         direction = "BULLISH" if broke_up else "BEARISH"
         if pattern["direction"] == "NEUTRAL":
@@ -502,6 +509,14 @@ def get_pattern_status(pattern, current_price):
             # widest point, anchored to the fixed breakout boundary (not
             # to current_price, which would make the target unreachable).
             height = pattern["lines"][0]["y0"] - pattern["lines"][1]["y0"]
+            if height <= 0:
+                # The two boundary y0s come from different pivot bars, so
+                # for an oddly-shaped triangle this "height" can be
+                # non-positive -- not reliably measurable. Fall back to
+                # forming rather than reporting a wrong-side or
+                # already-"reached" target.
+                return {"stage": "forming", "target": None, "direction": None,
+                        "message": f"🔍 {name}: giriş koşulları sağlandı, kırılım bekleniyor"}
             breakout_level = resistance_at_last if direction == "BULLISH" else support_at_last
             target = breakout_level + height if direction == "BULLISH" else breakout_level - height
         else:
@@ -510,7 +525,7 @@ def get_pattern_status(pattern, current_price):
         reached = current_price >= target if direction == "BULLISH" else current_price <= target
         if reached:
             return {"stage": "target_reached", "target": target, "direction": direction,
-                    "message": f"🎯 Hedefe ulaşıldı (${target:,.2f})"}
+                    "message": f"🎯 {name} hedefe ulaştı (${target:,.2f})"}
 
         arrow = "📈" if direction == "BULLISH" else "📉"
         word = "yukarı" if direction == "BULLISH" else "aşağı"
@@ -522,10 +537,10 @@ def get_pattern_status(pattern, current_price):
         target = pattern["target"]
         if current_price >= neckline:
             return {"stage": "forming", "target": target, "direction": None,
-                    "message": "🔍 Formasyon giriş koşulları sağlandı, kırılım bekleniyor"}
+                    "message": f"🔍 {name}: giriş koşulları sağlandı, kırılım bekleniyor"}
         if current_price <= target:
             return {"stage": "target_reached", "target": target, "direction": "BEARISH",
-                    "message": f"🎯 Hedefe ulaşıldı (${target:,.2f})"}
+                    "message": f"🎯 {name} hedefe ulaştı (${target:,.2f})"}
         return {"stage": "broke_out", "target": target, "direction": "BEARISH",
                 "message": f"📉 {name} aşağı kırıldı, ${target:,.2f} hedefliyor"}
 
@@ -534,10 +549,10 @@ def get_pattern_status(pattern, current_price):
         target = pattern["target"]
         if current_price <= box_top:
             return {"stage": "forming", "target": target, "direction": None,
-                    "message": "🔍 Formasyon giriş koşulları sağlandı, kırılım bekleniyor"}
+                    "message": f"🔍 {name}: giriş koşulları sağlandı, kırılım bekleniyor"}
         if current_price >= target:
             return {"stage": "target_reached", "target": target, "direction": "BULLISH",
-                    "message": f"🎯 Hedefe ulaşıldı (${target:,.2f})"}
+                    "message": f"🎯 {name} hedefe ulaştı (${target:,.2f})"}
         return {"stage": "broke_out", "target": target, "direction": "BULLISH",
                 "message": f"📈 {name} yukarı kırıldı, ${target:,.2f} hedefliyor"}
 
