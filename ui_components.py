@@ -3,8 +3,10 @@ import time
 import pandas as pd
 import plotly.graph_objects as go
 from config import PATTERN_INFO, DEFAULT_COIN_MAP, UIConfig
-from technical_analysis import calculate_sr_advanced, detect_advanced_patterns, calculate_oracle_signal_v2, calculate_trade_setup
+from technical_analysis import calculate_sr_advanced, detect_advanced_patterns, calculate_oracle_signal_v2, calculate_trade_setup, get_pattern_status
 import theme
+
+TARGET_LINE_COLOR = theme.PALETTE["accent"]
 
 def render_sidebar_settings():
     st.sidebar.header("⚙️ Kontrol Paneli")
@@ -56,7 +58,8 @@ def render_asset_management(coin_map, save_assets_func):
 
 def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_cloud, show_pred, show_ai, show_all_pats, f_wm, f_candle, f_advanced, items_raw, lines):
     fig = go.Figure()
-    
+    pattern_statuses = []
+
     if show_cloud:
         fig.add_trace(go.Scatter(
             x=df_view.index, y=df_view['EMA_20'],
@@ -134,7 +137,12 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
                         for line in adv.get('lines', []):
                             fig.add_shape(type="line", x0=line['x0'], y0=line['y0'], x1=line['x1'], y1=line['y1'],
                                           line=dict(color=adv['color'], width=2, dash='dot'))
-                        fig.add_hline(y=adv['target'], line_dash="dashdot", line_color=adv['color'], annotation_text=f"🎯 {adv['name']}")
+                        status = get_pattern_status(adv, curr)
+                        target = status['target'] if status else adv['target']
+                        fig.add_hline(y=target, line_dash="longdash", line_width=3, line_color=TARGET_LINE_COLOR,
+                                      annotation_text=f"🎯 Hedef: ${target:,.2f}")
+                        if status:
+                            pattern_statuses.append(status['message'])
 
                     elif adv['type'] == 'harmonic':
                         points = adv['points']
@@ -150,7 +158,12 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
                             fig.add_shape(type="line", x0=adv['head_x'], y0=adv['head_y'], x1=adv['x1'], y1=adv['y1'], line=dict(color=adv['color'], width=2))
                             fig.add_annotation(x=adv['head_x'], y=adv['head_y'], text="Baş", showarrow=True, arrowhead=2, bgcolor=adv['color'], font=dict(color='white'))
                         fig.add_hline(y=adv['neckline'], line_dash="solid", line_color=adv['color'], annotation_text="Boyun Çizgisi")
-                        fig.add_hline(y=adv['target'], line_dash="dot", line_color="red", annotation_text=f"🎯 {adv['name']}")
+                        status = get_pattern_status(adv, curr)
+                        target = status['target'] if status else adv['target']
+                        fig.add_hline(y=target, line_dash="longdash", line_width=3, line_color=TARGET_LINE_COLOR,
+                                      annotation_text=f"🎯 Hedef: ${target:,.2f}")
+                        if status:
+                            pattern_statuses.append(status['message'])
 
                     elif adv['type'] == 'continuation':
                         # Draw the flag/pole channel as a shaded box (previously
@@ -158,7 +171,12 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
                         # a text label was shown, which is the "one line" bug).
                         fig.add_shape(type="rect", x0=adv['x0'], y0=adv['y0'], x1=adv['x1'], y1=adv['y1'],
                                       line=dict(color=adv['color'], width=2), fillcolor=adv['color'], opacity=0.15)
-                        fig.add_hline(y=adv['target'], line_dash="dashdot", line_color=adv['color'], annotation_text=f"🎯 {adv['name']}")
+                        status = get_pattern_status(adv, curr)
+                        target = status['target'] if status else adv['target']
+                        fig.add_hline(y=target, line_dash="longdash", line_width=3, line_color=TARGET_LINE_COLOR,
+                                      annotation_text=f"🎯 Hedef: ${target:,.2f}")
+                        if status:
+                            pattern_statuses.append(status['message'])
             except Exception as e:
                 st.error(f"Gelişmiş formasyon çizim hatası: {e}")
 
@@ -228,4 +246,4 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
     except Exception as e:
         st.error(f"Grafik çizilirken hata oluştu: {e}")
         
-    return s_list, r_list
+    return s_list, r_list, pattern_statuses
