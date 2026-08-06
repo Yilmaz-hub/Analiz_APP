@@ -18,14 +18,16 @@ is selective enough (confirmation bars + entry-score threshold + a
 too few trades to judge alone, even under the shipped default weights.
 Pooling gives the class's combined evidence enough samples to evaluate.
 
-Uses all CPU cores (differential_evolution's workers=-1) since each
-candidate's fitness is several independent backtests -- a real, measured
-speedup, not a guess.
+Runs serially. Parallel workers (differential_evolution's workers=-1) were
+tried and gave a real speedup at small scale, but hung indefinitely at the
+default search size on this machine (cause not identified) -- not worth
+the risk versus a slower, proven-reliable serial run. See the
+differential_evolution call in optimize_class for details.
 
 Usage:
   python optimize_weights.py                       # all 4 classes
   python optimize_weights.py --class crypto          # just one
-  python optimize_weights.py --maxiter 40 --popsize 25   # more thorough (slower)
+  python optimize_weights.py --maxiter 20 --popsize 15   # more thorough (much slower)
 """
 import argparse
 import json
@@ -71,14 +73,32 @@ def _assets_by_class(coin_map):
 
 
 def _weights_from_vector(x):
-    """x: 4 free weights [trend, momentum, volume, pattern]. ML_WEIGHT is
-    fixed (see design doc); advanced is derived. Returns a full 6-key
-    weights dict, or None if infeasible (advanced would be negative)."""
+    """x: 4 free weights [trend, momentum, volume, pattern], each searched
+    over [0, 1]. ML_WEIGHT is fixed (see design doc); advanced is derived.
+
+    The 4 free weights must sum to at most (1 - ML_WEIGHT) for `advanced`
+    to stay non-negative -- but that feasible region is a small corner of
+    the [0,1]^4 search box (~2.7% of its volume at ML_WEIGHT=0.1), so
+    treating an over-budget sample as simply infeasible (the original
+    design, returning None) meant the vast majority of randomly-sampled
+    candidates were instantly discarded, and a small population could
+    easily contain zero feasible members at all -- observed in practice: a
+    real run's entire initial population was infeasible, collapsing the
+    search to its uniform-weights fallback immediately. Proportionally
+    rescaling an over-budget sample down to the budget instead preserves
+    the RELATIVE weighting the candidate expressed (its proportions across
+    the 4 dimensions) while guaranteeing every sampled point is usable --
+    no wasted evaluations, and no more empty-population collapses."""
     trend, momentum, volume, pattern = x
     ml = DecisionEngineConfig.ML_WEIGHT
-    advanced = 1.0 - ml - (trend + momentum + volume + pattern)
-    if advanced < 0:
-        return None
+    budget = 1.0 - ml
+    raw_sum = trend + momentum + volume + pattern
+    if raw_sum > budget:
+        scale = budget / raw_sum
+        trend, momentum, volume, pattern = trend * scale, momentum * scale, volume * scale, pattern * scale
+    # After rescaling, advanced should land at >= 0 by construction, but
+    # float rounding can leave a ~1e-16 residual on the wrong side of zero.
+    advanced = max(0.0, budget - (trend + momentum + volume + pattern))
     return {
         "trend": float(trend), "momentum": float(momentum), "volume": float(volume),
         "pattern": float(pattern), "ml": float(ml), "advanced": float(advanced),
@@ -186,27 +206,33 @@ def optimize_class(asset_class, assets, maxiter, popsize, source_pref="Binance")
     calib_t0 = time.time()
     run_strategy_backtest(train_dfs[0], initial_balance=10000, timeframe="1d")
     per_backtest_s = time.time() - calib_t0
-    workers = os.cpu_count() or 1
     population = popsize * 4
     generations = maxiter + 1
-    est_s = (generations * population * len(train_dfs) * per_backtest_s) / max(workers, 1)
-    print(f"[{asset_class}] calibration: ~{per_backtest_s:.1f}s/backtest, {workers} workers -> "
+    # Serial execution (see the differential_evolution call below for why
+    # this isn't parallelized) -- no worker-count division.
+    est_s = generations * population * len(train_dfs) * per_backtest_s
+    print(f"[{asset_class}] calibration: ~{per_backtest_s:.1f}s/backtest (serial) -> "
           f"est. {est_s/60:.0f} min for this class (rough; actual varies with backtest cost per candidate)")
 
     def progress(xk, convergence):
         print(f"  ... candidate: {_weights_from_vector(xk)}, convergence={convergence:.4f}")
 
+    # workers=-1 (all-core multiprocessing) was tried here: it worked and
+    # gave a real ~8x speedup in isolated tests (single asset, all 7 crypto
+    # assets, tiny maxiter/popsize) -- but the FULL default-size search
+    # (population 40) hung indefinitely on this machine: one process pegged
+    # at ~100% CPU, zero progress-callback output, for 10+ minutes straight,
+    # with no error. Root cause not identified (suspect Windows
+    # multiprocessing.Pool degrading under sustained load at this scale, not
+    # reproduced at smaller scale) and not worth chasing further under time
+    # pressure -- serial execution is slower but proven reliable at every
+    # scale tested. Revisit parallelism later with a capped worker count if
+    # the serial runtime becomes the bottleneck again.
     t0 = time.time()
     result = differential_evolution(
         _class_fitness, bounds=[(0, 1)] * 4, args=(train_dfs,),
         seed=42, maxiter=maxiter, popsize=popsize, tol=0.01,
         callback=progress, polish=False,
-        # Each candidate's fitness runs len(train_dfs) independent backtests
-        # (the real cost: ~1-4s each) -- spreading generations across CPU
-        # cores is a large, essentially free speedup on any multi-core
-        # machine. updating='deferred' is required for workers to have any
-        # effect (scipy ignores `workers` under the default 'immediate' mode).
-        workers=-1, updating='deferred',
     )
     elapsed = time.time() - t0
 
@@ -251,13 +277,13 @@ def main():
     parser = argparse.ArgumentParser(description="Tune signal weights per asset class")
     parser.add_argument("--class", dest="asset_class", choices=ASSET_CLASSES, default=None,
                          help="Only optimize this class (default: all)")
-    # A single real backtest costs ~1-4s; with pooled scoring (see
-    # _pool_score) fewer generations are needed to find a usable answer
-    # than the original per-asset-median design assumed. Defaults sized to
-    # roughly 30-60 min for the largest (7-asset) class on a multi-core
-    # machine with `workers=-1` -- override for a more thorough search.
-    parser.add_argument("--maxiter", type=int, default=15)
-    parser.add_argument("--popsize", type=int, default=10)
+    # A single real backtest costs ~2-4s and this runs serially (see the
+    # differential_evolution call in optimize_class for why). Defaults sized
+    # to roughly 30-45 min for the largest (7-asset) class -- override for a
+    # more thorough (slower) search. The calibration line printed at the
+    # start of each class gives an actual estimate for your machine/data.
+    parser.add_argument("--maxiter", type=int, default=6)
+    parser.add_argument("--popsize", type=int, default=5)
     parser.add_argument("--source", default="Binance")
     args = parser.parse_args()
 

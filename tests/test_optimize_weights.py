@@ -17,10 +17,27 @@ def test_weights_from_vector_fills_ml_and_derives_advanced():
     assert abs(sum(weights.values()) - 1.0) < 1e-9
 
 
-def test_weights_from_vector_rejects_infeasible_combination():
-    # trend+momentum+volume+pattern alone already exceed what's left after
-    # ML_WEIGHT is reserved -> advanced would be negative -> infeasible.
-    assert _weights_from_vector([0.9, 0.9, 0.9, 0.9]) is None
+def test_weights_from_vector_rescales_over_budget_sample_instead_of_rejecting():
+    """Regression test for the real empty-population bug: an over-budget
+    raw sample (trend+momentum+volume+pattern > 1 - ML_WEIGHT) must be
+    proportionally rescaled to a valid, non-negative-advanced weights
+    dict -- not discarded (returning None here made ~97% of the search
+    box infeasible, and a real run's initial population once contained
+    zero usable candidates as a result)."""
+    weights = _weights_from_vector([0.9, 0.9, 0.9, 0.9])
+    assert weights is not None
+    assert abs(sum(weights.values()) - 1.0) < 1e-9
+    assert weights["advanced"] >= 0
+    # Equal raw inputs must remain equal after a proportional rescale.
+    assert weights["trend"] == weights["momentum"] == weights["volume"] == weights["pattern"]
+
+
+def test_weights_from_vector_preserves_relative_proportions_when_rescaling():
+    """A 4:1 ratio between two raw weights must survive proportional
+    rescaling, not just land in some arbitrary feasible point."""
+    weights = _weights_from_vector([0.8, 0.2, 0.0, 0.0])
+    assert abs(weights["trend"] - 4 * weights["momentum"]) < 1e-9
+    assert abs(sum(weights.values()) - 1.0) < 1e-9
 
 
 def test_pool_score_rejects_thin_pooled_trade_count():
