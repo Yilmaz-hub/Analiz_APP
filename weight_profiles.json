@@ -1,0 +1,94 @@
+{
+  "crypto": {
+    "weights": {
+      "trend": 0.2201724292771882,
+      "momentum": 0.066457473856018,
+      "volume": 0.18938054122422102,
+      "pattern": 0.42398955564257285,
+      "ml": 0.1,
+      "advanced": 0.0
+    },
+    "tuned_date": "2026-08-06",
+    "train_assets": [
+      "BTC-USD",
+      "ETH-USD",
+      "SOL-USD",
+      "XRP-USD",
+      "AVAX-USD",
+      "DOGE-USD",
+      "PEPE-USD"
+    ],
+    "train_score": 8.32,
+    "test_score": -1.74,
+    "walk_forward_scores": [
+      -1.47,
+      -2.81,
+      -1.74
+    ]
+  },
+  "bist": {
+    "weights": {
+      "trend": 0.3320733201677105,
+      "momentum": 0.2722955077395284,
+      "volume": 0.1535998702735304,
+      "pattern": 0.14203130181923082,
+      "ml": 0.1,
+      "advanced": 0.0
+    },
+    "tuned_date": "2026-08-06",
+    "train_assets": [
+      "THYAO.IS",
+      "PGSUS.IS"
+    ],
+    "train_score": 6.47,
+    "test_score": -0.34,
+    "walk_forward_scores": [
+      1.18,
+      -0.34,
+      -1000000.0
+    ]
+  },
+  "commodity": {
+    "weights": {
+      "trend": 0.37982709159712197,
+      "momentum": 0.10506062154059626,
+      "volume": 0.26020757581564324,
+      "pattern": 0.15490471104663864,
+      "ml": 0.1,
+      "advanced": 0.0
+    },
+    "tuned_date": "2026-08-06",
+    "train_assets": [
+      "XAU_GOLD",
+      "GRAM_TRY"
+    ],
+    "train_score": 1.89,
+    "test_score": 0.56,
+    "walk_forward_scores": [
+      0.66,
+      0.47,
+      0.56
+    ]
+  },
+  "forex": {
+    "weights": {
+      "trend": 0.09939658544036035,
+      "momentum": 0.3314466729912727,
+      "volume": 0.3801330820267071,
+      "pattern": 0.08902365954166006,
+      "ml": 0.1,
+      "advanced": 0.0
+    },
+    "tuned_date": "2026-08-06",
+    "train_assets": [
+      "EURUSD=X"
+    ],
+    "train_score": -1000000.0,
+    "test_score": -1000000.0,
+    "walk_forward_scores": [
+      -1000000.0,
+      -1000000.0,
+      -1000000.0
+    ]
+  }
+}
