@@ -204,7 +204,15 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
             y_min_raw = df_view['Low'].min()
             y_max_raw = df_view['High'].max()
 
-        range_y = None 
+        # The AI prediction line can sit outside the recent High/Low range
+        # (that's often the point of a forecast) -- without this, the y-axis
+        # only ever covers historical candles and the prediction line gets
+        # clipped off-screen, invisible and un-hoverable.
+        if show_pred and len(f_prices) > 0:
+            y_min_raw = min(y_min_raw, min(f_prices))
+            y_max_raw = max(y_max_raw, max(f_prices))
+
+        range_y = None
         if y_type == "log":
             safe_min = max(y_min_raw, 0.000001) 
             range_y = [np.log10(safe_min * 0.90), np.log10(y_max_raw * 1.10)]
@@ -218,10 +226,18 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
         else:
             zoom_end = df_view.index[-1]
 
+        # The prediction line runs further into the future than the default
+        # zoom window (it's not tied to gap_multiplier) -- without this, most
+        # of it falls outside the visible x-range entirely, so it's neither
+        # seen nor hoverable no matter how far into the "future" area you
+        # move the cursor.
+        if show_pred and len(f_dates) > 0 and f_dates[-1] > zoom_end:
+            zoom_end = f_dates[-1]
+
         spike_style = dict(
             showspikes=True, spikemode='across', spikesnap='cursor',
-            spikethickness=1, spikedash='solid',
-            spikecolor='rgba(230,234,242,0.35)',
+            spikethickness=1, spikedash='dash',
+            spikecolor='rgba(230,234,242,0.22)',
         )
         base_layout = theme.plotly_base_layout()
         base_layout.update(

@@ -1,25 +1,30 @@
 from technical_analysis import get_pattern_status
 
 
-def _ascending_triangle(target=110.0):
+def _ascending_triangle():
     return {
         "type": "triangle", "name": "Yükselen Üçgen ▲", "color": "green",
         "lines": [
             {"x0": 0, "y0": 100.0, "x1": 10, "y1": 100.0},   # resistance, flat at 100
             {"x0": 0, "y0": 90.0, "x1": 10, "y1": 98.0},     # support, rising toward 98
         ],
-        "direction": "BULLISH", "target": target, "confidence": 75,
+        # Mirrors the real detector's placeholder (current_price * 1.08 at
+        # detection time -- see detect_advanced_patterns). get_pattern_status
+        # must NEVER read this field for a triangle; several tests below
+        # prove that directly by asserting the computed target ignores it.
+        "direction": "BULLISH", "target": 108.0, "confidence": 75,
     }
 
 
-def _descending_triangle(target=80.0):
+def _descending_triangle():
     return {
         "type": "triangle", "name": "Düşen Üçgen ▼", "color": "red",
         "lines": [
             {"x0": 0, "y0": 105.0, "x1": 10, "y1": 98.0},    # resistance, falling toward 98
             {"x0": 0, "y0": 90.0, "x1": 10, "y1": 90.0},     # support, flat at 90
         ],
-        "direction": "BEARISH", "target": target, "confidence": 75,
+        # Mirrors the real detector's placeholder (current_price * 0.92).
+        "direction": "BEARISH", "target": 92.0, "confidence": 75,
     }
 
 
@@ -70,16 +75,47 @@ def test_ascending_triangle_forming_inside_boundary():
 
 
 def test_ascending_triangle_breaks_out_above_resistance():
-    status = get_pattern_status(_ascending_triangle(target=110.0), current_price=105.0)
+    status = get_pattern_status(_ascending_triangle(), current_price=105.0)
     assert status["stage"] == "broke_out"
     assert status["direction"] == "BULLISH"
     assert "yukarı kırıldı" in status["message"]
-    assert "110" in status["message"]
+    assert "110" in status["message"]  # resistance_at_last(100) + height(10)
 
 
 def test_ascending_triangle_reaches_target():
-    status = get_pattern_status(_ascending_triangle(target=110.0), current_price=112.0)
+    status = get_pattern_status(_ascending_triangle(), current_price=112.0)
     assert status["stage"] == "target_reached"
+
+
+def test_ascending_triangle_target_ignores_detector_placeholder():
+    """Regression test for a real High-severity integration bug: the live
+    detector sets a triangle's `target` field to current_price * 1.08 (or
+    * 0.92 for descending) at detection time -- a value recomputed fresh
+    from whatever the CURRENT price happens to be on every render. Since
+    get_pattern_status compares current_price against that same field,
+    the comparison could never succeed (the target always sits a fixed %
+    ahead of itself). get_pattern_status must never read pattern['target']
+    for a triangle; the computed target must differ from it and must be a
+    fixed, boundary-anchored value instead."""
+    current_price = 105.0
+    pattern = _ascending_triangle()
+    pattern["target"] = current_price * 1.08  # exactly what the real detector sets "right now"
+    status = get_pattern_status(pattern, current_price)
+    assert status["target"] != pattern["target"]
+    assert status["target"] == 110.0  # resistance_at_last(100) + height(10), independent of current_price
+
+
+def test_ascending_triangle_target_is_fixed_across_multiple_calls():
+    """Regression test proving the fix actually works end-to-end: as price
+    rises across successive renders (successive calls with different
+    current_price), the target must stay fixed so it can eventually be
+    reached -- not recompute itself out of reach every time."""
+    pattern = _ascending_triangle()
+    broke_out = get_pattern_status(pattern, current_price=101.0)
+    reached = get_pattern_status(pattern, current_price=115.0)
+    assert broke_out["stage"] == "broke_out"
+    assert broke_out["target"] == reached["target"] == 110.0
+    assert reached["stage"] == "target_reached"
 
 
 def test_descending_triangle_forming_inside_boundary():
@@ -88,15 +124,25 @@ def test_descending_triangle_forming_inside_boundary():
 
 
 def test_descending_triangle_breaks_out_below_support():
-    status = get_pattern_status(_descending_triangle(target=80.0), current_price=85.0)
+    status = get_pattern_status(_descending_triangle(), current_price=85.0)
     assert status["stage"] == "broke_out"
     assert status["direction"] == "BEARISH"
     assert "aşağı kırıldı" in status["message"]
+    assert "75" in status["message"]  # support_at_last(90) - height(15)
 
 
 def test_descending_triangle_reaches_target():
-    status = get_pattern_status(_descending_triangle(target=80.0), current_price=79.0)
+    status = get_pattern_status(_descending_triangle(), current_price=70.0)
     assert status["stage"] == "target_reached"
+
+
+def test_descending_triangle_target_is_fixed_across_multiple_calls():
+    pattern = _descending_triangle()
+    broke_out = get_pattern_status(pattern, current_price=89.0)
+    reached = get_pattern_status(pattern, current_price=60.0)
+    assert broke_out["stage"] == "broke_out"
+    assert broke_out["target"] == reached["target"] == 75.0
+    assert reached["stage"] == "target_reached"
 
 
 def test_symmetric_triangle_forming_inside_boundary():
@@ -115,18 +161,18 @@ def test_symmetric_triangle_forming_has_no_target():
 
 
 def test_ascending_triangle_forming_keeps_real_target():
-    """Ascending/descending triangles have a genuine percentage-based
+    """Ascending/descending triangles have a genuine height-based
     projection even before breakout -- their forming-stage target must NOT
     be nulled out by the symmetric-triangle fix."""
-    status = get_pattern_status(_ascending_triangle(target=110.0), current_price=99.0)
+    status = get_pattern_status(_ascending_triangle(), current_price=99.0)
     assert status["stage"] == "forming"
     assert status["target"] == 110.0
 
 
 def test_descending_triangle_forming_keeps_real_target():
-    status = get_pattern_status(_descending_triangle(target=80.0), current_price=94.0)
+    status = get_pattern_status(_descending_triangle(), current_price=94.0)
     assert status["stage"] == "forming"
-    assert status["target"] == 80.0
+    assert status["target"] == 75.0
 
 
 def test_symmetric_triangle_degenerate_height_falls_back_to_forming():
@@ -224,5 +270,5 @@ def test_target_reached_takes_priority_over_broke_out():
     """When price has moved straight through the boundary and past the
     target (e.g. checked only after a big gap-up bar), the reported stage
     must be target_reached, not broke_out."""
-    status = get_pattern_status(_ascending_triangle(target=110.0), current_price=150.0)
+    status = get_pattern_status(_ascending_triangle(), current_price=150.0)
     assert status["stage"] == "target_reached"

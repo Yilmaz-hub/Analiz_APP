@@ -490,37 +490,40 @@ def get_pattern_status(pattern, current_price):
         elif pattern["direction"] == "BEARISH":
             broke_up = False    # descending triangle only ever breaks down
 
+        # Measured-move height at the triangle's widest point, used for
+        # every variant's target. The detector's stored `target` must
+        # NEVER be used here: for the symmetric triangle it's == current_price
+        # at detection, and for ascending/descending it's
+        # current_price*1.08 / *0.92 -- both recomputed fresh from
+        # whatever the CURRENT price is on every call, so a target_reached
+        # check against them can never succeed (they always sit a fixed
+        # amount ahead of whatever price triggered the check).
+        height = pattern["lines"][0]["y0"] - pattern["lines"][1]["y0"]
+
         if not broke_up and not broke_down:
-            # The symmetric triangle's stored target is a pre-breakout
-            # placeholder (== current_price at detection time) -- there is
-            # no real target yet until it actually breaks out, so don't
-            # pass it through (it would render as a target line sitting
-            # right on today's price). Ascending/descending triangles have
-            # a genuine percentage-based projection even before breakout.
-            target = None if pattern["direction"] == "NEUTRAL" else pattern["target"]
+            # Still forming. Ascending/descending triangles already know
+            # their eventual breakout direction from the slope pattern, so
+            # project a real target now; a symmetric triangle doesn't know
+            # its direction yet, so there's nothing meaningful to show.
+            target = None
+            if height > 0:
+                if pattern["direction"] == "BULLISH":
+                    target = resistance_at_last + height
+                elif pattern["direction"] == "BEARISH":
+                    target = support_at_last - height
             return {"stage": "forming", "target": target, "direction": None,
                     "message": f"🔍 {name}: giriş koşulları sağlandı, kırılım bekleniyor"}
 
         direction = "BULLISH" if broke_up else "BEARISH"
-        if pattern["direction"] == "NEUTRAL":
-            # Symmetric triangle: the stored target is a pre-breakout
-            # placeholder (== current_price at detection). Project a real
-            # measured-move target from the triangle's height at its
-            # widest point, anchored to the fixed breakout boundary (not
-            # to current_price, which would make the target unreachable).
-            height = pattern["lines"][0]["y0"] - pattern["lines"][1]["y0"]
-            if height <= 0:
-                # The two boundary y0s come from different pivot bars, so
-                # for an oddly-shaped triangle this "height" can be
-                # non-positive -- not reliably measurable. Fall back to
-                # forming rather than reporting a wrong-side or
-                # already-"reached" target.
-                return {"stage": "forming", "target": None, "direction": None,
-                        "message": f"🔍 {name}: giriş koşulları sağlandı, kırılım bekleniyor"}
-            breakout_level = resistance_at_last if direction == "BULLISH" else support_at_last
-            target = breakout_level + height if direction == "BULLISH" else breakout_level - height
-        else:
-            target = pattern["target"]
+        if height <= 0:
+            # The two boundary y0s come from different pivot bars, so for
+            # an oddly-shaped triangle this "height" can be non-positive --
+            # not reliably measurable. Fall back to forming rather than
+            # reporting a wrong-side or already-"reached" target.
+            return {"stage": "forming", "target": None, "direction": None,
+                    "message": f"🔍 {name}: giriş koşulları sağlandı, kırılım bekleniyor"}
+        breakout_level = resistance_at_last if direction == "BULLISH" else support_at_last
+        target = breakout_level + height if direction == "BULLISH" else breakout_level - height
 
         reached = current_price >= target if direction == "BULLISH" else current_price <= target
         if reached:
