@@ -182,6 +182,7 @@ def optimize_class(asset_class, assets, maxiter, popsize, source_pref="Binance")
     None if there wasn't enough usable data to run."""
     train_dfs, walk_forward_dfs, used_assets = [], [], []
     for name, symbol in assets:
+        print(f"[{asset_class}] fetching {name} ({symbol})...", flush=True)
         df, _ = get_market_data(source_pref, symbol, "1d")
         if df is None or len(df) < 200:
             logger.warning(f"[{asset_class}] skipping {name} ({symbol}): insufficient data")
@@ -198,7 +199,7 @@ def optimize_class(asset_class, assets, maxiter, popsize, source_pref="Binance")
         logger.warning(f"[{asset_class}] no usable assets, skipping class")
         return None
 
-    print(f"[{asset_class}] optimizing over {len(train_dfs)} assets: {used_assets}")
+    print(f"[{asset_class}] optimizing over {len(train_dfs)} assets: {used_assets}", flush=True)
 
     # Calibrate against real data before committing to a maxiter/popsize
     # budget -- a hardcoded time estimate would be wrong the moment the
@@ -212,10 +213,11 @@ def optimize_class(asset_class, assets, maxiter, popsize, source_pref="Binance")
     # this isn't parallelized) -- no worker-count division.
     est_s = generations * population * len(train_dfs) * per_backtest_s
     print(f"[{asset_class}] calibration: ~{per_backtest_s:.1f}s/backtest (serial) -> "
-          f"est. {est_s/60:.0f} min for this class (rough; actual varies with backtest cost per candidate)")
+          f"est. {est_s/60:.0f} min for this class (rough; actual varies with backtest cost per candidate)",
+          flush=True)
 
     def progress(xk, convergence):
-        print(f"  ... candidate: {_weights_from_vector(xk)}, convergence={convergence:.4f}")
+        print(f"  ... candidate: {_weights_from_vector(xk)}, convergence={convergence:.4f}", flush=True)
 
     # workers=-1 (all-core multiprocessing) was tried here: it worked and
     # gave a real ~8x speedup in isolated tests (single asset, all 7 crypto
@@ -260,8 +262,8 @@ def optimize_class(asset_class, assets, maxiter, popsize, source_pref="Binance")
     # Store the median so a single exceptional regime cannot dominate.
     test_score = float(np.median(fold_scores))
 
-    print(f"[{asset_class}] done in {elapsed:.0f}s — train_score={train_score:.2f} test_score={test_score:.2f}")
-    print(f"[{asset_class}] weights: {best_weights}")
+    print(f"[{asset_class}] done in {elapsed:.0f}s — train_score={train_score:.2f} test_score={test_score:.2f}", flush=True)
+    print(f"[{asset_class}] weights: {best_weights}", flush=True)
 
     return {
         "weights": best_weights,
