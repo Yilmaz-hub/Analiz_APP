@@ -165,7 +165,7 @@ if df_view is not None:
     lines = calculate_extended_trendlines(df_view) if show_ai else []
     items_raw = detect_patterns(df_view) if show_all_pats else []
     
-    s_l, r_l = render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_cloud, show_pred, show_ai, show_all_pats, f_wm, f_candle, f_advanced, items_raw, lines)
+    s_l, r_l, adv_pattern_statuses = render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_cloud, show_pred, show_ai, show_all_pats, f_wm, f_candle, f_advanced, items_raw, lines)
 
     # --- ALT PANELLER (Karar Paneli & Analiz) ---
     st.divider()
@@ -240,6 +240,12 @@ if df_view is not None:
                 for p in list(set(visible_names)): st.caption(PATTERN_INFO.get(p, p))
             else: st.caption("Filtreli formasyon yok.")
         else: st.caption("Formasyonlar kapalı.")
+
+        if adv_pattern_statuses:
+            st.markdown("---")
+            st.markdown("**📐 Formasyon Durumu**")
+            for msg in adv_pattern_statuses:
+                st.caption(msg)
 
     # --- GELİŞMİŞ ANALİZ PANELİ ---
     with st.expander("🌊 Gelişmiş Analiz (Elliott Wave, Ichimoku, Wyckoff, Piyasa Yapısı)", expanded=False):
