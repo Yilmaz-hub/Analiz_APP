@@ -107,13 +107,18 @@ today's price. Ascending/descending triangles already use a real
 
 Fix: once a symmetric triangle's status resolves to `broke_out` (see
 below), compute a real measured-move target from the triangle's height at
-its widest point, using data already stored on the pattern (`lines[0]` =
-resistance, `lines[1]` = support, each with `y0` at its earlier/wider
-pivot):
+its widest point, projected from the **breakout boundary level** — not
+from `current_price` directly. (An earlier draft of this formula used
+`current_price + height`, which is wrong: since `current_price` is what's
+being compared against the target on every call, a target defined relative
+to it can never be "reached" — it would always sit `height` above/below
+wherever the price currently is. Anchoring to the fixed boundary level
+instead gives a real, static target that price can actually catch up to.)
 ```python
 height = pattern["lines"][0]["y0"] - pattern["lines"][1]["y0"]
-target = current_price + height if resolved_direction == "BULLISH" \
-    else current_price - height
+breakout_level = resistance_at_last if resolved_direction == "BULLISH" else support_at_last
+target = breakout_level + height if resolved_direction == "BULLISH" \
+    else breakout_level - height
 ```
 This target is computed by `get_pattern_status` (next section) at render
 time — `detect_advanced_patterns` keeps storing `target: current_price`
