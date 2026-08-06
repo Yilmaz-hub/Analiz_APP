@@ -35,9 +35,8 @@ def test_chart_config_is_responsive_for_mobile(monkeypatch, processed_df):
 
 def test_chart_uses_thin_crosshair_not_unified_hover(monkeypatch, processed_df):
     """Regression test: hovermode='x unified' drew a thick vertical line
-    across the whole chart, obscuring candles. Thin axis spikes +
-    hovermode='x' give a TradingView-style crosshair with axis-edge
-    price/date labels instead."""
+    across the whole chart, obscuring candles. Thin axis spikes plus closest
+    hover give a TradingView-style crosshair without the unified panel."""
     captured = {}
 
     def fake_plotly_chart(fig, **kwargs):
@@ -47,7 +46,7 @@ def test_chart_uses_thin_crosshair_not_unified_hover(monkeypatch, processed_df):
     render_main_chart(**_base_kwargs(processed_df))
 
     layout = captured["fig"].layout
-    assert layout.hovermode == "x"
+    assert layout.hovermode == "closest"
     assert layout.xaxis.showspikes is True
     assert layout.yaxis.showspikes is True
     assert layout.xaxis.spikethickness == 1
@@ -148,3 +147,24 @@ def test_prediction_points_expose_future_price_on_hover(monkeypatch):
     assert list(prediction.marker.size)[1:] == [5] * len(kwargs["f_dates"])
     assert "Tahmini Fiyat" in prediction.hovertemplate
     assert "%{y:,.2f}" in prediction.hovertemplate
+
+
+def test_transparent_hover_layer_reports_cursor_price_in_future_space(monkeypatch):
+    captured = {}
+    index = pd.date_range("2026-01-01", periods=3, freq="D")
+    df_view = pd.DataFrame({
+        "Open": [100.0, 101.0, 102.0], "High": [102.0, 103.0, 104.0],
+        "Low": [99.0, 100.0, 101.0], "Close": [101.0, 102.0, 103.0],
+    }, index=index)
+    monkeypatch.setattr(st, "plotly_chart",
+                        lambda fig, **kwargs: captured.setdefault("fig", fig))
+    monkeypatch.setattr(ui_components, "calculate_sr_advanced", lambda df, tf: ([], []))
+
+    render_main_chart(**_prediction_kwargs(df_view))
+
+    hover_layer = captured["fig"].data[0]
+    assert hover_layer.type == "heatmap"
+    assert hover_layer.opacity == 0
+    assert "Fiyat" in hover_layer.hovertemplate
+    assert len(hover_layer.y) == 401
+    assert pd.Timestamp(hover_layer.x[-1]) >= _prediction_kwargs(df_view)["f_dates"][-1]

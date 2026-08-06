@@ -83,6 +83,15 @@ _CSS = """
     --mono: 'IBM Plex Mono', monospace;
 }
 
+/* Plotly versions bundled by Streamlit do not consistently honor the
+   spikedash/spikecolor layout properties. Enforce the TradingView-like
+   crosshair appearance on the generated SVG spike lines. */
+.js-plotly-plot .spikeline {
+    stroke: rgba(230, 234, 242, 0.22) !important;
+    stroke-width: 1px !important;
+    stroke-dasharray: 4px 4px !important;
+}
+
 /* ============ ATMOSPHERE: blueprint grid + amber glow ============ */
 .stApp {
     background:

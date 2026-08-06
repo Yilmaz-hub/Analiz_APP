@@ -58,6 +58,15 @@ def render_asset_management(coin_map, save_assets_func):
 
 def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_cloud, show_pred, show_ai, show_all_pats, f_wm, f_candle, f_advanced, items_raw, lines):
     fig = go.Figure()
+    # Transparent heatmap kept behind the visible traces. Plotly's native
+    # spikes draw a crosshair but do not report the cursor's y value when it
+    # is between data points or in future whitespace; this layer supplies a
+    # dense set of price-only hover targets across the entire chart.
+    fig.add_trace(go.Heatmap(
+        name="İmleç Fiyatı", showscale=False, opacity=0,
+        hovertemplate="Fiyat: $%{y:,.2f}<extra></extra>",
+        hoverongaps=False,
+    ))
     pattern_statuses = []
 
     if show_cloud:
@@ -243,6 +252,16 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
         if show_pred and len(f_dates) > 0 and f_dates[-1] > zoom_end:
             zoom_end = f_dates[-1]
 
+        hover_y_min = max(y_min_raw * 0.95, 0.000001) if y_type == "log" else y_min_raw * 0.95
+        hover_y_max = y_max_raw * 1.05
+        if hover_y_max > hover_y_min:
+            hover_prices = (np.geomspace(hover_y_min, hover_y_max, 401)
+                            if y_type == "log"
+                            else np.linspace(hover_y_min, hover_y_max, 401))
+            fig.data[0].x = [zoom_start, zoom_end]
+            fig.data[0].y = hover_prices
+            fig.data[0].z = np.zeros((len(hover_prices), 2))
+
         spike_style = dict(
             showspikes=True, spikemode='across', spikesnap='cursor',
             spikethickness=1, spikedash='dash',
@@ -256,7 +275,8 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
             yaxis=dict(side="right", fixedrange=False, type=y_type, range=range_y, tickformat=".2f", exponentformat="none", **spike_style),
             xaxis=dict(range=[zoom_start, zoom_end], type="date", **spike_style),
             margin=dict(l=10, r=60, t=10, b=20),
-            hovermode='x'
+            hovermode='closest',
+            hoverdistance=-1,
         )
         fig.update_layout(**base_layout)
 
