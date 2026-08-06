@@ -467,6 +467,82 @@ def detect_advanced_patterns(df):
         
     return patterns
 
+def get_pattern_status(pattern, current_price):
+    """Lifecycle status (forming -> broke_out -> target_reached) for
+    triangle/reversal/continuation patterns.
+
+    Harmonic patterns have no boundary-line concept (point D is already a
+    confirmed historical pivot at detection time, so there's no "still
+    forming" state to detect) -- this returns None for them; callers must
+    keep rendering harmonic patterns exactly as before.
+    """
+    ptype = pattern["type"]
+    name = pattern["name"]
+
+    if ptype == "triangle":
+        resistance_at_last = pattern["lines"][0]["y1"]
+        support_at_last = pattern["lines"][1]["y1"]
+        broke_up = current_price > resistance_at_last
+        broke_down = current_price < support_at_last
+
+        if pattern["direction"] == "BULLISH":
+            broke_down = False  # ascending triangle only ever breaks up
+        elif pattern["direction"] == "BEARISH":
+            broke_up = False    # descending triangle only ever breaks down
+
+        if not broke_up and not broke_down:
+            return {"stage": "forming", "target": pattern["target"], "direction": None,
+                    "message": "🔍 Formasyon giriş koşulları sağlandı, kırılım bekleniyor"}
+
+        direction = "BULLISH" if broke_up else "BEARISH"
+        if pattern["direction"] == "NEUTRAL":
+            # Symmetric triangle: the stored target is a pre-breakout
+            # placeholder (== current_price at detection). Project a real
+            # measured-move target from the triangle's height at its
+            # widest point, anchored to the fixed breakout boundary (not
+            # to current_price, which would make the target unreachable).
+            height = pattern["lines"][0]["y0"] - pattern["lines"][1]["y0"]
+            breakout_level = resistance_at_last if direction == "BULLISH" else support_at_last
+            target = breakout_level + height if direction == "BULLISH" else breakout_level - height
+        else:
+            target = pattern["target"]
+
+        reached = current_price >= target if direction == "BULLISH" else current_price <= target
+        if reached:
+            return {"stage": "target_reached", "target": target, "direction": direction,
+                    "message": f"🎯 Hedefe ulaşıldı (${target:,.2f})"}
+
+        arrow = "📈" if direction == "BULLISH" else "📉"
+        word = "yukarı" if direction == "BULLISH" else "aşağı"
+        return {"stage": "broke_out", "target": target, "direction": direction,
+                "message": f"{arrow} {name} {word} kırıldı, ${target:,.2f} hedefliyor"}
+
+    if ptype == "reversal":
+        neckline = pattern["neckline"]
+        target = pattern["target"]
+        if current_price >= neckline:
+            return {"stage": "forming", "target": target, "direction": None,
+                    "message": "🔍 Formasyon giriş koşulları sağlandı, kırılım bekleniyor"}
+        if current_price <= target:
+            return {"stage": "target_reached", "target": target, "direction": "BEARISH",
+                    "message": f"🎯 Hedefe ulaşıldı (${target:,.2f})"}
+        return {"stage": "broke_out", "target": target, "direction": "BEARISH",
+                "message": f"📉 {name} aşağı kırıldı, ${target:,.2f} hedefliyor"}
+
+    if ptype == "continuation":
+        box_top = pattern["y1"]
+        target = pattern["target"]
+        if current_price <= box_top:
+            return {"stage": "forming", "target": target, "direction": None,
+                    "message": "🔍 Formasyon giriş koşulları sağlandı, kırılım bekleniyor"}
+        if current_price >= target:
+            return {"stage": "target_reached", "target": target, "direction": "BULLISH",
+                    "message": f"🎯 Hedefe ulaşıldı (${target:,.2f})"}
+        return {"stage": "broke_out", "target": target, "direction": "BULLISH",
+                "message": f"📈 {name} yukarı kırıldı, ${target:,.2f} hedefliyor"}
+
+    return None
+
 def calculate_trade_setup(df, signal_type):
     if df is None: return None
     last = df.iloc[-1]
