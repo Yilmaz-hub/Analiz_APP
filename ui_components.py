@@ -275,15 +275,18 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
             yaxis=dict(
                 side="right", fixedrange=False, type=y_type, range=range_y,
                 tickformat=".2f", exponentformat="none",
-                unifiedhovertitle=dict(text="Fiyat: $%{y:,.2f}"),
                 **spike_style,
             ),
             xaxis=dict(range=[zoom_start, zoom_end], type="date", **spike_style),
             margin=dict(l=10, r=60, t=10, b=20),
-            # A y-unified label stays against the chart edge and exposes the
-            # transparent hover layer's cursor price, which is the closest
-            # Plotly equivalent to TradingView's dynamic price-axis badge.
-            hovermode='y unified',
+            # 'y unified' (matching hover points by nearest price) put the
+            # price badge on the axis, but it picked whichever candle's OHLC
+            # was nearest in price to the cursor -- often a different date
+            # than the candle under the mouse. 'x unified' matches by date
+            # instead, so the OHLC/date info always belongs to the hovered
+            # candle; the transparent hover layer still reports cursor price
+            # everywhere because it has full-width x coverage.
+            hovermode='x unified',
             hoverdistance=-1,
         )
         fig.update_layout(**base_layout)

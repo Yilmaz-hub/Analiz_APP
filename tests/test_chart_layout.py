@@ -33,10 +33,12 @@ def test_chart_config_is_responsive_for_mobile(monkeypatch, processed_df):
     assert captured["config"]["responsive"] is True
 
 
-def test_chart_uses_thin_crosshair_not_unified_hover(monkeypatch, processed_df):
-    """Regression test: hovermode='x unified' drew a thick vertical line
-    across the whole chart, obscuring candles. Thin axis spikes plus closest
-    hover give a TradingView-style crosshair without the unified panel."""
+def test_chart_uses_thin_crosshair(monkeypatch, processed_df):
+    """Regression test: thin axis spikes give a TradingView-style crosshair.
+    hovermode='x unified' matches tooltips by date, so OHLC info always
+    belongs to the hovered candle -- 'y unified' (a prior regression) matched
+    by nearest price instead and could show a different candle's date than
+    the one actually under the cursor."""
     captured = {}
 
     def fake_plotly_chart(fig, **kwargs):
@@ -46,8 +48,7 @@ def test_chart_uses_thin_crosshair_not_unified_hover(monkeypatch, processed_df):
     render_main_chart(**_base_kwargs(processed_df))
 
     layout = captured["fig"].layout
-    assert layout.hovermode == "y unified"
-    assert layout.yaxis.unifiedhovertitle.text == "Fiyat: $%{y:,.2f}"
+    assert layout.hovermode == "x unified"
     assert layout.xaxis.showspikes is True
     assert layout.yaxis.showspikes is True
     assert layout.xaxis.spikethickness == 1
@@ -169,5 +170,4 @@ def test_transparent_hover_layer_reports_cursor_price_in_future_space(monkeypatc
     assert "Fiyat" in hover_layer.hovertemplate
     assert len(hover_layer.y) == 401
     assert pd.Timestamp(hover_layer.x[-1]) >= _prediction_kwargs(df_view)["f_dates"][-1]
-    assert captured["fig"].layout.hovermode == "y unified"
-    assert captured["fig"].layout.yaxis.unifiedhovertitle.text == "Fiyat: $%{y:,.2f}"
+    assert captured["fig"].layout.hovermode == "x unified"
