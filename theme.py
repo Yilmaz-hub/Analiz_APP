@@ -348,6 +348,121 @@ hr { margin: 1em 0; border-color: var(--border); }
 def inject():
     st.markdown(_CSS, unsafe_allow_html=True)
 
+
+# Plotly cannot draw TradingView's crosshair axis badges natively -- showing
+# the cursor's own price/date against the axes is an open upstream feature
+# request (plotly.js#7518), and the only in-library workaround is a Dash
+# callback, which Streamlit has no equivalent for. So we read the cursor
+# position off the rendered plot and position the two badges ourselves.
+_AXIS_BADGE_JS = """
+<script>
+(function () {
+    var doc;
+    // Streamlit renders components in a same-origin iframe; if a deployment
+    // ever sandboxes it differently, bail out and leave the chart untouched
+    // rather than throwing on every mouse move.
+    try { doc = window.parent.document; } catch (e) { return; }
+    if (!doc) { return; }
+
+    var BADGE_CSS = 'position:absolute;z-index:1000;pointer-events:none;display:none;'
+        + 'font-family:IBM Plex Mono,monospace;font-size:11px;font-weight:500;'
+        + 'padding:2px 6px;border-radius:3px;white-space:nowrap;'
+        + 'color:#0A0E14;background:__ACCENT__;';
+
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+
+    function formatDate(raw) {
+        var d = (raw instanceof Date) ? raw : new Date(raw);
+        if (isNaN(d.getTime())) { return String(raw); }
+        var out = pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + '.' + d.getFullYear();
+        // On intraday charts the day alone cannot identify a bar.
+        if (__INTRADAY__) { out += ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+        return out;
+    }
+
+    function formatPrice(v) {
+        if (!isFinite(v)) { return ''; }
+        var digits = Math.abs(v) < 10 ? 4 : 2;
+        return '$' + v.toLocaleString('en-US', {
+            minimumFractionDigits: digits, maximumFractionDigits: digits
+        });
+    }
+
+    function attach(gd) {
+        if (!gd || gd.__atAxisBadges) { return; }
+        if (!gd._fullLayout || !gd._fullLayout.xaxis || !gd._fullLayout.yaxis) { return; }
+        gd.__atAxisBadges = true;
+
+        function make() {
+            var el = doc.createElement('div');
+            el.style.cssText = BADGE_CSS;
+            gd.appendChild(el);
+            return el;
+        }
+        if (!gd.style.position || gd.style.position === 'static') {
+            gd.style.position = 'relative';
+        }
+        var priceBadge = make();
+        var dateBadge = make();
+
+        function hide() {
+            priceBadge.style.display = 'none';
+            dateBadge.style.display = 'none';
+        }
+
+        gd.addEventListener('mousemove', function (ev) {
+            var L = gd._fullLayout;
+            if (!L || !L._size) { hide(); return; }
+            var box = gd.getBoundingClientRect();
+            var x = ev.clientX - box.left;
+            var y = ev.clientY - box.top;
+            var s = L._size;
+            // Only inside the plotting area -- not over the axes/margins.
+            if (x < s.l || x > box.width - s.r || y < s.t || y > box.height - s.b) {
+                hide();
+                return;
+            }
+            var xa = L.xaxis, ya = L.yaxis;
+            if (!xa.p2d || !ya.p2d) { hide(); return; }
+
+            var price = ya.p2d(y - s.t);
+            // Log axes carry their values as exponents.
+            if (ya.type === 'log') { price = Math.pow(10, price); }
+            priceBadge.textContent = formatPrice(price);
+            priceBadge.style.display = 'block';
+            priceBadge.style.top = (y - 9) + 'px';
+            // The price axis sits on the right-hand side of this chart.
+            priceBadge.style.left = (box.width - s.r + 3) + 'px';
+
+            dateBadge.textContent = formatDate(xa.p2d(x - s.l));
+            dateBadge.style.display = 'block';
+            dateBadge.style.top = (box.height - s.b + 4) + 'px';
+            dateBadge.style.left = Math.max(0, x - dateBadge.offsetWidth / 2) + 'px';
+        });
+        gd.addEventListener('mouseleave', hide);
+    }
+
+    // Streamlit re-creates the plot element on every rerun, so keep looking
+    // rather than binding once at load.
+    setInterval(function () {
+        var plots = doc.querySelectorAll('.js-plotly-plot');
+        for (var i = 0; i < plots.length; i++) { attach(plots[i]); }
+    }, 400);
+})();
+</script>
+""".replace("__ACCENT__", PALETTE["accent"])
+
+
+def crosshair_axis_badges(intraday: bool = False):
+    """Render the cursor's price/date against the chart axes, TradingView-style.
+
+    Must be a component (not st.markdown) because Streamlit strips <script>
+    from unsafe_allow_html markup.
+    """
+    import streamlit.components.v1 as components
+    html = _AXIS_BADGE_JS.replace("__INTRADAY__", "true" if intraday else "false")
+    components.html(html, height=0)
+
 def page_header(asset: str, source: str) -> str:
     src = source if source else "—"
     return f"""

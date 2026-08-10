@@ -151,7 +151,12 @@ def test_prediction_points_expose_future_price_on_hover(monkeypatch):
     assert "%{y:,.2f}" in prediction.hovertemplate
 
 
-def test_transparent_hover_layer_reports_cursor_price_in_future_space(monkeypatch):
+def test_no_transparent_heatmap_hover_layer(monkeypatch):
+    """Regression test: a transparent heatmap used to supply the cursor price.
+    Verified in-browser that under unified hover it does NOT report the row
+    under the cursor -- it showed a price hundreds of dollars off. The axis
+    badge (theme.crosshair_axis_badges) reads the true cursor position from
+    the axis instead, so the layer is gone rather than quietly lying."""
     captured = {}
     index = pd.date_range("2026-01-01", periods=3, freq="D")
     df_view = pd.DataFrame({
@@ -164,10 +169,59 @@ def test_transparent_hover_layer_reports_cursor_price_in_future_space(monkeypatc
 
     render_main_chart(**_prediction_kwargs(df_view))
 
-    hover_layer = captured["fig"].data[0]
-    assert hover_layer.type == "heatmap"
-    assert hover_layer.opacity == 0
-    assert "Fiyat" in hover_layer.hovertemplate
-    assert len(hover_layer.y) == 401
-    assert pd.Timestamp(hover_layer.x[-1]) >= _prediction_kwargs(df_view)["f_dates"][-1]
+    assert not any(trace.type == "heatmap" for trace in captured["fig"].data)
     assert captured["fig"].layout.hovermode == "x unified"
+
+
+def test_axis_badges_rendered_with_timeframe_precision(monkeypatch, processed_df):
+    """The TradingView-style axis badges are the only cursor price/date
+    readout, so they must actually be emitted -- and intraday charts need the
+    clock time, since a bare day cannot identify a 4-hourly bar."""
+    calls = []
+    monkeypatch.setattr(st, "plotly_chart", lambda fig, **kwargs: None)
+    monkeypatch.setattr(ui_components.theme, "crosshair_axis_badges",
+                        lambda **kwargs: calls.append(kwargs))
+
+    render_main_chart(**_base_kwargs(processed_df, view_tf="4h"))
+    assert calls == [{"intraday": True}]
+
+    calls.clear()
+    render_main_chart(**_base_kwargs(processed_df, view_tf="1d"))
+    assert calls == [{"intraday": False}]
+
+
+def test_candlestick_defers_hover_to_ohlc_proxy(monkeypatch, processed_df):
+    """Regression test: Plotly's candlestick trace mis-identifies the hovered
+    point under unified hover (plotly.js#2095), so Open/High/Low/Close stayed
+    frozen on one candle while the date and EMA values updated normally. The
+    candle must not hover at all; an invisible Scatter carries OHLC instead."""
+    captured = {}
+    monkeypatch.setattr(st, "plotly_chart",
+                        lambda fig, **kwargs: captured.setdefault("fig", fig))
+    render_main_chart(**_base_kwargs(processed_df))
+
+    candle = next(t for t in captured["fig"].data if t.type == "candlestick")
+    assert candle.hoverinfo == "skip"
+
+    proxy = next(t for t in captured["fig"].data if t.name == "OHLC")
+    assert proxy.customdata.shape == (len(processed_df), 4)
+    assert list(proxy.customdata[0]) == [
+        processed_df["Open"].iloc[0], processed_df["High"].iloc[0],
+        processed_df["Low"].iloc[0], processed_df["Close"].iloc[0],
+    ]
+    for field in ("Açılış", "Yüksek", "Düşük", "Kapanış"):
+        assert field in proxy.hovertemplate
+    assert proxy.showlegend is False
+
+
+def test_stale_candle_does_not_follow_cursor_into_future(monkeypatch, processed_df):
+    """Regression test: hoverdistance=-1 (infinite) let the last candle's OHLC
+    trail the cursor arbitrarily far into empty future dates, so that area
+    showed stale values rather than the hovered date's own cursor price."""
+    captured = {}
+    monkeypatch.setattr(st, "plotly_chart",
+                        lambda fig, **kwargs: captured.setdefault("fig", fig))
+    render_main_chart(**_base_kwargs(processed_df))
+
+    hoverdistance = captured["fig"].layout.hoverdistance
+    assert hoverdistance is not None and hoverdistance > 0

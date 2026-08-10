@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from config import PATTERN_INFO, DEFAULT_COIN_MAP, UIConfig
@@ -58,15 +59,6 @@ def render_asset_management(coin_map, save_assets_func):
 
 def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_cloud, show_pred, show_ai, show_all_pats, f_wm, f_candle, f_advanced, items_raw, lines):
     fig = go.Figure()
-    # Transparent heatmap kept behind the visible traces. Plotly's native
-    # spikes draw a crosshair but do not report the cursor's y value when it
-    # is between data points or in future whitespace; this layer supplies a
-    # dense set of price-only hover targets across the entire chart.
-    fig.add_trace(go.Heatmap(
-        name="İmleç Fiyatı", showscale=False, opacity=0,
-        hovertemplate="Fiyat: $%{y:,.2f}<extra></extra>",
-        hoverongaps=False,
-    ))
     pattern_statuses = []
 
     if show_cloud:
@@ -83,9 +75,30 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
             name='EMA 50 (Bulut Altı)'
         ))
 
+    # hoverinfo='skip': Plotly's candlestick trace mis-identifies the hovered
+    # point under unified hover (plotly.js#2095), so its OHLC readout sticks
+    # on one candle while the cursor moves. The invisible Scatter proxy below
+    # carries the same OHLC as customdata and reports it correctly per date.
     fig.add_trace(go.Candlestick(
         x=df_view.index, open=df_view['Open'], high=df_view['High'], low=df_view['Low'], close=df_view['Close'], name='Fiyat',
-        increasing_line_color=theme.CANDLE_UP, decreasing_line_color=theme.CANDLE_DOWN
+        increasing_line_color=theme.CANDLE_UP, decreasing_line_color=theme.CANDLE_DOWN,
+        hoverinfo='skip',
+    ))
+    fig.add_trace(go.Scatter(
+        x=df_view.index, y=df_view['Close'],
+        mode='lines', line=dict(color='rgba(0,0,0,0)', width=0),
+        showlegend=False, name='OHLC',
+        customdata=np.column_stack([
+            df_view['Open'].to_numpy(dtype=float),
+            df_view['High'].to_numpy(dtype=float),
+            df_view['Low'].to_numpy(dtype=float),
+            df_view['Close'].to_numpy(dtype=float),
+        ]),
+        hovertemplate=(
+            'Açılış: $%{customdata[0]:,.2f}   Yüksek: $%{customdata[1]:,.2f}<br>'
+            'Düşük: $%{customdata[2]:,.2f}   Kapanış: $%{customdata[3]:,.2f}'
+            '<extra></extra>'
+        ),
     ))
     fig.add_hline(y=curr, line_dash="dot", line_color="cyan", annotation_text=f" {curr:,.2f}", annotation_position="right")
     
@@ -99,10 +112,10 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
             line=dict(color='yellow', width=2, dash='dash'),
             marker=dict(color='yellow', size=[0] + [5] * len(f_dates)),
             customdata=['Başlangıç'] + ['AI Tahmini'] * len(f_dates),
+            # No 'Tarih:' line -- under unified hover the date is already the
+            # label's title, so repeating it just crowds the box.
             hovertemplate=(
-                '<b>%{customdata}</b><br>'
-                'Tarih: %{x|%d.%m.%Y}<br>'
-                'Tahmini Fiyat: $%{y:,.2f}<extra></extra>'
+                '<b>%{customdata}</b> — Tahmini Fiyat: $%{y:,.2f}<extra></extra>'
             ),
             name=f'AI Tahmini (Güven: %{ai_score:.0f})'
         ))
@@ -207,7 +220,6 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
     for r in [x for x in r_list if x > curr][:3]:
         fig.add_hline(y=r, line_dash="dash", line_color="#FF0000", annotation_text=f"Dir: {r}")
 
-    import numpy as np 
     try:
         y_type = "log" if view_tf == "1wk" else "linear"
         zoom_count = 50 if view_tf == "1wk" else (80 if view_tf == "1d" else 100)
@@ -252,16 +264,6 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
         if show_pred and len(f_dates) > 0 and f_dates[-1] > zoom_end:
             zoom_end = f_dates[-1]
 
-        hover_y_min = max(y_min_raw * 0.95, 0.000001) if y_type == "log" else y_min_raw * 0.95
-        hover_y_max = y_max_raw * 1.05
-        if hover_y_max > hover_y_min:
-            hover_prices = (np.geomspace(hover_y_min, hover_y_max, 401)
-                            if y_type == "log"
-                            else np.linspace(hover_y_min, hover_y_max, 401))
-            fig.data[0].x = [zoom_start, zoom_end]
-            fig.data[0].y = hover_prices
-            fig.data[0].z = np.zeros((len(hover_prices), 2))
-
         spike_style = dict(
             showspikes=True, spikemode='across', spikesnap='cursor',
             spikethickness=1, spikedash='dash',
@@ -287,7 +289,11 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
             # candle; the transparent hover layer still reports cursor price
             # everywhere because it has full-width x coverage.
             hovermode='x unified',
-            hoverdistance=-1,
+            # Finite, unlike the previous -1 (infinite): with infinite reach
+            # the last candle's OHLC followed the cursor arbitrarily far into
+            # the future area, so hovering an empty future date showed stale
+            # candle values instead of that date's cursor price.
+            hoverdistance=20,
         )
         fig.update_layout(**base_layout)
 
@@ -302,6 +308,7 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
         }
         
         st.plotly_chart(fig, use_container_width=True, config=config, key="main_price_chart")
+        theme.crosshair_axis_badges(intraday=view_tf not in ("1d", "1wk"))
     except Exception as e:
         st.error(f"Grafik çizilirken hata oluştu: {e}")
         
