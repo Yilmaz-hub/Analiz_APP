@@ -16,6 +16,7 @@ from scanner import render_opportunity_scanner
 from data_fetchers import get_live_price_for_portfolio
 from signal_engine import generate_stable_signal, CompositeSignal
 from weight_profiles import get_weights_for_symbol
+from prediction_tracker import record_prediction, evaluate_predictions, get_track_record
 from advanced_analysis import detect_elliott_wave, analyze_ichimoku, detect_wyckoff_phase, analyze_market_structure
 import theme
 
@@ -166,6 +167,43 @@ if df_view is not None:
     items_raw = detect_patterns(df_view) if show_all_pats else []
     
     s_l, r_l, adv_pattern_statuses = render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_cloud, show_pred, show_ai, show_all_pats, f_wm, f_candle, f_advanced, items_raw, lines)
+
+    # --- AI TAHMİN KARNESİ (tahmin hafızası + güven karnesi) ---
+    if show_pred:
+        if f_prices:
+            record_prediction(symbol, view_tf, df_view, f_dates, f_prices, ai_score)
+        pred_recs = evaluate_predictions(symbol, view_tf, df_view)
+        track = get_track_record(pred_recs)
+        with st.expander("🧠 AI Tahmin Karnesi — geçmiş tahminler ne dedi, ne çıktı?", expanded=False):
+            if track["n"] > 0:
+                k1, k2, k3 = st.columns(3)
+                k1.metric("Olgunlaşan tahmin", track["n"])
+                k2.metric("Yön isabeti", f"%{track['hit_rate']:.0f}")
+                k3.metric("Ort. sapma", f"±%{track['avg_err']:.1f}")
+                if track["hit_rate"] >= 60:
+                    st.success("Bu varlık/periyotta AI'nin geçmiş yön isabeti iyi — tahmine ağırlık verilebilir.")
+                elif track["hit_rate"] <= 45:
+                    st.warning("Bu varlık/periyotta AI'nin geçmiş isabeti zayıf — tahmini tek başına kullanmayın.")
+            else:
+                st.caption("Henüz olgunlaşmış tahmin yok. Her tahmin, ufku (~15 bar) dolunca "
+                           "otomatik puanlanır ve karne burada birikir.")
+            if pred_recs:
+                st.markdown("**Son tahminler** (yeniden eskiye):")
+                for r in list(reversed(pred_recs))[:6]:
+                    anchor_lbl = str(r["anchor"])[:16]
+                    pred_pct = r["pred_change_pct"]
+                    yon = "📈 yükseliş" if pred_pct >= 0 else "📉 düşüş"
+                    line = f"`{anchor_lbl}` → {yon} **%{pred_pct:+.1f}** (skor {r['ai_score']:+.0f})"
+                    out, prog = r.get("outcome"), r.get("progress")
+                    if out:
+                        isaret = "✅" if out["direction_hit"] else "❌"
+                        line += f" — gerçekleşen **%{out['realized_change_pct']:+.1f}** {isaret}"
+                    elif prog:
+                        line += (f" — {prog['bars_elapsed']}/{r['horizon']} bar geçti, "
+                                 f"şu ana dek %{prog['realized_change_pct']:+.1f}")
+                    else:
+                        line += " — henüz yeni"
+                    st.markdown(line)
 
     # --- ALT PANELLER (Karar Paneli & Analiz) ---
     st.divider()

@@ -188,6 +188,21 @@ class DecisionEngineConfig:
     # existing signal is held/exited via BUY/SELL_THRESHOLD ± EXIT_SCORE_BUFFER.
     # Grid result: entry 15 -> 25 improved every asset tested.
     ENTRY_SCORE = 25
+
+    # --- BREAKOUT CAPTURE (2026-08-23, BTC 63k->78k replay) ---
+    # A strong rally keeps RSI pinned above 70 for days; the old hard
+    # `rsi <= 70` entry gate turned every such breakout bar into BEKLE
+    # (replay: 19-21 Aug 2026, scores +26/+34/+37, conf 83-86, regime +1,
+    # all three days blocked). Cap raised and a strong-score override added.
+    RSI_ENTRY_CAP_LONG = 75      # long entries allowed while RSI <= this
+    RSI_ENTRY_FLOOR_SHORT = 25   # short entries allowed while RSI >= this
+    # |score| >= STRONG_*_THRESHOLD bypasses the RSI cap/floor entirely —
+    # a composite that strong across dimensions IS the breakout.
+    RSI_CAP_STRONG_OVERRIDE = True
+    # When the pending direction's bar scores beyond the STRONG threshold,
+    # confirmation shortens to this many bars (vs CONFIRMATION_BARS) so a
+    # violent breakout is not watched from the sidelines for 2 closes.
+    BREAKOUT_CONFIRMATION_BARS = 1
     # Regime filter: long entries only when the last closed bar is above this
     # SMA (shorts only below). 0 disables. Backtest: improved every losing
     # asset, never hurt a winning one.
@@ -326,6 +341,7 @@ class FileConfig:
     ASSETS_FILE = 'varliklar.json'
     PAPER_FILE = 'paper_trading.json'
     WEIGHT_PROFILES_FILE = 'weight_profiles.json'
+    PREDICTIONS_LOG_FILE = 'predictions_log.json'
 
 #telegram
 class TelegramConfig:
