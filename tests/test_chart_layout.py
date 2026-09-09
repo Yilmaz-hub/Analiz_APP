@@ -331,12 +331,54 @@ def test_desktop_layout_unchanged(monkeypatch, processed_df):
     assert (layout.margin.l, layout.margin.r, layout.margin.t, layout.margin.b) == (10, 60, 10, 20)
 
 
-# C7 — Özellik eşitliği: trace + shape + annotation sayıları birebir eşit.
-# Gelişmiş formasyonlar açık VE kapalı iki durumda da doğrulanır (QA BULGU-5).
-@pytest.mark.parametrize("f_advanced", [False, True])
-def test_feature_parity_element_counts(monkeypatch, processed_df, f_advanced):
-    desktop = _capture_fig(monkeypatch, **_all_layers_kwargs(processed_df, mobile=False, f_advanced=f_advanced))
-    mobile = _capture_fig(monkeypatch, **_all_layers_kwargs(processed_df, mobile=True, f_advanced=f_advanced))
+def _inject_advanced_patterns(monkeypatch, df_view):
+    """Make the f_advanced branch deterministic: real detect_advanced_patterns
+    finds 0 formations on the synthetic fixture (QA BULGU-5), so inject a known
+    triangle + reversal that exercise every advanced draw path (boundary lines,
+    HEDEF/target lines, neckline, 'Baş' annotation). Returns nothing; both modes
+    then draw the same extra shapes/annotations."""
+    idx = df_view.index
+    close = df_view['Close']
+    d0, d1, dmid = idx[10], idx[-5], idx[len(idx) // 2]
+    adv = [
+        {'type': 'triangle', 'color': 'blue', 'target': float(close.max() * 1.1),
+         'lines': [{'x0': d0, 'y0': float(close.iloc[10]), 'x1': d1, 'y1': float(close.iloc[-5])},
+                   {'x0': d0, 'y0': float(close.iloc[10]) * 0.98, 'x1': d1, 'y1': float(close.iloc[-5]) * 0.98}]},
+        {'type': 'reversal', 'color': 'red', 'target': float(close.min() * 0.9),
+         'neckline': float(close.iloc[-5]), 'x0': d0, 'y0': float(close.iloc[10]),
+         'head_x': dmid, 'head_y': float(close.loc[dmid]) * 1.03, 'x1': d1, 'y1': float(close.iloc[-5])},
+    ]
+    monkeypatch.setattr(ui_components, "detect_advanced_patterns", lambda d: adv)
+    monkeypatch.setattr(ui_components, "get_pattern_status", lambda a, c: None)
+
+
+# C7 — Özellik eşitliği (temel katmanlar): trace + shape + annotation eşit.
+def test_feature_parity_element_counts(monkeypatch, processed_df):
+    desktop = _capture_fig(monkeypatch, **_all_layers_kwargs(processed_df, mobile=False, f_advanced=False))
+    mobile = _capture_fig(monkeypatch, **_all_layers_kwargs(processed_df, mobile=True, f_advanced=False))
+    assert len(mobile.data) == len(desktop.data)
+    assert len(mobile.layout.shapes) == len(desktop.layout.shapes)
+    assert len(mobile.layout.annotations) == len(desktop.layout.annotations)
+
+
+# C7 (çekirdek) — Özellik eşitliği, en ağır katman (gelişmiş formasyonlar) AÇIKKEN.
+# Sentetik fixture'da gerçek detektör 0 formasyon bulduğu için bilinen bir
+# formasyon seti enjekte edilir; hem parity doğrulanır hem de gelişmiş katmanın
+# gerçekten çizildiği (True sayımı > False sayımı) kanıtlanır (QA BULGU-5).
+def test_feature_parity_with_advanced_patterns(monkeypatch, processed_df):
+    # Baseline (advanced kapalı) — enjeksiyon öncesi gerçek detektörle.
+    base = _capture_fig(monkeypatch, **_all_layers_kwargs(processed_df, mobile=False, f_advanced=False))
+    base_elems = len(base.layout.shapes) + len(base.layout.annotations)
+
+    _inject_advanced_patterns(monkeypatch, processed_df)
+    desktop = _capture_fig(monkeypatch, **_all_layers_kwargs(processed_df, mobile=False, f_advanced=True))
+    mobile = _capture_fig(monkeypatch, **_all_layers_kwargs(processed_df, mobile=True, f_advanced=True))
+
+    # Gelişmiş katman gerçekten öğe ekledi mi? (test boşa koşmuyor)
+    adv_elems = len(desktop.layout.shapes) + len(desktop.layout.annotations)
+    assert adv_elems > base_elems
+
+    # Ve iki mod bu ağır katmanla da birebir eşit.
     assert len(mobile.data) == len(desktop.data)
     assert len(mobile.layout.shapes) == len(desktop.layout.shapes)
     assert len(mobile.layout.annotations) == len(desktop.layout.annotations)
