@@ -142,6 +142,18 @@ def _score_momentum(df):
     reasons = []
     last = df.iloc[-1]
     prev = df.iloc[-2]
+    price = last['Close']
+
+    # Trend context for mean-reversion components. In a strong trend the
+    # "extreme" is the normal state (RSI rides 70-90 through real rallies),
+    # so counter-trend penalties/bonuses are scaled down when they fight a
+    # clean EMA stack — full force otherwise. Without this the momentum
+    # dimension cancels the trend dimension exactly on the strongest moves
+    # (2026-08 BTC 63k->78k: momentum -40 RSI -15 BB vs trend +100).
+    ema_20 = last.get('EMA_20')
+    ema_50 = last.get('EMA_50')
+    uptrend = pd.notna(ema_20) and pd.notna(ema_50) and price > ema_20 > ema_50
+    downtrend = pd.notna(ema_20) and pd.notna(ema_50) and price < ema_20 < ema_50
 
     # --- RSI ---
     rsi = last.get('RSI', 50)
@@ -149,16 +161,17 @@ def _score_momentum(df):
         rsi = 50
 
     if rsi < 25:
-        score += 40
+        score += 20 if downtrend else 40  # falling knife: half bonus in a downtrend
         reasons.append(f"RSI aşırı satım bölgesinde ({rsi:.0f})")
     elif rsi < 35:
-        score += 25
+        score += 12 if downtrend else 25
         reasons.append(f"RSI satım bölgesinde ({rsi:.0f})")
     elif rsi > 75:
-        score -= 40
-        reasons.append(f"RSI aşırı alım bölgesinde ({rsi:.0f})")
+        score -= 15 if uptrend else 40  # overbought rides strong trends
+        reasons.append(f"RSI aşırı alım bölgesinde ({rsi:.0f})"
+                       + (" — güçlü trendde tolere ediliyor" if uptrend else ""))
     elif rsi > 65:
-        score -= 25
+        score -= 10 if uptrend else 25
         reasons.append(f"RSI alım bölgesinde ({rsi:.0f})")
 
     # --- RSI Divergence ---
@@ -195,14 +208,19 @@ def _score_momentum(df):
     # --- Bollinger Bands ---
     bb_lower = last.get('BB_Lower', None)
     bb_upper = last.get('BB_Upper', None)
-    price = last['Close']
 
     if bb_lower is not None and not pd.isna(bb_lower) and price < bb_lower:
-        score += 15
-        reasons.append("Fiyat Bollinger alt bandının altında")
+        if downtrend:
+            reasons.append("Fiyat Bollinger alt bandında (düşüş trendi — dip alımı beklenmez)")
+        else:
+            score += 15
+            reasons.append("Fiyat Bollinger alt bandının altında")
     elif bb_upper is not None and not pd.isna(bb_upper) and price > bb_upper:
-        score -= 15
-        reasons.append("Fiyat Bollinger üst bandının üstünde")
+        if uptrend:
+            reasons.append("Fiyat Bollinger üst bandında yürüyor (trend gücü)")
+        else:
+            score -= 15
+            reasons.append("Fiyat Bollinger üst bandının üstünde")
 
     return max(-100, min(100, score)), reasons
 
@@ -562,9 +580,19 @@ class SignalStateMachine:
             return 0
         if adx < cfg.CHOP_ADX_LIMIT and abs(score) < cfg.CHOP_SCORE_OVERRIDE:
             return 0  # choppy market — don't open fresh positions
-        if score >= cfg.BUY_THRESHOLD and rsi <= 70:
+        # RSI gate: blocks chasing an extended move — but a strong rally keeps
+        # RSI pinned overbought for days, so a composite score beyond the
+        # STRONG threshold overrides the cap (that strength across independent
+        # dimensions IS the breakout; see 2026-08 BTC 63k->78k replay where the
+        # old hard `rsi <= 70` turned the whole move into BEKLE).
+        rsi_cap = getattr(cfg, "RSI_ENTRY_CAP_LONG", 70)
+        rsi_floor = getattr(cfg, "RSI_ENTRY_FLOOR_SHORT", 30)
+        strong_ok = getattr(cfg, "RSI_CAP_STRONG_OVERRIDE", False)
+        if score >= cfg.BUY_THRESHOLD and (
+                rsi <= rsi_cap or (strong_ok and score >= cfg.STRONG_BUY_THRESHOLD)):
             return 1
-        if score <= cfg.SELL_THRESHOLD and rsi >= 30:
+        if score <= cfg.SELL_THRESHOLD and (
+                rsi >= rsi_floor or (strong_ok and score <= cfg.STRONG_SELL_THRESHOLD)):
             return -1
         return 0
 
@@ -590,7 +618,17 @@ class SignalStateMachine:
             else:
                 self._candidate = raw
                 self._candidate_bars = 1
-            if self._candidate_bars >= self.cfg.CONFIRMATION_BARS:
+            # Breakout fast-track: when the pending direction's bar scores
+            # beyond the STRONG threshold, a violent move confirms in
+            # BREAKOUT_CONFIRMATION_BARS instead of the full CONFIRMATION_BARS.
+            need = self.cfg.CONFIRMATION_BARS
+            fast = getattr(self.cfg, "BREAKOUT_CONFIRMATION_BARS", 0)
+            if fast:
+                if self._candidate == 1 and score >= self.cfg.STRONG_BUY_THRESHOLD:
+                    need = min(need, fast)
+                elif self._candidate == -1 and score <= self.cfg.STRONG_SELL_THRESHOLD:
+                    need = min(need, fast)
+            if self._candidate_bars >= need:
                 self.state = self._candidate
                 self.bars_held = self._candidate_bars
                 self._candidate_bars = 0
@@ -670,7 +708,9 @@ def generate_composite_signal(df, timeframe="1d", supports=None, resistances=Non
         signal.emoji = "⚪"
         signal.reasons.insert(0, f"Yatay piyasa tespit edildi (ADX: {adx_val:.1f}), sahte kırılım (whipsaw) riski!")
     elif final_score >= cfg.STRONG_BUY_THRESHOLD:
-        if rsi_val > 75:
+        # Strong composite score overrides the RSI cap (same rule as the
+        # state machine): in a real breakout RSI stays overbought for days.
+        if rsi_val > getattr(cfg, "RSI_ENTRY_CAP_LONG", 70) and not getattr(cfg, "RSI_CAP_STRONG_OVERRIDE", False):
             signal.verdict = "BEKLE"
             signal.color = "gray"
             signal.emoji = "⚪"
@@ -680,7 +720,7 @@ def generate_composite_signal(df, timeframe="1d", supports=None, resistances=Non
             signal.color = "green"
             signal.emoji = "🟢"
     elif final_score >= cfg.BUY_THRESHOLD:
-        if rsi_val > 70:
+        if rsi_val > getattr(cfg, "RSI_ENTRY_CAP_LONG", 70):
             signal.verdict = "BEKLE"
             signal.color = "gray"
             signal.emoji = "⚪"
@@ -690,7 +730,7 @@ def generate_composite_signal(df, timeframe="1d", supports=None, resistances=Non
             signal.color = "lightgreen"
             signal.emoji = "🟢"
     elif final_score <= cfg.STRONG_SELL_THRESHOLD:
-        if rsi_val < 25:
+        if rsi_val < getattr(cfg, "RSI_ENTRY_FLOOR_SHORT", 30) and not getattr(cfg, "RSI_CAP_STRONG_OVERRIDE", False):
             signal.verdict = "BEKLE"
             signal.color = "gray"
             signal.emoji = "⚪"
@@ -700,7 +740,7 @@ def generate_composite_signal(df, timeframe="1d", supports=None, resistances=Non
             signal.color = "red"
             signal.emoji = "🔴"
     elif final_score <= cfg.SELL_THRESHOLD:
-        if rsi_val < 30:
+        if rsi_val < getattr(cfg, "RSI_ENTRY_FLOOR_SHORT", 30):
             signal.verdict = "BEKLE"
             signal.color = "gray"
             signal.emoji = "⚪"
