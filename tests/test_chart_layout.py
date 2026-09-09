@@ -104,6 +104,29 @@ def _prediction_kwargs(df_view, n_days=15):
     return _base_kwargs(df_view, show_pred=True, f_dates=f_dates, f_prices=f_prices, ai_score=50)
 
 
+# --- Spec 0002 — mobil yatay doldurma ---
+
+# AC1 — Mobil açılış penceresi tahminin tamamına uzatılmaz (mumlar genişliği doldurur).
+def test_mobile_opening_window_not_extended_to_full_forecast(monkeypatch, processed_df):
+    kw = _prediction_kwargs(processed_df)
+    kw["mobile"] = True
+    fig = _capture_fig(monkeypatch, **kw)
+    # Sağ kenar tahminin son tarihinden ÖNCE (küçük ileri margin ile sınırlı).
+    assert pd.Timestamp(fig.layout.xaxis.range[1]) < kw["f_dates"][-1]
+    # Ama son mumun ilerisinde bir margin var (tamamen kesilmiş değil).
+    assert pd.Timestamp(fig.layout.xaxis.range[1]) > processed_df.index[-1]
+
+
+# AC3 — Tahmin gizlenmez: mobilde de tam tahmin serisi figüre eklenir.
+def test_mobile_prediction_trace_still_complete(monkeypatch, processed_df):
+    kw = _prediction_kwargs(processed_df)
+    kw["mobile"] = True
+    fig = _capture_fig(monkeypatch, **kw)
+    pred = next(t for t in fig.data if t.name.startswith("AI Tahmini"))
+    # Başlangıç noktası + tüm f_dates.
+    assert len(pred.x) == 1 + len(kw["f_dates"])
+
+
 def test_prediction_line_extends_visible_x_range(monkeypatch, processed_df):
     """Regression test: the default zoom window only extended 5 bars into
     the future (gap_multiplier), but the AI forecast runs 15 bars ahead --
