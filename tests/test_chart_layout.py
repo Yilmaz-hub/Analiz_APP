@@ -117,6 +117,33 @@ def test_mobile_opening_window_not_extended_to_full_forecast(monkeypatch, proces
     assert pd.Timestamp(fig.layout.xaxis.range[1]) > processed_df.index[-1]
 
 
+# AC (rev 1) — Asıl darboğaz: varsayılan legend çizim alanının sağ DIŞINDA durup
+# yatay margin rezerve ediyor ve dar ekranda genişliğin ~%60'ını yiyordu. Mobilde
+# legend yatay ve grafiğin ÜSTÜNDE olmalı ki mumlar tam genişliği kullansın.
+def test_mobile_legend_is_horizontal_above_plot(monkeypatch, processed_df):
+    fig = _capture_fig(monkeypatch, **_base_kwargs(processed_df, mobile=True, show_cloud=True))
+    legend = fig.layout.legend
+    assert legend.orientation == "h"
+    assert legend.y >= 1.0          # çizim alanının üstünde
+    assert legend.yanchor == "bottom"
+    assert legend.x == 0            # sağda margin rezerve etmez
+    assert legend.xanchor == "left"
+
+
+# Tema stili (arka plan/kenarlık) mobilde de korunur — legend sıfırdan yazılmaz.
+def test_mobile_legend_keeps_theme_styling(monkeypatch, processed_df):
+    fig = _capture_fig(monkeypatch, **_base_kwargs(processed_df, mobile=True, show_cloud=True))
+    assert fig.layout.legend.borderwidth == 1
+    assert fig.layout.legend.bgcolor is not None
+
+
+# Masaüstü regresyonu yok: legend varsayılan (dikey/sağ) kalır.
+def test_desktop_legend_layout_unchanged(monkeypatch, processed_df):
+    fig = _capture_fig(monkeypatch, **_base_kwargs(processed_df, mobile=False, show_cloud=True))
+    assert fig.layout.legend.orientation is None   # Plotly varsayılanı (dikey)
+    assert fig.layout.legend.y is None
+
+
 # AC3 — Tahmin gizlenmez: mobilde de tam tahmin serisi figüre eklenir.
 def test_mobile_prediction_trace_still_complete(monkeypatch, processed_df):
     kw = _prediction_kwargs(processed_df)
