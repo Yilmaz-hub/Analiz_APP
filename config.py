@@ -188,6 +188,7 @@ class DecisionEngineConfig:
     # existing signal is held/exited via BUY/SELL_THRESHOLD ± EXIT_SCORE_BUFFER.
     # Grid result: entry 15 -> 25 improved every asset tested.
     ENTRY_SCORE = 25
+
     # Regime filter: long entries only when the last closed bar is above this
     # SMA (shorts only below). 0 disables. Backtest: improved every losing
     # asset, never hurt a winning one.
@@ -340,6 +341,24 @@ class UIConfig:
         '4h': {'default': 80, 'full': 100}    #Zoom in for 4-hour data
 
     }
+
+    # Main price chart height (px). Mobile view stabilizes the chart into a
+    # phone viewport (~750px visible after browser chrome) without hiding any
+    # layer -- 560 is derived from that budget (see spec 0001 Constraints).
+    CHART_HEIGHT = {'desktop': 900, 'mobile': 560}
+
+    # Initial zoom window: how many most-recent candles are visible on open.
+    # Desktop keeps the established counts; mobile shows half so candles stay
+    # readable on a narrow screen. This is only the opening x-range -- all data
+    # is present and reachable via pan/zoom (spec 0001: "veri gizlemek değildir").
+    DESKTOP_ZOOM_COUNT = {'1wk': 50, '1d': 80, 'default': 100}
+    MOBILE_ZOOM_COUNT = {'1wk': 25, '1d': 40, 'default': 50}
+
+    # View-mode control labels. The UI label and the mobile-flag logic share
+    # this single source, so renaming a label can never silently drop the
+    # mobile branch to desktop (spec 0001).
+    VIEW_MODE_DESKTOP = "Masaüstü"
+    VIEW_MODE_MOBILE = "Mobil"
 
 # DEFAULT ASSETS
 DEFAULT_COIN_MAP: dict[str, str] = {

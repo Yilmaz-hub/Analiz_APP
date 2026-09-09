@@ -5,9 +5,50 @@ import pandas as pd
 import plotly.graph_objects as go
 from config import PATTERN_INFO, DEFAULT_COIN_MAP, UIConfig
 from technical_analysis import calculate_sr_advanced, detect_advanced_patterns, calculate_oracle_signal_v2, calculate_trade_setup, get_pattern_status
+from logger import logger
 import theme
 
 TARGET_LINE_COLOR = theme.PALETTE["accent"]
+
+
+def chart_height(mobile: bool = False) -> int:
+    """Main chart height in px for the given view mode (spec 0001)."""
+    key = 'mobile' if mobile else 'desktop'
+    return UIConfig.CHART_HEIGHT[key]
+
+
+def resolve_zoom_count(view_tf: str, mobile: bool = False) -> int:
+    """How many most-recent candles the opening x-range shows. Mobile halves
+    the desktop count so candles stay readable on a narrow screen; this only
+    sets the initial window -- all data stays in the figure (spec 0001)."""
+    table = UIConfig.MOBILE_ZOOM_COUNT if mobile else UIConfig.DESKTOP_ZOOM_COUNT
+    return table.get(view_tf, table['default'])
+
+
+def is_mobile_mode(view_mode) -> bool:
+    """Resolve the view-mode control to the mobile flag. Anything but the
+    explicit mobile label -- including None when the control is cleared -- is
+    desktop, so the default is Masaüstü (spec 0001)."""
+    return view_mode == UIConfig.VIEW_MODE_MOBILE
+
+
+def is_chart_renderable(df_view) -> bool:
+    """True only when there is candle data to draw. None or an empty frame is
+    a 'veri yok' state, not an error (spec 0001)."""
+    return df_view is not None and not df_view.empty
+
+
+# get_market_data returns a reason string when it produces no frame. These two
+# mean the instrument genuinely has no data (a 'veri yok' info state); every
+# other reason is a fetch/processing failure (an error state). Spec 0001 keeps
+# the two distinct so a dropped connection is not mistaken for an empty asset.
+_EMPTY_DATA_REASONS = frozenset({"Veri Yok (Yahoo)", "Yetersiz Veri"})
+
+
+def is_empty_data_reason(reason) -> bool:
+    """True when the no-data reason means the instrument simply has no data
+    (empty state) rather than a fetch/processing failure (error state)."""
+    return reason in _EMPTY_DATA_REASONS
 
 def render_sidebar_settings():
     st.sidebar.header("⚙️ Kontrol Paneli")
@@ -57,7 +98,7 @@ def render_asset_management(coin_map, save_assets_func):
             save_assets_func(st.session_state['coin_map'])
             st.rerun()
 
-def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_cloud, show_pred, show_ai, show_all_pats, f_wm, f_candle, f_advanced, items_raw, lines):
+def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_cloud, show_pred, show_ai, show_all_pats, f_wm, f_candle, f_advanced, items_raw, lines, mobile=False):
     fig = go.Figure()
     pattern_statuses = []
 
@@ -211,8 +252,10 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
                                           annotation_text=f"🎯 Hedef: ${target:,.2f}")
                         if status:
                             pattern_statuses.append(status['message'])
-            except Exception as e:
-                st.error(f"Gelişmiş formasyon çizim hatası: {e}")
+            except Exception:
+                # No technical text to the user (spec 0001); detail -> log.
+                logger.error("Advanced pattern draw failed", exc_info=True)
+                st.warning("Gelişmiş formasyonlar şu anda çizilemedi.")
 
     s_list, r_list = calculate_sr_advanced(df_view, view_tf)
     for s in [x for x in s_list if x < curr][-3:]:
@@ -222,7 +265,10 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
 
     try:
         y_type = "log" if view_tf == "1wk" else "linear"
-        zoom_count = 50 if view_tf == "1wk" else (80 if view_tf == "1d" else 100)
+        # Mobile halves the opening window (readability); desktop keeps the
+        # established counts. Only the initial x-range differs -- every candle
+        # is still added to the figure below (spec 0001).
+        zoom_count = resolve_zoom_count(view_tf, mobile)
         
         if len(df_view) > zoom_count:
             visible_df = df_view.tail(zoom_count)
@@ -271,7 +317,7 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
         )
         base_layout = theme.plotly_base_layout()
         base_layout.update(
-            height=900,
+            height=chart_height(mobile),
             xaxis_rangeslider_visible=False,
             dragmode="pan",
             yaxis=dict(
@@ -309,7 +355,9 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
         
         st.plotly_chart(fig, use_container_width=True, config=config, key="main_price_chart")
         theme.crosshair_axis_badges(intraday=view_tf not in ("1d", "1wk"))
-    except Exception as e:
-        st.error(f"Grafik çizilirken hata oluştu: {e}")
-        
+    except Exception:
+        # No technical text / stack trace to the user (spec 0001); detail -> log.
+        logger.error("Main chart render failed", exc_info=True)
+        st.error("Grafik şu anda çizilemedi. Lütfen tekrar deneyin.")
+
     return s_list, r_list, pattern_statuses
