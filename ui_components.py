@@ -345,6 +345,20 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
             # candle values instead of that date's cursor price.
             hoverdistance=20,
         )
+
+        if mobile:
+            # Plotly's default legend sits OUTSIDE the plot on the right
+            # (x=1.02) and reserves right margin for itself. With these long
+            # series names ("AI Tahmini (Güven: %45)", "EMA 50 (Bulut Altı)")
+            # that margin ate ~60% of a phone's width, squeezing the candles
+            # into the left third (spec 0002 rev 1). Laying the legend out
+            # horizontally ABOVE the plot costs a little height instead, so the
+            # candles get the full width. Theme styling (bg/border) is kept.
+            legend_cfg = dict(base_layout.get("legend") or {})
+            legend_cfg.update(
+                orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+            )
+            base_layout["legend"] = legend_cfg
         fig.update_layout(**base_layout)
 
         config = {

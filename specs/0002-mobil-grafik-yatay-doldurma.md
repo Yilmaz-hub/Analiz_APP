@@ -4,6 +4,16 @@
 > Kural: **spec'i olmayan feature'a başlanmaz** (bkz. `AGENTS.md`).
 > İlgili: spec 0001 (mobil görünüm modu — yükseklik/zoom). Bu spec onun bıraktığı
 > **yatay** sorunu çözer.
+>
+> **Revizyon 1 (kök neden düzeltmesi):** İlk uygulamada darboğazın, x-ekseninin AI
+> tahmini için geleceğe uzatılması olduğu varsayıldı ve mobilde bu uzatma kaldırıldı.
+> Cihazda doğrulandığında görüntü **değişmedi**. Ekran görüntüsünün piksel ölçümü asıl
+> nedeni gösterdi: çizim alanı ekranın yalnızca ~%31'i (x≈60–345/920), legend ise
+> çizim alanının **sağ dışında** (x≈355–860). Plotly'nin varsayılan legend'i çizim
+> alanının dışında (`x=1.02`) durur ve kendine **yatay margin rezerve eder**; uzun seri
+> adlarıyla bu margin dar ekranda genişliğin ~%60'ını yiyordu. Asıl düzeltme: mobilde
+> legend'i **yatay** ve grafiğin **üstüne** almak. İlk düzeltme (forecast uzatması)
+> gerçek ama ikincil bir etkendi ve korunmuştur.
 
 ## Intent
 Mobil görünümde grafik yatayda ekranın yalnızca sol ~yarısını kullanıyor; mumlar sola
@@ -55,6 +65,13 @@ değiştirmek, tahmin hesabına dokunmak veya y-eksenini değiştirmektir.
       tüm f_dates noktalarını içerir; yalnızca açılış x-aralığı daha dardır.
 - [ ] **Değer/y-ekseni korunur:** Mod değişimi mumların ve tahminin değerlerini ve y-ekseni
       aralığını değiştirmez.
+- [ ] **(rev 1) Mobil legend yatay ve grafiğin üstünde:** Mobil modda legend
+      `orientation="h"`, `y >= 1.0`, `x = 0` ile konumlanır — çizim alanının sağında
+      margin rezerve etmez, böylece mumlar tam genişliği kullanır.
+- [ ] **(rev 1) Legend tema stili korunur:** Mobilde de legend arka planı/kenarlığı
+      tema değerlerini taşır (sıfırdan yazılmaz).
+- [ ] **(rev 1) Masaüstü legend regresyonu yok:** Masaüstünde legend varsayılan
+      (dikey, sağ) konumda kalır.
 
 ## Definition of Done
 - [ ] Tüm kabul kriterleri test/kanıtla karşılandı.
