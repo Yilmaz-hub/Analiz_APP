@@ -145,7 +145,13 @@ değiştirmek, yeni gösterge (volume/RSI) eklemek veya masaüstü görünümün
 | Metrik | Değer |
 |--------|-------|
 | Spec revizyon sayısı | 1 |
-| Düzeltme turu sayısı | 0 |
-| Bulgu gerçek/gürültü oranı | 0/0 |
-| Regresyon sayısı | 0 |
-| Kaçan hata | 0 |
+| Düzeltme turu sayısı | 2 |
+| Bulgu gerçek/gürültü oranı | 8/0 |
+| Regresyon sayısı | 1 |
+| Kaçan hata | - |
+
+> Notlar: **Düzeltme turu (2):** QA 1. tur (8 bulgu) + QA 2. tur (yeniden açılan
+> BULGU-5). **Bulgu 8/0:** sekiz bulgunun tamamı git/ölçüm ile doğrulandı, gürültü yok.
+> **Regresyon (1):** BULGU-4 — `main`'deki `st.error("Veri Alınamadı")` sinyali
+> geçici olarak sessiz `st.info`'ya düşmüştü; boş/hata ayrımıyla giderildi.
+> **Kaçan hata:** henüz üretimde gözlenmedi (-).
