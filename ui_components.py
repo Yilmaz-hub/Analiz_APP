@@ -303,11 +303,15 @@ def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_
             zoom_end = df_view.index[-1]
 
         # The prediction line runs further into the future than the default
-        # zoom window (it's not tied to gap_multiplier) -- without this, most
-        # of it falls outside the visible x-range entirely, so it's neither
-        # seen nor hoverable no matter how far into the "future" area you
-        # move the cursor.
-        if show_pred and len(f_dates) > 0 and f_dates[-1] > zoom_end:
+        # zoom window (it's not tied to gap_multiplier) -- on DESKTOP we extend
+        # the opening window to keep the whole forecast in view.
+        #
+        # On MOBILE we deliberately do NOT: the ~15-bar forecast area is a large
+        # fraction of a narrow screen, so extending to it squeezes the candles
+        # into the left half (spec 0002). Mobile keeps only the small
+        # gap_multiplier margin so candles fill the width; the forecast is still
+        # drawn and reachable by panning right.
+        if not mobile and show_pred and len(f_dates) > 0 and f_dates[-1] > zoom_end:
             zoom_end = f_dates[-1]
 
         spike_style = dict(
