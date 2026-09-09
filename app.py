@@ -11,7 +11,7 @@ from data_fetchers import get_market_data, get_fear_greed_index
 from technical_analysis import detect_advanced_patterns, calculate_extended_trendlines, detect_patterns, run_strategy_backtest
 from ml_models import calculate_smart_prediction_FIXED
 from portfolio import load_portfolio, save_portfolio, validate_portfolio_risk, check_active_positions_auto_close, multi_timeframe_confirmation
-from ui_components import render_sidebar_settings, render_asset_management, render_main_chart
+from ui_components import render_sidebar_settings, render_asset_management, render_main_chart, is_chart_renderable, is_mobile_mode, is_empty_data_reason
 from scanner import render_opportunity_scanner
 from data_fetchers import get_live_price_for_portfolio
 from signal_engine import generate_stable_signal, CompositeSignal
@@ -94,6 +94,7 @@ except Exception as e:
 
 intervals = {"4h": "4 Saatlik", "1d": "Günlük", "1wk": "Haftalık"}
 results = {}
+reasons = {}  # per-tf reason string when there is no frame (empty vs error)
 active_src = ""
 
 # --- ANA VERİ DÖNGÜSÜ ---
@@ -102,6 +103,7 @@ for tf, label in intervals.items():
     df, src = get_market_data(src_pref, symbol, tf)
     if tf == "1d": active_src = src
     results[tf] = df
+    reasons[tf] = src
     
     if df is not None:
         # Tuned weights only apply to the daily signal — the optimizer
@@ -134,7 +136,20 @@ st.markdown(theme.page_header(sel_c, safe_src), unsafe_allow_html=True)
 view_tf = st.selectbox("Periyot:", list(intervals.keys()), format_func=lambda x: intervals[x])
 df_view = results[view_tf]
 
-if df_view is not None:
+# Görünüm modu — grafiğin hemen üstünde (kenar çubuğu telefonda kapalı gelir).
+# key='view_mode' seçimi rerun'lar arası korur; varsayılan Masaüstü.
+# required=True: aktif segmente ikinci dokunuş seçimi düşürmesin -- yoksa mod
+# None'a düşer ve grafik 900px'e dönüp ekrandan taşardı (spec 0001, QA BULGU-3).
+view_mode = st.segmented_control(
+    "🖥️ Görünüm",
+    [UIConfig.VIEW_MODE_DESKTOP, UIConfig.VIEW_MODE_MOBILE],
+    default=UIConfig.VIEW_MODE_DESKTOP,
+    key="view_mode",
+    required=True,
+)
+mobile_view = is_mobile_mode(view_mode)
+
+if is_chart_renderable(df_view):
     curr = df_view['Close'].iloc[-1]
     prev = df_view['Close'].iloc[-2] if len(df_view) > 1 else curr
     change_pct = ((curr - prev) / prev) * 100 if prev > 0 else 0
@@ -165,7 +180,7 @@ if df_view is not None:
     lines = calculate_extended_trendlines(df_view) if show_ai else []
     items_raw = detect_patterns(df_view) if show_all_pats else []
     
-    s_l, r_l, adv_pattern_statuses = render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_cloud, show_pred, show_ai, show_all_pats, f_wm, f_candle, f_advanced, items_raw, lines)
+    s_l, r_l, adv_pattern_statuses = render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_cloud, show_pred, show_ai, show_all_pats, f_wm, f_candle, f_advanced, items_raw, lines, mobile=mobile_view)
 
     # --- ALT PANELLER (Karar Paneli & Analiz) ---
     st.divider()
@@ -497,7 +512,14 @@ if df_view is not None:
         else:
             st.info("Portföy boş.")
             st.metric("Mevcut Bakiye", f"${current_balance:,.2f}")
-else: st.error("Veri Alınamadı.")
+else:
+    # Boş durum (enstrümanda veri yok) ile hata durumu (ağ/işleme hatası)
+    # ayrı gösterilir; kopan bağlantı boş enstrüman sanılmasın (spec 0001).
+    reason = reasons.get(view_tf)
+    if df_view is None and not is_empty_data_reason(reason):
+        st.error("⚠️ Veri alınamadı. Lütfen bağlantıyı/kaynağı kontrol edip tekrar deneyin.")
+    else:
+        st.info("📭 Bu enstrüman için gösterilecek veri yok.")
 
 # OTOMATİK KAPATMA / TELEGRAM
 if st.session_state.get('portfolio_data'):
