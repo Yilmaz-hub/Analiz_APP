@@ -13,7 +13,10 @@ Kriter eşlemesi:
   AC14  -> test_only_active_position_is_listed_but_asset_remains
   AC15b -> test_duplicate_name_is_refused_in_ui
   AC16  -> test_access_problem_is_shown_to_user
-  AC16b -> test_no_write_controls_while_access_is_broken
+  AC16b -> test_no_write_controls_while_access_is_broken,
+           test_write_controls_are_disabled_when_access_breaks_mid_session (QA F2),
+           test_failed_write_is_rolled_back_in_memory (QA F1),
+           test_failed_write_does_not_become_permanent_later (QA F1)
   AC16c -> test_broken_record_is_shown_and_kept
   R8.2  -> test_unknown_asset_does_not_show_another_assets_data
 """
@@ -295,3 +298,111 @@ def test_no_write_controls_while_access_is_broken(store, monkeypatch, processed_
     geri_al()
     store.reset_engine()
     assert _stored(store) == onceki
+
+
+BEKLEYEN_EMIR = {
+    "Coin": "Bitcoin (BTC)", "Giriş": 40000.0, "Adet": 0.00125, "Yatırım": 50.0,
+    "Realized": 0.0, "Status": "PENDING", "Tarih": "2025-12-01",
+}
+EMIRLI_PORTFOY = {"balance": 110.0, "positions": [BEKLEYEN_EMIR]}
+
+
+def _break_writes_only(store):
+    """Yalnız yazmayı bozar; okuma çalışmaya devam eder.
+
+    Erişim oturumun ortasında kopan, kontrollerin hâlâ çizildiği durumu
+    taklit eder (QA F1'in reprosu).
+    """
+    gercek_write = store.write_doc
+
+    def kirik(*a, **k):
+        raise store.StorageAccessError("test")
+
+    store.write_doc = kirik
+
+    def geri_al():
+        store.write_doc = gercek_write
+
+    return geri_al
+
+
+# AC16b / QA F1 — Yazma koptuğunda bellekteki değişiklik geri alınır.
+def test_failed_write_is_rolled_back_in_memory(store, monkeypatch, processed_df):
+    store.write_doc(store.ASSETS_KEY, VARLIKLAR)
+    store.write_doc(store.PORTFOLIO_KEY, EMIRLI_PORTFOY)
+
+    at = _make_app(monkeypatch, processed_df).run()
+    assert not at.exception
+
+    geri_al = _break_writes_only(store)
+    try:
+        _click(at, "❌ İptal Et")
+    finally:
+        geri_al()
+
+    # Kullanıcıya işlemin kaydedilmediği bildirilir.
+    assert "kaydedilmedi" in _texts(at)
+    # Depo değişmemiştir.
+    assert store.read_doc(store.PORTFOLIO_KEY) == EMIRLI_PORTFOY
+    # Bellek de geri alınmıştır: emir duruyor, bakiye artmamış.
+    bellek = at.session_state["portfolio_data"]
+    assert len(bellek["positions"]) == 1
+    assert bellek["positions"][0]["Status"] == "PENDING"
+    assert bellek["balance"] == 110.0
+
+
+# AC16b / QA F1 — Başarısız işlem sonraki başarılı yazmayla kalıcı olmaz.
+def test_failed_write_does_not_become_permanent_later(store, monkeypatch, processed_df):
+    store.write_doc(store.ASSETS_KEY, VARLIKLAR)
+    store.write_doc(store.PORTFOLIO_KEY, EMIRLI_PORTFOY)
+
+    at = _make_app(monkeypatch, processed_df).run()
+    geri_al = _break_writes_only(store)
+    try:
+        _click(at, "❌ İptal Et")
+    finally:
+        geri_al()
+
+    # Erişim düzeldi; kullanıcı BAŞKA bir işlem yapıyor.
+    at.run()
+    bakiye_girisi = next(n for n in at.number_input
+                         if n.label == "Güncel USDT Bakiyesi")
+    bakiye_girisi.set_value(300.0)
+    _click(at, "Bakiyeyi Güncelle")
+
+    kayitli = store.read_doc(store.PORTFOLIO_KEY)
+    assert kayitli["balance"] == 300.0
+    # İptal edilmemiş emir hâlâ yerinde: iptal kalıcılaşmadı.
+    assert len(kayitli["positions"]) == 1
+    assert kayitli["positions"][0]["Status"] == "PENDING"
+
+
+# AC16b / QA F2 — Erişim oturum ortasında koparsa yazan kontroller kapanır.
+def test_write_controls_are_disabled_when_access_breaks_mid_session(store, monkeypatch, processed_df):
+    store.write_doc(store.ASSETS_KEY, VARLIKLAR)
+    store.write_doc(store.PORTFOLIO_KEY, EMIRLI_PORTFOY)
+
+    # Önce erişim çalışırken açılır: sayfa tam çizilir, kontroller etkindir.
+    at = _make_app(monkeypatch, processed_df).run()
+    assert not at.exception
+    acikken = {b.label: b for b in at.button}
+    assert "🗑️ Portföyü Sıfırla" in acikken
+    assert acikken["🗑️ Portföyü Sıfırla"].disabled is False
+
+    # Erişim oturumun ortasında kopar.
+    geri_al = _break_storage(store)
+    try:
+        at.run()
+
+        assert not at.exception
+        assert "kayıt değiştiren işlemler kapalı" in _texts(at)
+        kapaliyken = {b.label: b for b in at.button}
+        for yazan in ("➕ Emri Gir / Ekle", "Bakiyeyi Güncelle", "❌ İptal Et",
+                      "🗑️ Portföyü Sıfırla"):
+            assert yazan in kapaliyken, f"{yazan} çizilmedi"
+            assert kapaliyken[yazan].disabled is True, f"{yazan} kapatılmadı"
+    finally:
+        geri_al()
+
+    store.reset_engine()
+    assert store.read_doc(store.PORTFOLIO_KEY) == EMIRLI_PORTFOY

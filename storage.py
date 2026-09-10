@@ -34,6 +34,7 @@ import shutil
 import time
 from pathlib import Path
 
+from config import FileConfig
 from exceptions import ProTraderError
 from logger import logger
 
@@ -66,17 +67,30 @@ def data_dir() -> Path:
     return base
 
 
+#: Secret'ın hiç tanımlı olmadığını gösteren istisnalar — bunlar normal
+#: durumdur (yerel geliştirme). Başka her hata bozuk yapılandırma sayılır.
+_MISSING_SECRET_ERRORS = ("StreamlitSecretNotFoundError", "KeyError", "FileNotFoundError")
+
+
 def _secret_db_url():
     """`st.secrets["db_url"]` degeri - yoksa None.
 
-    Secrets dosyası bulunmadığında Streamlit istisna yükseltir; bu normal bir
-    durumdur (yerel geliştirme) ve sessizce yerel arka uca düşülür.
+    "Secret tanımlı değil" ile "secret var ama okunamıyor" birbirinden ayrılır:
+    ilki yerel geliştirmenin normali, ikincisi sessizce yerel arka uca düşerek
+    kayıp riskini geri getiren bir yapılandırma hatasıdır ve loglanır (QA F5).
     """
     try:
         import streamlit as st
-
+    except Exception:  # pragma: no cover - streamlit her zaman kurulu
+        return None
+    try:
         return st.secrets["db_url"]  # type: ignore[index]
-    except Exception:
+    except Exception as exc:
+        if type(exc).__name__ not in _MISSING_SECRET_ERRORS:
+            logger.warning(
+                "Kayit deposu secret'i okunamadi, yerel arka uca dusuluyor: "
+                f"{type(exc).__name__}"
+            )
         return None
 
 
@@ -203,15 +217,30 @@ def check_access() -> tuple[bool, str]:
         return False, "Kayıtlara şu anda erişilemiyor; değişiklik yapılamaz."
     if is_remote_backend():
         return True, "Kayıtlar korunuyor."
-    return True, "Kayıtlar bu cihazda korunuyor."
+    # Yerel arka uç, uygulamanın çalıştığı ortamın diskine bağlıdır: yayında
+    # yeniden yayınlama bunu siler. Bu durum başarı olarak gösterilemez (QA F5).
+    return True, ("Kayıtlar yalnız bu ortamın diskinde tutuluyor; "
+                  "yeniden yayınlamada kaybolabilir.")
+
+
+def protection_level() -> str:
+    """Kayıtların korunma düzeyi: "kalici" | "yerel" | "erisilemiyor".
+
+    Arayüz rozeti bunu kullanır; yerel arka uç yeşil gösterilmez (QA F5).
+    """
+    ok, _ = check_access()
+    if not ok:
+        return "erisilemiyor"
+    return "kalici" if is_remote_backend() else "yerel"
 
 
 # --- Eski dosya kayıtlarının içeri alınması (AC01 / AC01b) --------------------
 
-# Belge anahtarı -> eski dosya adı.
+# Belge anahtarı -> eski dosya adı. Dosya adlarının tek gerçek kaynağı
+# FileConfig'tir (AGENTS.md Altın Kural 7).
 LEGACY_FILES = {
-    ASSETS_KEY: "varliklar.json",
-    PORTFOLIO_KEY: "portfolio.json",
+    ASSETS_KEY: FileConfig.LEGACY_ASSETS_FILE,
+    PORTFOLIO_KEY: FileConfig.LEGACY_PORTFOLIO_FILE,
 }
 
 

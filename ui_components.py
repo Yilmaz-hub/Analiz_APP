@@ -65,13 +65,18 @@ def render_records_status(storage_ok, message):
     """Kayıtların korunma/erişim durumunu kenar çubuğunda gösterir (spec 0004).
 
     Kullanıcıya sunucudaki klasör yolu değil, kayıtlarının korunup korunmadığı
-    bildirilir.
+    bildirilir. Yerel arka uç **yeşil gösterilmez**: kayıtların yeniden
+    yayınlamada kaybolabildiği yapılandırmada başarı bildirmek, düzeltilmek
+    istenen hatanın üstünü örtüyordu (QA F5).
     """
     st.sidebar.divider()
-    if storage_ok:
+    if not storage_ok:
+        st.sidebar.error(f"⚠️ {message}")
+        return
+    if storage.is_remote_backend():
         st.sidebar.caption(f"✅ {message}")
     else:
-        st.sidebar.error(f"⚠️ {message}")
+        st.sidebar.warning(f"⚠️ {message}")
 
 
 def render_no_records_state(storage_ok, message):

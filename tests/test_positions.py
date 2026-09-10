@@ -7,7 +7,9 @@ Kriter eşlemesi:
   AC12b -> test_pending_order_blocks_deletion
   AC14  -> test_visibility_and_deletion_share_one_classifier
   AC16c -> test_unreadable_quantity_is_not_treated_as_closed,
-           test_broken_record_blocks_deletion
+           test_broken_record_blocks_deletion,
+           test_pending_order_with_unreadable_fields_is_broken (QA F4),
+           test_broken_pending_order_blocks_deletion (QA F4)
   AC17  -> test_build_active_rows_survives_zero_investment (yardımcı işlevin
            kayıtları göstermesini engelleyen bölme hatasına düşmediği)
 """
@@ -125,3 +127,39 @@ def test_build_active_rows_falls_back_to_entry_price():
         [_pos(Giriş=50.0, Adet=2.0, Yatırım=100.0)], lambda coin: 0)
     assert rows[0]["Değer ($)"] == 100.0
     assert total == 100.0
+
+
+# AC16c / QA F4 — Alanları okunamayan bekleyen emir sorunlu sayılır.
+def test_pending_order_with_unreadable_fields_is_broken():
+    # QA reprosu: yalnız Coin ve Status içeren bekleyen kayıt.
+    assert positions.classify_position(
+        {"Coin": "Solana (SOL)", "Status": "PENDING"}) == positions.SORUNLU
+
+    for eksik in ("Giriş", "Adet", "Yatırım"):
+        kayit = _pos(Status="PENDING")
+        del kayit[eksik]
+        assert positions.classify_position(kayit) == positions.SORUNLU, eksik
+
+    kayit = _pos(Status="PENDING", Yatırım="okunamaz")
+    assert positions.classify_position(kayit) == positions.SORUNLU
+
+
+# QA F4 — Aktif kayıtta da tabloda kullanılan alanlar doğrulanır.
+def test_active_position_with_unreadable_amount_is_broken():
+    assert positions.classify_position(_pos(Yatırım="okunamaz")) == positions.SORUNLU
+    assert positions.classify_position(_pos(Giriş=None)) == positions.SORUNLU
+
+
+# QA F4 — Kapanmış kayıt listelenmediği için alan doğrulaması aranmaz.
+def test_closed_position_without_amount_stays_closed():
+    kapali = _pos(Adet=0.0)
+    del kapali["Yatırım"]
+    assert positions.classify_position(kapali) == positions.KAPALI
+
+
+# AC16c / QA F4 — Bozuk bekleyen emir varlığın silinmesini engeller.
+def test_broken_pending_order_blocks_deletion():
+    bozuk = {"Coin": "Bitcoin (BTC)", "Status": "PENDING"}
+    reason = positions.deletion_block_reason("Bitcoin (BTC)", [bozuk])
+    assert reason is not None
+    assert "okunamayan" in reason

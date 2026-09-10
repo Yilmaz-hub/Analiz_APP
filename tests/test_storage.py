@@ -10,6 +10,10 @@ Kriter eşlemesi:
   AC16  -> test_read_error_raises_instead_of_returning_defaults,
            test_records_return_unchanged_after_access_is_restored
   AC18  -> test_records_independent_of_working_directory
+  QA F5 -> test_local_backend_is_not_reported_as_protected,
+           test_remote_backend_is_reported_as_protected,
+           test_broken_secret_is_logged_not_swallowed_silently
+  QA F8 -> test_legacy_file_names_come_from_file_config
 """
 import json
 import os
@@ -195,3 +199,62 @@ def test_records_return_unchanged_after_access_is_restored(store, monkeypatch):
 
     assert portfolio_module.load_portfolio() == HAZIR_PORTFOY
     assert store.check_access()[0] is True
+
+
+# QA F5 — Yerel arka uç "korunuyor" diye gösterilmez.
+def test_local_backend_is_not_reported_as_protected(store):
+    assert store.is_remote_backend() is False
+    assert store.protection_level() == "yerel"
+
+    ok, mesaj = store.check_access()
+    assert ok is True
+    assert "kaybolabilir" in mesaj
+
+
+# QA F5 — Uzak arka uç korunuyor olarak gösterilir.
+def test_remote_backend_is_reported_as_protected(store, monkeypatch):
+    monkeypatch.setenv(store.DB_URL_ENV, "postgresql+psycopg://k:p@host/db")
+    assert store.is_remote_backend() is True
+
+    # Bağlantı kurulamadığında da yerel arka uca sessizce düşülmez.
+    assert store.protection_level() == "erisilemiyor"
+
+
+# QA F5 — Bozuk secret sessizce yutulmaz, loglanır.
+def test_broken_secret_is_logged_not_swallowed_silently(store, monkeypatch, caplog):
+    import streamlit as st
+
+    class BozukSecrets:
+        def __getitem__(self, key):
+            raise RuntimeError("secrets dosyasi bozuk")
+
+    monkeypatch.setattr(st, "secrets", BozukSecrets())
+
+    with caplog.at_level("WARNING"):
+        assert store._secret_db_url() is None
+
+    assert any("secret" in kayit.message.lower() for kayit in caplog.records)
+
+
+# QA F5 — Secret'ın hiç tanımlı olmaması normal durumdur, uyarı üretmez.
+def test_missing_secret_is_quiet(store, monkeypatch, caplog):
+    import streamlit as st
+
+    class BosSecrets:
+        def __getitem__(self, key):
+            raise KeyError(key)
+
+    monkeypatch.setattr(st, "secrets", BosSecrets())
+
+    with caplog.at_level("WARNING"):
+        assert store._secret_db_url() is None
+
+    assert not [k for k in caplog.records if "secret" in k.message.lower()]
+
+
+# QA F8 — Eski dosya adlarının tek gerçek kaynağı FileConfig'tir.
+def test_legacy_file_names_come_from_file_config(store):
+    from config import FileConfig
+
+    assert store.LEGACY_FILES[store.ASSETS_KEY] == FileConfig.LEGACY_ASSETS_FILE
+    assert store.LEGACY_FILES[store.PORTFOLIO_KEY] == FileConfig.LEGACY_PORTFOLIO_FILE

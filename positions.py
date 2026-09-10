@@ -48,15 +48,31 @@ _REASONS = {
 
 def read_quantity(pos):
     """Kalan miktarı sayı olarak döndürür; okunamıyorsa None."""
-    if not isinstance(pos, dict) or _QUANTITY_KEY not in pos:
+    return read_number(pos, _QUANTITY_KEY)
+
+
+def read_number(pos, field):
+    """Sayısal alanı okur; okunamıyorsa None."""
+    if not isinstance(pos, dict) or field not in pos:
         return None
-    raw = pos.get(_QUANTITY_KEY)
+    raw = pos.get(field)
     if isinstance(raw, bool) or raw is None:
         return None
     try:
         return float(raw)
     except (TypeError, ValueError):
         return None
+
+
+def _rendered_fields_readable(pos) -> bool:
+    """Listelenen bir kaydın tabloda kullanılan alanları okunabiliyor mu?
+
+    Aktif ve bekleyen kayıtlar tablolarda `Giriş`, `Adet` ve `Yatırım` ile
+    gösterilir; biri okunamıyorsa kayıt sorunludur. Doğrulama olmadan tek bir
+    bozuk kayıt sayfayı düşürüp **tüm** kayıtları görünmez yapıyordu (QA F4).
+    """
+    return all(read_number(pos, alan) is not None
+               for alan in ("Giriş", "Adet", "Yatırım"))
 
 
 def asset_name(pos):
@@ -83,7 +99,9 @@ def classify_position(pos) -> str:
     status = status.strip().upper()
 
     if status == "PENDING":
-        return BEKLEYEN
+        # Bekleyen emir de tabloda gösterilir; alanları ACTIVE dalıyla
+        # simetrik biçimde doğrulanır (QA F4).
+        return BEKLEYEN if _rendered_fields_readable(pos) else SORUNLU
     if status in _CLOSED_STATUSES:
         return KAPALI
     if status != "ACTIVE":
@@ -92,7 +110,10 @@ def classify_position(pos) -> str:
     quantity = read_quantity(pos)
     if quantity is None or quantity < 0:
         return SORUNLU
-    return KAPALI if quantity == 0 else AKTIF
+    if quantity == 0:
+        # Kapanmış kayıt listelenmez; alan doğrulaması gerekmez.
+        return KAPALI
+    return AKTIF if _rendered_fields_readable(pos) else SORUNLU
 
 
 def group_positions(positions) -> dict[str, list]:

@@ -26,6 +26,10 @@
 > bunun dışındadır), portföy sıfırlaması kapsama alındı (**AC11d**) ve belirsiz/okunamayan
 > pozisyon kayıtlarının kapalı sayılamayacağı **R4.1** olarak yazıldı. AC05b ve AC19
 > tamamlanma şartı olarak korunur. Açık konu kalmadı.
+> **rev. 9:** Uygulama sonrası QA denetiminin bulguları işlendi. Kodda düzeltilenler
+> spec metnini değiştirmez; metne giren iki madde şudur: **eşzamanlı yazma sınırı**
+> (bilinen sınır olarak kısıtlara eklendi, ayrı spec konusu) ve **yayın yetkilendirmesi**
+> (açık konu **P8**). AC05b ve AC19 hâlâ ölçülmedi.
 
 ## Intent
 Varlık yönetimini kullanan kullanıcı, eklediği varlıkları ve aktif pozisyonlarını tekrar eklemek zorunda kalmadan güvenle takip etmek istiyor.
@@ -74,6 +78,12 @@ Geçmişte kaybolmuş kayıtları geri getirmek ve alım-satım ya da analiz kur
   - Uygulamanın sürekli uyanık tutulması.
   - Sahipsiz kalmış pozisyonları temizleyen yeni bir işlev (G13; koruma silme engeliyle sağlanır).
   - Para/yüzde sayı türü dönüşümü (G16; ayrı spec konusu).
+  - Eşzamanlı yazma çakışmasının çözülmesi (bkz. bilinen sınır, rev.9).
+- **Bilinen sınır — eşzamanlı yazma (QA F6, rev.9):** Kayıtlar belge olarak, tek
+  parça hâlinde yazılır ve sürüm denetimi yoktur. Aynı kayıtlar iki oturumda (iki sekme
+  ya da iki cihaz) aynı anda değiştirilirse, sonra yazan öncekinin değişikliğini iz
+  bırakmadan siler. Tek kullanıcılı kullanımda olasılığı düşüktür; V1'de kapsam dışıdır
+  ve **ayrı bir spec konusudur**. Hiçbir kabul kriteri bu durumu kapsamaz.
 - **V1 sınırı (P2, onaylandı — rev.8):** Yeni bir cihaz eşitleme özelliği eklenmez; mevcut erişim korunur. Sunucu tarafındaki kalıcı saklama ihtiyacı bu sınırın dışındadır ve geçerlidir. Mevcut cihazlar arası davranış kaldırılmaz.
 
 ## Context
@@ -101,7 +111,16 @@ Geçmişte kaybolmuş kayıtları geri getirmek ve alım-satım ya da analiz kur
   4. Kullanım sırasında eklenen varlık ve pozisyonlar yalnız yayın ortamının kendi diskine yazılır; ortam yeniden başladığında veya yeniden yayınlandığında 3. adıma dönülür.
   **Durum:** 1. ve 3. adımlar kod üzerinde doğrulanmıştır; 2. ve 4. adımlar yayında ölçülerek kesinleşecektir — doğrulaması **AC19**'dur. Bu madde bir karar değil, PLAN'a girdi olarak bırakılan kanıttır.
   **Sonuç:** Kullanıcının gözlemi ("eklediğim varlıklar kayboluyor, liste eski hâline dönüyor") bu zincirle birebir örtüşmektedir.
-- P1–P7 karara bağlanmıştır (rev.8). Uygulama önünde açık CLARIFY konusu kalmamıştır.
+- **P8 — yayın erişimi (QA F3; onay bekliyor):** Kayıtlar artık kalıcı olduğu için risk
+  profili değişti: eskiden yayının diskindeki kayıtlar yeniden başlatmada siliniyordu,
+  şimdi paylaşılan bir veritabanında kalıcı. Uygulamada kimlik doğrulama yoktur; yayın
+  herkese açıksa adresi bilen herkes portföyü görebilir, pozisyon açabilir, emir iptal
+  edebilir ve sıfırlayabilir — bu değişiklikler artık kalıcıdır.
+  **Öneri:** Yayın herkese açıksa Streamlit'in kendi erişim kısıtlaması (özel uygulama /
+  izleyici listesi) açılsın. **Gerekçe:** Uygulamaya yetki katmanı eklemek bu spec'in
+  kapsamı dışındadır; kalıcı depo koruma sorununu çözerken yetkisiz kalıcı değişiklik
+  yüzeyi açar ve bu yüzey yayın ayarından kapatılabilir.
+- P1–P7 karara bağlanmıştır (rev.8); **P8 onay beklemektedir.**
 
 ## Acceptance Criteria
 > Her satır bağımsız başlangıç koşuluyla doğrulanır; her kriter için ayrı test/kanıt sağlanır.
@@ -139,6 +158,7 @@ Geçmişte kaybolmuş kayıtları geri getirmek ve alım-satım ya da analiz kur
 
 ## Definition of Done
 - [x] P1–P7 için Takım Yöneticisi kararları spec'e işlendi; spec uygulama için onaylandı (rev.8).
+- [ ] **P8 (yayın erişimi) için Takım Yöneticisi kararı alındı** ve gereği yapıldı.
 - [ ] Tüm kabul kriterleri ayrı test/kanıtla karşılandı; uygulanamaz kriter bırakılmadı.
 - [ ] İş davranışı testleri P3 kararına uygun yürütüldü: her kabul kriteri için `tests/` altında en az bir pytest testi yazıldı ve `.github/workflows/tests.yml` ile yeşil geçti.
 - [ ] Her arayüz kriteri için ekran görüntüsü ve kritik ekleme → uyku → yeniden açma akışı için smoke test kanıtı üretildi.
@@ -153,8 +173,8 @@ Geçmişte kaybolmuş kayıtları geri getirmek ve alım-satım ya da analiz kur
 ## SCORECARD
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 8 — rev.1 QA bulguları; rev.2 P4; rev.3 TY bulguları; rev.4 P5; rev.5 P6; rev.6 P7 kanıtı; rev.7 P3; rev.8 P1/P2 + AC11d/R4.1 |
-| Düzeltme turu sayısı | 1 — spec metni üzerinde; geliştirme başlamadı |
-| Bulgu gerçek/gürültü oranı | 17/0 — QA spec incelemesi; tümü onaylandı |
+| Spec revizyon sayısı | 9 — rev.1 QA bulguları; rev.2 P4; rev.3 TY bulguları; rev.4 P5; rev.5 P6; rev.6 P7 kanıtı; rev.7 P3; rev.8 P1/P2 + AC11d/R4.1; rev.9 QA denetimi (F6 sınırı, P8) |
+| Düzeltme turu sayısı | 2 — 1: spec metni; 2: QA kod denetimi sonrası düzeltmeler |
+| Bulgu gerçek/gürültü oranı | 17/0 spec incelemesi + 9/0 kod denetimi (triyajdan geçen) |
 | Regresyon sayısı | Ölçülmedi |
-| Kaçan hata | 3 — QA'nın rev.1'de yazdığı metinde kalıp Takım Yöneticisi tarafından bulundu: AC12c'nin AC11 ile çelişmesi, AC01'in DoD ile çelişmesi, yeniden yayınlama kriterinin eksikliği |
+| Kaçan hata | 3 (spec metni, rev.1) + **5 (kod, Developer)** — QA denetiminde bulundu: F1 yazma koparsa bellekteki değişiklik geri alınmıyor; F2 oturum ortasında kopan erişimde yazan kontroller açık kalıyor; F4 bilgisi eksik bekleyen emir sayfayı düşürüyor; F5 yerel arka uçta yanlış "korunuyor" rozeti; F8 dosya adlarının ikinci gerçek kaynağı |

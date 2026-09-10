@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import copy
 import time
 import requests
 import traceback
@@ -43,30 +44,51 @@ if 'records_loaded' not in st.session_state:
         storage.import_legacy_documents()
         st.session_state['coin_map'] = load_assets()
         st.session_state['portfolio_data'] = load_portfolio()
+        st.session_state['portfolio_snapshot'] = copy.deepcopy(st.session_state['portfolio_data'])
         st.session_state['storage_ok'] = True
         st.session_state['storage_msg'] = storage.check_access()[1]
     except StorageAccessError as e:
         logger.error(f"Records unavailable at startup: {e}")
         st.session_state['coin_map'] = {}
         st.session_state['portfolio_data'] = None
+        st.session_state['portfolio_snapshot'] = None
         st.session_state['storage_ok'] = False
         st.session_state['storage_msg'] = "Kayıtlara şu anda erişilemiyor; değişiklik yapılamaz."
     st.session_state['records_loaded'] = True
 
 
 def safe_save_portfolio():
-    """Portföyü yazar; erişim sorununda kullanıcıya bildirir (AC16b).
+    """Portföyü yazar; başarısızsa bellekteki değişikliği **geri alır**.
+
+    Akışlar önce bellekteki portföyü değiştirip sonra yazıyor. Yazma koparsa
+    kullanıcıya "işlem kaydedilmedi" denip bellek değişmiş bırakılırsa, sonraki
+    başarılı yazma o işlemi kalıcılaştırıyordu (QA F1). Bu yüzden başarısızlıkta
+    son bilinen kayıtlı duruma dönülür.
 
     Teknik hata metni kullanıcıya sızmaz.
     """
     try:
         save_portfolio(st.session_state['portfolio_data'])
-        return True
     except StorageAccessError as e:
         logger.error(f"Portfolio save blocked: {e}")
+        snapshot = st.session_state.get('portfolio_snapshot')
+        if snapshot is not None:
+            st.session_state['portfolio_data'] = copy.deepcopy(snapshot)
         st.session_state['storage_ok'] = False
         st.error("Kayıtlara şu anda erişilemiyor; işlem kaydedilmedi.")
         return False
+    st.session_state['portfolio_snapshot'] = copy.deepcopy(st.session_state['portfolio_data'])
+    return True
+
+
+# --- F2: kayıt yazan kontroller erişim durumuna bağlıdır --------------------
+# Erişim oturumun ortasında koparsa sayfa durmaz; bu yüzden her çalıştırmada
+# durum yeniden ölçülür ve yazan kontroller kapatılır.
+if st.session_state.get('records_loaded'):
+    _erisim_ok, _erisim_msg = storage.check_access()
+    st.session_state['storage_ok'] = _erisim_ok
+    st.session_state['storage_msg'] = _erisim_msg
+records_writable = st.session_state.get('storage_ok', True)
 
 # --- ARAYÜZ (SIDEBAR) ---
 tg_token, tg_chat = render_sidebar_settings()
@@ -460,7 +482,7 @@ if is_chart_renderable(df_view):
         atr_val = current_atr if 'current_atr' in locals() else entry_price*0.02
         st.caption(f"Stop Önerisi: ${(entry_price - atr_val * 1.5):.2f}")
 
-        if st.button("➕ Emri Gir / Ekle"):
+        if st.button("➕ Emri Gir / Ekle", disabled=not records_writable):
             is_valid, risk_msg = validate_portfolio_risk(investment, current_balance, st.session_state['portfolio_data']['positions'])
             if not is_valid: st.error(risk_msg)
             else:
@@ -474,21 +496,24 @@ if is_chart_renderable(df_view):
                         "Coin": sel_c, "Giriş": entry_price, "Adet": investment / entry_price,
                         "Yatırım": investment, "Realized": 0.0, "Status": "PENDING" if is_limit else "ACTIVE", "Tarih": time.strftime("%Y-%m-%d")
                     })
-                    safe_save_portfolio()
-                    st.success("Limit Emir Girildi! Fiyat bekleniyor..." if is_limit else "Pozisyon Açıldı!")
-                    time.sleep(1)
-                    st.rerun()
+                    if safe_save_portfolio():
+                        st.success("Limit Emir Girildi! Fiyat bekleniyor..." if is_limit else "Pozisyon Açıldı!")
+                        time.sleep(1)
+                        st.rerun()
 
         st.write("---") 
         with st.expander("💳 Cüzdan Bakiyesi Düzenle"):
             new_balance_input = st.number_input("Güncel USDT Bakiyesi", value=float(current_balance), step=100.0)
-            if st.button("Bakiyeyi Güncelle"):
+            if st.button("Bakiyeyi Güncelle", disabled=not records_writable):
                 st.session_state['portfolio_data']['balance'] = new_balance_input
-                safe_save_portfolio()
-                st.success("Bakiye güncellendi!"); time.sleep(0.5); st.rerun()
+                if safe_save_portfolio():
+                    st.success("Bakiye güncellendi!"); time.sleep(0.5); st.rerun()
 
     with col_wallet:
         st.subheader("💰 Varlıklarım")
+        if not records_writable:
+            st.error("⚠️ Kayıtlara şu anda erişilemiyor; kayıt değiştiren işlemler kapalı. "
+                     "Kayıtlarınız silinmedi.")
         positions = st.session_state['portfolio_data']['positions']
         total_active_value = 0.0 
         
@@ -522,15 +547,15 @@ if is_chart_renderable(df_view):
                         sell_amt = target_pos['Adet'] * (sell_pct / 100)
                         total_return = sell_amt * sell_price
                         st.write(f"**Gelecek Nakit:** ${total_return:,.2f}")
-                        if st.button("Satışı Onayla"):
+                        if st.button("Satışı Onayla", disabled=not records_writable):
                             st.session_state['portfolio_data']['balance'] += total_return
                             cost_basis = float(target_pos.get('Giriş', 0.0)) * float(sell_amt)
                             target_pos['Adet'] = float(target_pos.get('Adet', 0.0)) - float(sell_amt)
                             target_pos['Yatırım'] = float(target_pos.get('Yatırım', 0.0)) - cost_basis
                             target_pos['Realized'] = float(target_pos.get('Realized', 0.0)) + float(total_return - cost_basis)
-                            safe_save_portfolio()
-                            st.success("Satış gerçekleşti!")
-                            st.rerun()
+                            if safe_save_portfolio():
+                                st.success("Satış gerçekleşti!")
+                                st.rerun()
 
                 active_data, total_active_value = build_active_rows(
                     active_pos,
@@ -558,23 +583,25 @@ if is_chart_renderable(df_view):
                     if target_pending:
                         c_man1, c_man2, c_man3 = st.columns(3)
                         with c_man1:
-                            if st.button("❌ İptal Et"):
+                            if st.button("❌ İptal Et", disabled=not records_writable):
                                 st.session_state['portfolio_data']['balance'] += target_pending['Yatırım']
                                 st.session_state['portfolio_data']['positions'].remove(target_pending)
-                                safe_save_portfolio()
-                                st.success("Emir iptal edildi.")
-                                time.sleep(1); st.rerun()
+                                if safe_save_portfolio():
+                                    st.success("Emir iptal edildi.")
+                                    time.sleep(1); st.rerun()
                         with c_man2:
                             new_limit_price = st.number_input("Yeni Hedef Fiyat", value=float(target_pending['Giriş']), format="%.4f")
-                            if st.button("✏️ Güncelle") and new_limit_price > 0:
+                            if st.button("✏️ Güncelle", disabled=not records_writable) and new_limit_price > 0:
                                 target_pending['Giriş'] = new_limit_price
                                 target_pending['Adet'] = target_pending['Yatırım'] / new_limit_price
-                                safe_save_portfolio()
-                                st.success("Fiyat güncellendi.")
-                                time.sleep(1); st.rerun()
+                                if safe_save_portfolio():
+                                    st.success("Fiyat güncellendi.")
+                                    time.sleep(1); st.rerun()
                         with c_man3:
-                            if st.button("🚀 Başlat"):
-                                target_pending['Status'] = 'ACTIVE'; safe_save_portfolio(); st.rerun()
+                            if st.button("🚀 Başlat", disabled=not records_writable):
+                                target_pending['Status'] = 'ACTIVE'
+                                if safe_save_portfolio():
+                                    st.rerun()
 
             st.divider()
             total_equity = current_balance + total_active_value + sum([p['Yatırım'] for p in pending_pos])
@@ -584,8 +611,9 @@ if is_chart_renderable(df_view):
             m3.metric("🏆 TOPLAM VARLIK", f"${total_equity:,.2f}")
             # Sıfırlama birden çok kaydı birden kaldırdığı için ayrıca onay ister
             # ve engelleyici kayıt varken çalışmaz (spec 0004, AC11d).
-            reset_confirmed = st.checkbox("Portföyü sıfırlamayı onaylıyorum", key="pf_reset_ok")
-            if st.button("🗑️ Portföyü Sıfırla"):
+            reset_confirmed = st.checkbox("Portföyü sıfırlamayı onaylıyorum", key="pf_reset_ok",
+                                          disabled=not records_writable)
+            if st.button("🗑️ Portföyü Sıfırla", disabled=not records_writable):
                 ok, msg, new_pf = reset_portfolio(st.session_state['portfolio_data'], reset_confirmed)
                 if ok:
                     st.session_state['portfolio_data'] = new_pf
