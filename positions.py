@@ -150,3 +150,42 @@ def reset_block_reason(positions):
         f"Sıfırlama yapılamaz: portföyde {listed} bulunuyor. "
         "Bu kayıtlar korunuyor."
     )
+
+
+def build_active_rows(active_positions, price_lookup):
+    """Aktif pozisyon tablosunun satırlarını ve toplam değerini üretir.
+
+    `price_lookup(coin)` canlı fiyatı verir; fiyat alınamazsa (0) giriş fiyatı
+    kullanılır. Yatırım tutarı sıfır ya da okunamaz olduğunda yüzde hesabı
+    yapılmaz — bir bölme hatası tüm kayıtların görünmesini engellerdi.
+
+    Kayıtların okunmasından listenin görünmesine kadar geçen yol AC17'de
+    ölçülür; bu işlev o ölçümün arayüzden bağımsız durağıdır.
+    """
+    rows, total = [], 0.0
+    for item in active_positions:
+        quantity = read_quantity(item) or 0.0
+        entry = item.get("Giriş", 0.0)
+        price = price_lookup(item.get("Coin"))
+        try:
+            price = float(price)
+        except (TypeError, ValueError):
+            price = 0.0
+        if price == 0:
+            try:
+                price = float(entry)
+            except (TypeError, ValueError):
+                price = 0.0
+        value = quantity * price
+        total += value
+        try:
+            invested = float(item.get("Yatırım", 0.0))
+        except (TypeError, ValueError):
+            invested = 0.0
+        profit = value - invested
+        pct = f"%{(profit / invested) * 100:.2f}" if invested else "-"
+        rows.append({
+            "Coin": item.get("Coin"), "Giriş": entry, "Adet": item.get("Adet"),
+            "Değer ($)": value, "Kar/Zarar ($)": profit, "Kar/Zarar (%)": pct,
+        })
+    return rows, total

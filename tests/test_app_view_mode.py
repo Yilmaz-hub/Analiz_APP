@@ -15,6 +15,16 @@ import data_fetchers
 APP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app.py")
 
 
+@pytest.fixture(autouse=True)
+def _kayitli_varlik(store):
+    """Bu dosyadaki testler grafik davranışını ölçer; kayıt gerektirir.
+
+    Kayıt yokken uygulama boş durumu gösterip durur (spec 0004, AC07), bu
+    yüzden başlangıç durumu olarak tek bir varlık yazılır.
+    """
+    store.write_doc(store.ASSETS_KEY, {"Bitcoin (BTC)": "BTC-USD"})
+
+
 def _make_app(monkeypatch, gmd):
     """Build an AppTest for app.py with the network sources mocked.
 

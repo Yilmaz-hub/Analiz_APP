@@ -21,7 +21,7 @@ from ui_components import (render_sidebar_settings, render_asset_management, ren
 from scanner import render_opportunity_scanner
 from data_fetchers import get_live_price_for_portfolio
 from signal_engine import generate_stable_signal, CompositeSignal
-from positions import (group_positions, asset_name as position_asset_name,
+from positions import (group_positions, build_active_rows, asset_name as position_asset_name,
                        AKTIF as POS_AKTIF, BEKLEYEN as POS_BEKLEYEN,
                        SORUNLU as POS_SORUNLU)
 from weight_profiles import get_weights_for_symbol
@@ -532,17 +532,10 @@ if is_chart_renderable(df_view):
                             st.success("Satış gerçekleşti!")
                             st.rerun()
 
-                active_data = []
-                for item in active_pos:
-                    if item['Adet'] > 0:
-                        lp = curr if item['Coin'] == sel_c else get_live_price_for_portfolio(item['Coin'], st.session_state['coin_map'])
-                        if lp == 0: lp = item['Giriş']
-                        val = float(str(item.get('Adet', '0.0'))) * float(str(lp))
-                        total_active_value = float(str(total_active_value)) + val
-                        active_data.append({
-                            "Coin": item['Coin'], "Giriş": item['Giriş'], "Adet": item['Adet'],
-                            "Değer ($)": val, "Kar/Zarar ($)": val - item['Yatırım'], "Kar/Zarar (%)": f"%{((val - item['Yatırım']) / item['Yatırım']) * 100:.2f}"
-                        })
+                active_data, total_active_value = build_active_rows(
+                    active_pos,
+                    lambda coin: curr if coin == sel_c else get_live_price_for_portfolio(coin, st.session_state['coin_map']),
+                )
                 if active_data: st.dataframe(pd.DataFrame(active_data), width="stretch")
 
             if pending_pos:
