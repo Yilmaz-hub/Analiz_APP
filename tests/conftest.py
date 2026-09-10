@@ -71,8 +71,18 @@ def store(tmp_path, monkeypatch):
     monkeypatch.delenv(storage.DB_URL_ENV, raising=False)
     monkeypatch.setattr(storage, "legacy_search_dirs", lambda: [legacy_dir])
     storage.reset_engine()
-    yield storage
-    storage.reset_engine()
+
+    # Erişim kopmasını taklit eden testler modül işlevlerini elle değiştiriyor;
+    # bir iddia düşerse geri alma atlanabilir ve kırık işlev sonraki testlere
+    # sızar. Emniyet ağı: her testten sonra özgün işlevler geri konur.
+    korunan = {ad: getattr(storage, ad)
+               for ad in ("read_doc", "write_doc", "ping", "get_engine")}
+    try:
+        yield storage
+    finally:
+        for ad, fn in korunan.items():
+            setattr(storage, ad, fn)
+        storage.reset_engine()
 
 
 @pytest.fixture

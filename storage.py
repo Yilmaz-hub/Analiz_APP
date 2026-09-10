@@ -206,13 +206,31 @@ def write_doc(key: str, payload) -> None:
         raise StorageAccessError("Kayıtlar yazılamadı.") from exc
 
 
+def ping() -> None:
+    """Depoya en ucuz erişim yoklaması; erişilemiyorsa hata yükseltir.
+
+    Arayüz her yeniden çalıştırmada erişimi yokluyor. Bunun için belgenin
+    tamamını okumak, uzak veritabanında her tıklamada gereksiz bir tam kayıt
+    aktarımı demekti (QA gözlemi); tek satırlık bir sorgu yeterlidir.
+    """
+    from sqlalchemy import text
+
+    engine = get_engine()
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        logger.error(f"Storage ping error: {exc}")
+        raise StorageAccessError("Kayıtlara erişilemedi.") from exc
+
+
 def check_access() -> tuple[bool, str]:
     """(erişilebilir mi, kullanıcıya gösterilecek metin).
 
     Teknik hata metni kullanıcıya sızmaz (conventions: Hata Yönetimi).
     """
     try:
-        read_doc(ASSETS_KEY)
+        ping()
     except StorageAccessError:
         return False, "Kayıtlara şu anda erişilemiyor; değişiklik yapılamaz."
     if is_remote_backend():

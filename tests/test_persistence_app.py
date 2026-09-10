@@ -17,6 +17,7 @@ Kriter eşlemesi:
            test_write_controls_are_disabled_when_access_breaks_mid_session (QA F2),
            test_failed_write_is_rolled_back_in_memory (QA F1),
            test_failed_write_does_not_become_permanent_later (QA F1)
+  R4    -> test_auto_close_is_not_rolled_back_by_a_failed_write (QA F10)
   AC16c -> test_broken_record_is_shown_and_kept
   R8.2  -> test_unknown_asset_does_not_show_another_assets_data
 """
@@ -235,23 +236,28 @@ def test_unknown_asset_does_not_show_another_assets_data(store, monkeypatch, pro
     assert "bulunamadı" in metin or "Ethereum" in str(_instrument_options(at))
 
 
+#: Depoya erişimin geçtiği tüm giriş noktaları — biri açık bırakılırsa
+#: "erişim koptu" senaryosu eksik taklit edilir.
+_DEPO_GIRISLERI = ("read_doc", "write_doc", "ping", "get_engine")
+
+
 def _break_storage(store):
     """Depoyu erişilemez yapar; geri alma işlevini döndürür.
 
     monkeypatch yerine elle geri alınır: fixture'ın kendi yamaları (veri
     klasörü) testin ortasında geri alınmamalıdır.
     """
-    gercek_read, gercek_write = store.read_doc, store.write_doc
+    gercek = {ad: getattr(store, ad) for ad in _DEPO_GIRISLERI}
 
     def kirik(*a, **k):
         raise store.StorageAccessError("test")
 
-    store.read_doc = kirik
-    store.write_doc = kirik
+    for ad in _DEPO_GIRISLERI:
+        setattr(store, ad, kirik)
 
     def geri_al():
-        store.read_doc = gercek_read
-        store.write_doc = gercek_write
+        for ad, fn in gercek.items():
+            setattr(store, ad, fn)
 
     return geri_al
 
@@ -263,17 +269,19 @@ def test_access_problem_is_shown_to_user(store, monkeypatch, processed_df):
 
     at = _make_app(monkeypatch, processed_df)
     geri_al = _break_storage(store)
-    at.run()
+    try:
+        at.run()
 
-    assert not at.exception
-    metin = _texts(at)
-    assert "erişilemiyor" in metin
-    assert "silinmedi" in metin
-    # Teknik hata metni sızmaz.
-    assert "Traceback" not in metin and "StorageAccessError" not in metin
+        assert not at.exception
+        metin = _texts(at)
+        assert "erişilemiyor" in metin
+        assert "silinmedi" in metin
+        # Teknik hata metni sızmaz.
+        assert "Traceback" not in metin and "StorageAccessError" not in metin
+    finally:
+        geri_al()
 
     # Erişim düzeldiğinde kayıtlar önceki bilgileriyle bulunur.
-    geri_al()
     store.reset_engine()
     at2 = _make_app(monkeypatch, processed_df).run()
     assert set(_instrument_options(at2)) == set(VARLIKLAR)
@@ -288,14 +296,16 @@ def test_no_write_controls_while_access_is_broken(store, monkeypatch, processed_
 
     at = _make_app(monkeypatch, processed_df)
     geri_al = _break_storage(store)
-    at.run()
+    try:
+        at.run()
 
-    etiketler = [b.label for b in at.button]
-    for yasak in ("Listeye Ekle", "Seçileni Sil", "🔄 Varsayılan Listeyi Yükle",
-                  "🗑️ Portföyü Sıfırla", "➕ Emri Gir / Ekle"):
-        assert yasak not in etiketler
+        etiketler = [b.label for b in at.button]
+        for yasak in ("Listeye Ekle", "Seçileni Sil", "🔄 Varsayılan Listeyi Yükle",
+                      "🗑️ Portföyü Sıfırla", "➕ Emri Gir / Ekle"):
+            assert yasak not in etiketler
+    finally:
+        geri_al()
 
-    geri_al()
     store.reset_engine()
     assert _stored(store) == onceki
 
@@ -406,3 +416,56 @@ def test_write_controls_are_disabled_when_access_breaks_mid_session(store, monke
 
     store.reset_engine()
     assert store.read_doc(store.PORTFOLIO_KEY) == EMIRLI_PORTFOY
+
+
+# TP'ye ulaşınca otomatik kapanacak, her iki anahtar kümesini de taşıyan kayıt
+# (içeri alınmış eski kayıtlarda görülen biçim).
+TP_POZISYONU = {
+    "Coin": "Bitcoin (BTC)", "Giriş": 100.0, "Giris": 100.0,
+    "Adet": 2.0, "Miktar": 2.0, "Yatırım": 200.0, "Realized": 0.0,
+    "Status": "ACTIVE", "TP": 150.0, "SL": 50.0, "Tarih": "2025-12-01",
+}
+
+
+# R4 / QA F10 — Otomatik kapanış, sonraki bir geri almayla silinmez.
+def test_auto_close_is_not_rolled_back_by_a_failed_write(store, monkeypatch, processed_df):
+    store.write_doc(store.ASSETS_KEY, VARLIKLAR)
+    store.write_doc(store.PORTFOLIO_KEY,
+                    {"balance": 500.0, "positions": [dict(TP_POZISYONU)]})
+
+    # Canlı fiyat TP'nin üstünde: otomatik kapatma tetiklenir.
+    monkeypatch.setattr(data_fetchers, "get_live_price_for_portfolio",
+                        lambda *a, **k: 200.0)
+
+    at = _make_app(monkeypatch, processed_df).run()
+    assert not at.exception
+    kapanmis = store.read_doc(store.PORTFOLIO_KEY)
+    assert kapanmis["positions"][0]["Status"] == "CLOSED_TP", "otomatik kapanma tetiklenmedi"
+    kapanis_bakiyesi = kapanmis["balance"]
+
+    # Kullanıcı bir işlem yapıyor ve yazma kopuyor -> bellek geri alınır.
+    geri_al = _break_writes_only(store)
+    try:
+        bakiye_girisi = next(n for n in at.number_input
+                             if n.label == "Güncel USDT Bakiyesi")
+        bakiye_girisi.set_value(999.0)
+        _click(at, "Bakiyeyi Güncelle")
+    finally:
+        geri_al()
+
+    assert "kaydedilmedi" in _texts(at)
+    # Geri alma otomatik kapanışı silmemeli: bellek hâlâ kapanmış durumda.
+    bellek = at.session_state["portfolio_data"]
+    assert bellek["positions"][0]["Status"] == "CLOSED_TP"
+    assert bellek["balance"] == kapanis_bakiyesi
+
+    # Erişim düzeldi, kullanıcı başka bir işlem yaptı: kapanış depoda kalmalı.
+    at.run()
+    bakiye_girisi = next(n for n in at.number_input
+                         if n.label == "Güncel USDT Bakiyesi")
+    bakiye_girisi.set_value(1234.0)
+    _click(at, "Bakiyeyi Güncelle")
+
+    kayitli = store.read_doc(store.PORTFOLIO_KEY)
+    assert kayitli["positions"][0]["Status"] == "CLOSED_TP"
+    assert kayitli["balance"] == 1234.0

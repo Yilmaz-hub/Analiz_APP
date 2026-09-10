@@ -77,8 +77,19 @@ def safe_save_portfolio():
         st.session_state['storage_ok'] = False
         st.error("Kayıtlara şu anda erişilemiyor; işlem kaydedilmedi.")
         return False
-    st.session_state['portfolio_snapshot'] = copy.deepcopy(st.session_state['portfolio_data'])
+    remember_saved_portfolio()
     return True
+
+
+def remember_saved_portfolio():
+    """Bellekteki portföyü "son kayıtlı durum" olarak işaretler.
+
+    Geri alma bu anlık görüntüye döner. Portföyü **diske yazan her yol** bunu
+    çağırmak zorundadır; otomatik kapatma kendi içinden yazdığı için (bkz.
+    `portfolio.check_active_positions_auto_close`) anlık görüntü bayat kalıyor
+    ve ilk başarısız yazmada meşru bir kapanış geri alınıyordu (QA F10).
+    """
+    st.session_state['portfolio_snapshot'] = copy.deepcopy(st.session_state['portfolio_data'])
 
 
 # --- F2: kayıt yazan kontroller erişim durumuna bağlıdır --------------------
@@ -645,6 +656,9 @@ if st.session_state.get('portfolio_data') and st.session_state.get('storage_ok',
         st.session_state['storage_ok'] = False
         closed_count, closed_trades = 0, []
     if closed_count > 0:
+        # Otomatik kapatma depoya kendi yazdı; anlık görüntü tazelenmezse bu
+        # meşru değişiklik sonraki bir geri almada silinir (QA F10).
+        remember_saved_portfolio()
         st.toast(f"🔔 {closed_count} pozisyon otomatik kapandı!", icon="✅")
         for trade in closed_trades:
             emoji = "✅" if trade['profit'] > 0 else "❌"

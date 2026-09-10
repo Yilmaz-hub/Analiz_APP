@@ -14,6 +14,7 @@ Kriter eşlemesi:
            test_remote_backend_is_reported_as_protected,
            test_broken_secret_is_logged_not_swallowed_silently
   QA F8 -> test_legacy_file_names_come_from_file_config
+  QA    -> test_access_check_does_not_read_whole_documents
 """
 import json
 import os
@@ -258,3 +259,30 @@ def test_legacy_file_names_come_from_file_config(store):
 
     assert store.LEGACY_FILES[store.ASSETS_KEY] == FileConfig.LEGACY_ASSETS_FILE
     assert store.LEGACY_FILES[store.PORTFOLIO_KEY] == FileConfig.LEGACY_PORTFOLIO_FILE
+
+
+# QA gözlemi — Erişim yoklaması belgenin tamamını okumaz.
+def test_access_check_does_not_read_whole_documents(store, monkeypatch):
+    store.write_doc(store.ASSETS_KEY, HAZIR_VARLIKLAR)
+
+    okumalar = []
+    gercek_read = store.read_doc
+
+    def sayan_read(key):
+        okumalar.append(key)
+        return gercek_read(key)
+
+    monkeypatch.setattr(store, "read_doc", sayan_read)
+
+    ok, _ = store.check_access()
+
+    assert ok is True
+    assert okumalar == [], "erişim yoklaması belge okudu"
+
+
+# QA gözlemi — Yoklama erişim koptuğunda hata yükseltir.
+def test_ping_raises_when_storage_is_unreachable(store, monkeypatch):
+    monkeypatch.setattr(store, "get_engine",
+                        lambda: (_ for _ in ()).throw(store.StorageAccessError("test")))
+    with pytest.raises(store.StorageAccessError):
+        store.ping()

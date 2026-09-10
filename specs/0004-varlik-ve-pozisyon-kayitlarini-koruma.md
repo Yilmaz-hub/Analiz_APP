@@ -30,6 +30,10 @@
 > spec metnini değiştirmez; metne giren iki madde şudur: **eşzamanlı yazma sınırı**
 > (bilinen sınır olarak kısıtlara eklendi, ayrı spec konusu) ve **yayın yetkilendirmesi**
 > (açık konu **P8**). AC05b ve AC19 hâlâ ölçülmedi.
+> **rev. 10:** İkinci QA turu — F10 (otomatik kapanışın geri alınabilmesi) kodda
+> düzeltildi; **F11** (otomatik kapatmanın yanlış anahtarları okuması) bu işin kapsamı
+> dışında bir mevcut kusur olarak kayda geçti ve ayrı spec önerildi. AC05b, AC19 (F7) ve
+> AC17'nin dar kapsamı (F9) açık kalmaya devam ediyor.
 
 ## Intent
 Varlık yönetimini kullanan kullanıcı, eklediği varlıkları ve aktif pozisyonlarını tekrar eklemek zorunda kalmadan güvenle takip etmek istiyor.
@@ -79,6 +83,16 @@ Geçmişte kaybolmuş kayıtları geri getirmek ve alım-satım ya da analiz kur
   - Sahipsiz kalmış pozisyonları temizleyen yeni bir işlev (G13; koruma silme engeliyle sağlanır).
   - Para/yüzde sayı türü dönüşümü (G16; ayrı spec konusu).
   - Eşzamanlı yazma çakışmasının çözülmesi (bkz. bilinen sınır, rev.9).
+- **Mevcut kusur — otomatik kapatma çalışmıyor (QA F11, rev.10; KAPSAM DIŞI):**
+  Otomatik kapatma kayıttan `Giris` ve `Miktar` anahtarlarını okuyor, arayüz ise
+  pozisyonu `Giriş` ve `Adet` anahtarlarıyla yazıyor; ayrıca arayüz pozisyona TP/SL hiç
+  yazmıyor. Sonuç: **arayüzün ürettiği hiçbir pozisyonda otomatik kapatma çalışmıyor**;
+  TP/SL taşıyan bir kayıt geldiğinde ise hesap hatalı sonuç veriyor. Bu, bu işten önce
+  de var olan bir kusurdur ve "otomatik pozisyon kapatma kurallarının değiştirilmesi"
+  KAPSAM DIŞI olduğu için burada düzeltilmemiştir. Bu spec'in kriterleri otomatik
+  kapanmanın tetiklenmemesi üzerine kurulu olduğundan (AC önsözü, G08) bu iş
+  etkilenmez. **Öneri:** ayrı bir spec açılsın; gerekçe, kullanıcı TP/SL koyduğunu
+  sanıp korunmuyor olabilir. Karar Takım Yöneticisinindir.
 - **Bilinen sınır — eşzamanlı yazma (QA F6, rev.9):** Kayıtlar belge olarak, tek
   parça hâlinde yazılır ve sürüm denetimi yoktur. Aynı kayıtlar iki oturumda (iki sekme
   ya da iki cihaz) aynı anda değiştirilirse, sonra yazan öncekinin değişikliğini iz
@@ -178,8 +192,8 @@ Geçmişte kaybolmuş kayıtları geri getirmek ve alım-satım ya da analiz kur
 ## SCORECARD
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 9 — rev.1 QA bulguları; rev.2 P4; rev.3 TY bulguları; rev.4 P5; rev.5 P6; rev.6 P7 kanıtı; rev.7 P3; rev.8 P1/P2 + AC11d/R4.1; rev.9 QA denetimi (F6 sınırı, P8) |
-| Düzeltme turu sayısı | 2 — 1: spec metni; 2: QA kod denetimi sonrası düzeltmeler |
-| Bulgu gerçek/gürültü oranı | 17/0 spec incelemesi + 9/0 kod denetimi (triyajdan geçen) |
+| Spec revizyon sayısı | 10 — rev.1 QA bulguları; rev.2 P4; rev.3 TY bulguları; rev.4 P5; rev.5 P6; rev.6 P7 kanıtı; rev.7 P3; rev.8 P1/P2 + AC11d/R4.1; rev.9 QA denetimi (F6 sınırı, P8); rev.10 ikinci QA turu (F10/F11) |
+| Düzeltme turu sayısı | 3 — 1: spec metni; 2 ve 3: QA kod denetimleri sonrası düzeltmeler |
+| Bulgu gerçek/gürültü oranı | 17/0 spec incelemesi + 9/0 ve 2/0 kod denetimleri (triyajdan geçen) |
 | Regresyon sayısı | Ölçülmedi |
-| Kaçan hata | 3 (spec metni, rev.1) + **5 (kod, Developer)** — QA denetiminde bulundu: F1 yazma koparsa bellekteki değişiklik geri alınmıyor; F2 oturum ortasında kopan erişimde yazan kontroller açık kalıyor; F4 bilgisi eksik bekleyen emir sayfayı düşürüyor; F5 yerel arka uçta yanlış "korunuyor" rozeti; F8 dosya adlarının ikinci gerçek kaynağı |
+| Kaçan hata | 3 (spec metni, rev.1) + **5 (kod, Developer)** — QA denetiminde bulundu: F1 yazma koparsa bellekteki değişiklik geri alınmıyor; F2 oturum ortasında kopan erişimde yazan kontroller açık kalıyor; F4 bilgisi eksik bekleyen emir sayfayı düşürüyor; F5 yerel arka uçta yanlış "korunuyor" rozeti; F8 dosya adlarının ikinci gerçek kaynağı. **+1 (2. tur):** F10 — F1 düzeltmesinin kendi açtığı kusur: otomatik kapanış sonrası anlık görüntü tazelenmediği için meşru kapanış geri alınabiliyordu |
