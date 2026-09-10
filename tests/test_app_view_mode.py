@@ -11,6 +11,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 import data_fetchers
+from conftest import make_ohlcv
 
 APP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app.py")
 
@@ -23,6 +24,22 @@ def _kayitli_varlik(store):
     yüzden başlangıç durumu olarak tek bir varlık yazılır.
     """
     store.write_doc(store.ASSETS_KEY, {"Bitcoin (BTC)": "BTC-USD"})
+
+
+@pytest.fixture
+def app_processed_df():
+    """App-shell fixture without the environment-heavy pandas_ta import."""
+    frame = make_ohlcv(segments=[(220, 0.001)])
+    frame["RSI"] = 50.0
+    frame["ADX"] = 25.0
+    frame["ATR"] = frame["Close"] * 0.02
+    frame["EMA_20"] = frame["Close"].ewm(span=20).mean()
+    frame["EMA_50"] = frame["Close"].ewm(span=50).mean()
+    frame["MACD"] = 0.0
+    frame["MACD_Signal"] = 0.0
+    frame["BB_Lower"] = frame["Close"] * 0.98
+    frame["BB_Upper"] = frame["Close"] * 1.02
+    return frame
 
 
 def _make_app(monkeypatch, gmd):
@@ -41,8 +58,8 @@ def _all_texts(element_list):
 
 
 # C1 / BULGU-6 — Mod kontrolü var, iki seçenek sunuyor, varsayılan Masaüstü.
-def test_view_mode_control_present_with_two_options(monkeypatch, processed_df):
-    at = _make_app(monkeypatch, lambda *a, **k: (processed_df, "Binance")).run()
+def test_view_mode_control_present_with_two_options(monkeypatch, app_processed_df):
+    at = _make_app(monkeypatch, lambda *a, **k: (app_processed_df, "Binance")).run()
     assert not at.exception
     assert len(at.segmented_control) == 1
     sc = at.segmented_control[0]
@@ -51,15 +68,15 @@ def test_view_mode_control_present_with_two_options(monkeypatch, processed_df):
 
 
 # BULGU-3 — Kontrol required: aktif segmente ikinci dokunuş modu düşüremez.
-def test_view_mode_control_is_required(monkeypatch, processed_df):
-    at = _make_app(monkeypatch, lambda *a, **k: (processed_df, "Binance")).run()
+def test_view_mode_control_is_required(monkeypatch, app_processed_df):
+    at = _make_app(monkeypatch, lambda *a, **k: (app_processed_df, "Binance")).run()
     assert at.segmented_control[0].proto.required is True
 
 
 # C9 / BULGU-6 — Oturum kalıcılığı: Mobil seçilip başka bir kontrol
 # kullanıldığında (rerun) mod Mobil kalır, varsayılana dönmez.
-def test_view_mode_persists_across_unrelated_rerun(monkeypatch, processed_df):
-    at = _make_app(monkeypatch, lambda *a, **k: (processed_df, "Binance")).run()
+def test_view_mode_persists_across_unrelated_rerun(monkeypatch, app_processed_df):
+    at = _make_app(monkeypatch, lambda *a, **k: (app_processed_df, "Binance")).run()
     at.segmented_control[0].set_value("Mobil").run()
     assert at.session_state["view_mode"] == "Mobil"
     # Alakasız bir kontrolü değiştir -> yeni rerun.
@@ -68,7 +85,7 @@ def test_view_mode_persists_across_unrelated_rerun(monkeypatch, processed_df):
 
 
 # C-Hata / BULGU-4 — Fetch hatası kırmızı hata mesajı gösterir (boş durum değil).
-def test_error_state_shows_connection_message(monkeypatch, processed_df):
+def test_error_state_shows_connection_message(monkeypatch, app_processed_df):
     at = _make_app(monkeypatch, lambda *a, **k: (None, "Veri Alınamadı")).run()
     assert not at.exception
     assert "Veri alınamadı" in _all_texts(at.error)
@@ -76,7 +93,7 @@ def test_error_state_shows_connection_message(monkeypatch, processed_df):
 
 
 # C-Boş / BULGU-4 — Gerçekten veri yoksa mavi bilgi kutusu (hata değil).
-def test_empty_state_shows_no_data_message(monkeypatch, processed_df):
+def test_empty_state_shows_no_data_message(monkeypatch, app_processed_df):
     at = _make_app(monkeypatch, lambda *a, **k: (None, "Veri Yok (Yahoo)")).run()
     assert not at.exception
     assert "gösterilecek veri yok" in _all_texts(at.info)

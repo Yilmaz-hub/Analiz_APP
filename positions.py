@@ -27,7 +27,9 @@ SORUNLU = "sorunlu"
 #: Varlığın silinmesini engelleyen sınıflar — öncelik sırasıyla.
 ENGELLEYEN = (AKTIF, BEKLEYEN, SORUNLU)
 
-_CLOSED_STATUSES = ("CLOSED_TP", "CLOSED_SL", "CLOSED")
+#: Kapanış bildiren durumlar. `CLOSED_CONFIRMED` spec 0003'ün kullanıcı
+#: satışından gelir.
+_CLOSED_STATUSES = ("CLOSED_TP", "CLOSED_SL", "CLOSED", "CLOSED_CONFIRMED")
 _QUANTITY_KEY = "Adet"
 
 _REASONS = {
@@ -103,6 +105,14 @@ def classify_position(pos) -> str:
         # simetrik biçimde doğrulanır (QA F4).
         return BEKLEYEN if _rendered_fields_readable(pos) else SORUNLU
     if status in _CLOSED_STATUSES:
+        # Kalan miktar durumun önündedir (spec 0004, G01: aktif pozisyon =
+        # kalan miktarı sıfırdan büyük olan). Spec 0003'ün satış akışı kısmi
+        # satışta da CLOSED_CONFIRMED yazıyor; miktarı bitmemiş bir kayıt
+        # kapanmış sayılıp silinebilir hale gelemez (AC09).
+        kalan = read_quantity(pos)
+        if kalan is not None and kalan > 0:
+            return AKTIF if _rendered_fields_readable(pos) else SORUNLU
+        # Miktarı hiç yazılmamış kapanış kayıtları geçmiş kayıtlardır.
         return KAPALI
     if status != "ACTIVE":
         return SORUNLU

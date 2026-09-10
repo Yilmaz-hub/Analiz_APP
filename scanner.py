@@ -1,8 +1,10 @@
 import streamlit as st
 import pandas as pd
 import time
+from datetime import datetime, timezone
 from data_fetchers import get_market_data
-from signal_engine import generate_stable_signal
+from signal_engine import generate_stable_signal, generate_validated_signal
+from market_validation import policy_for_symbol, validate_market_data
 from weight_profiles import get_weights_for_symbol
 from technical_analysis import calculate_regime_score
 from config import RegimeConfig, SizingConfig
@@ -27,8 +29,10 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
         st.info("Karar Motoru ile tüm varlıkları tarar. Sonuçlar Fırsat Puanı'na göre sıralanır: sinyal gücü + trend rejimi. Strateji trendli varlıklarda kazandığı için zayıf rejimdeki varlıklara kasa önerilmez.")
 
         if st.button("🚀 Taramayı Başlat"):
+            st.caption("Tarama piyasa sinyalidir. Kişisel işlem eylemi pozisyon bilgisiyle Karar Paneli'nde oluşur; haftalık görünüm V1 doğrulama kapsamı dışındadır.")
             best_opp = None
             best_score = -999
+            st.caption("Tarama piyasa sinyalidir. Kişisel işlem eylemi pozisyon bilgisiyle Karar Paneli'nde oluşur; haftalık görünüm V1 doğrulama kapsamı dışındadır.")
 
             progress_bar = st.progress(0)
             status_text = st.empty()
@@ -77,7 +81,31 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
                     if isinstance(d_scan, pd.DataFrame) and not getattr(d_scan, 'empty', True) and len(d_scan) > 20:
                         # Stable (whipsaw-filtered) composite signal — same as dashboard
                         scan_weights = get_weights_for_symbol(sym) if tf == "1d" else None
-                        comp_signal = generate_stable_signal(d_scan, tf, weights=scan_weights)
+                        if tf == "1d":
+                            evaluation_time = datetime.now(timezone.utc)
+                            policy = policy_for_symbol(sym, evaluation_time)
+                            required = ("RSI", "EMA_20", "EMA_50", "MACD", "MACD_Signal", "ATR", "ADX")
+                            components_ready = all(
+                                column in d_scan.columns and pd.notna(d_scan[column].iloc[-1])
+                                for column in required
+                            )
+                            validation = validate_market_data(
+                                d_scan, evaluation_time, policy,
+                                provider_open=d_scan.attrs.get("provider_open", set()),
+                                components_ready=components_ready,
+                            )
+                            comp_signal = generate_validated_signal(
+                                d_scan, evaluation_time, policy,
+                                provider_open=d_scan.attrs.get("provider_open", set()),
+                                components_ready=components_ready,
+                                timeframe=tf, weights=scan_weights,
+                            )
+                            if comp_signal is None:
+                                row[signal_col] = f"⚪ BEKLE ({validation.reason})"
+                                all_reasons.append(validation.reason)
+                                continue
+                        else:
+                            comp_signal = generate_stable_signal(d_scan, tf, weights=scan_weights)
 
                         # Display signal with emoji
                         if "AL" in comp_signal.verdict:

@@ -17,7 +17,7 @@ Kriter eşlemesi:
            test_write_controls_are_disabled_when_access_breaks_mid_session (QA F2),
            test_failed_write_is_rolled_back_in_memory (QA F1),
            test_failed_write_does_not_become_permanent_later (QA F1)
-  R4    -> test_auto_close_is_not_rolled_back_by_a_failed_write (QA F10)
+  R4    -> test_stop_alert_does_not_change_records (QA F10 / spec 0003)
   AC16c -> test_broken_record_is_shown_and_kept
   R8.2  -> test_unknown_asset_does_not_show_another_assets_data
 """
@@ -427,45 +427,29 @@ TP_POZISYONU = {
 }
 
 
-# R4 / QA F10 — Otomatik kapanış, sonraki bir geri almayla silinmez.
-def test_auto_close_is_not_rolled_back_by_a_failed_write(store, monkeypatch, processed_df):
+# R4 / QA F10 — Uyarı üreten yol kayıtlara dokunmaz.
+#
+# Spec 0003 otomatik kapatmayı kaldırdı: fiyat teması artık pozisyonu ve nakdi
+# değiştirmiyor, yalnız uyarı gösteriyor. Böylece portföyü yazan tek nokta
+# safe_save_portfolio olarak kalıyor ve F10'un koşulu (sarmalayıcıyı atlayan
+# bir yazma) ortadan kalkıyor. Bu test o koşulun geri gelmediğini bekler.
+def test_stop_alert_does_not_change_records(store, monkeypatch, processed_df):
     store.write_doc(store.ASSETS_KEY, VARLIKLAR)
-    store.write_doc(store.PORTFOLIO_KEY,
-                    {"balance": 500.0, "positions": [dict(TP_POZISYONU)]})
+    baslangic = {"balance": 500.0, "positions": [dict(TP_POZISYONU)]}
+    store.write_doc(store.PORTFOLIO_KEY, baslangic)
 
-    # Canlı fiyat TP'nin üstünde: otomatik kapatma tetiklenir.
+    at = _make_app(monkeypatch, processed_df)
+    # Canlı fiyat stop'un altında: uyarı üretilir. _make_app kendi taklidini
+    # kurduğu için bu yama ondan SONRA konur.
     monkeypatch.setattr(data_fetchers, "get_live_price_for_portfolio",
-                        lambda *a, **k: 200.0)
-
-    at = _make_app(monkeypatch, processed_df).run()
-    assert not at.exception
-    kapanmis = store.read_doc(store.PORTFOLIO_KEY)
-    assert kapanmis["positions"][0]["Status"] == "CLOSED_TP", "otomatik kapanma tetiklenmedi"
-    kapanis_bakiyesi = kapanmis["balance"]
-
-    # Kullanıcı bir işlem yapıyor ve yazma kopuyor -> bellek geri alınır.
-    geri_al = _break_writes_only(store)
-    try:
-        bakiye_girisi = next(n for n in at.number_input
-                             if n.label == "Güncel USDT Bakiyesi")
-        bakiye_girisi.set_value(999.0)
-        _click(at, "Bakiyeyi Güncelle")
-    finally:
-        geri_al()
-
-    assert "kaydedilmedi" in _texts(at)
-    # Geri alma otomatik kapanışı silmemeli: bellek hâlâ kapanmış durumda.
-    bellek = at.session_state["portfolio_data"]
-    assert bellek["positions"][0]["Status"] == "CLOSED_TP"
-    assert bellek["balance"] == kapanis_bakiyesi
-
-    # Erişim düzeldi, kullanıcı başka bir işlem yaptı: kapanış depoda kalmalı.
+                        lambda *a, **k: 40.0)
     at.run()
-    bakiye_girisi = next(n for n in at.number_input
-                         if n.label == "Güncel USDT Bakiyesi")
-    bakiye_girisi.set_value(1234.0)
-    _click(at, "Bakiyeyi Güncelle")
 
+    assert not at.exception
+    uyarilar = " ".join(str(w.value) for w in at.warning)
+    assert "stop teması" in uyarilar
+    # Kayıtlar değişmemiştir: pozisyon aktif, bakiye aynı.
     kayitli = store.read_doc(store.PORTFOLIO_KEY)
-    assert kayitli["positions"][0]["Status"] == "CLOSED_TP"
-    assert kayitli["balance"] == 1234.0
+    assert kayitli == baslangic
+    assert at.session_state["portfolio_data"]["positions"][0]["Status"] == "ACTIVE"
+    assert at.session_state["portfolio_snapshot"] == kayitli

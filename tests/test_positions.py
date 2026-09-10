@@ -38,7 +38,10 @@ def test_pending_order_is_its_own_class():
 
 
 def test_auto_closed_position_is_closed():
-    assert positions.classify_position(_pos(Status="CLOSED_TP")) == positions.KAPALI
+    # Kapanış kaydında kalan miktar sıfırdır; sınıflandırma miktarı esas alır
+    # (G01). Miktarı bitmemiş bir "kapalı" kayıt için bkz.
+    # test_partial_sell_marked_confirmed_still_counts_as_active.
+    assert positions.classify_position(_pos(Status="CLOSED_TP", Adet=0.0)) == positions.KAPALI
 
 
 # AC16c / R4.1 — Miktarı okunamayan kayıt kapatılmış sayılmaz.
@@ -163,3 +166,18 @@ def test_broken_pending_order_blocks_deletion():
     reason = positions.deletion_block_reason("Bitcoin (BTC)", [bozuk])
     assert reason is not None
     assert "okunamayan" in reason
+
+
+# AC09 / spec 0003 uyumu — Kısmi satışta CLOSED_CONFIRMED yazılsa bile kalan
+# miktarı olan pozisyon aktiftir ve varlığın silinmesini engeller.
+def test_partial_sell_marked_confirmed_still_counts_as_active():
+    kismi = _pos(Status="CLOSED_CONFIRMED", Adet=0.4)
+    assert positions.classify_position(kismi) == positions.AKTIF
+    assert positions.deletion_block_reason("Bitcoin (BTC)", [kismi]) is not None
+
+
+# AC10 / spec 0003 uyumu — Miktarı biten CLOSED_CONFIRMED kaydı kapalıdır.
+def test_fully_sold_confirmed_position_is_closed():
+    tam = _pos(Status="CLOSED_CONFIRMED", Adet=0.0)
+    assert positions.classify_position(tam) == positions.KAPALI
+    assert positions.deletion_block_reason("Bitcoin (BTC)", [tam]) is None

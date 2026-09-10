@@ -795,7 +795,8 @@ def _cached_bar_score(df_slice, timeframe, include_ml, weights=None):
     return result
 
 
-def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, include_ml=True, weights=None):
+def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, include_ml=True, weights=None,
+                           data_is_closed=False):
     """
     Whipsaw-resistant signal — this is what the UI should display and what
     run_strategy_backtest() trades, so backtest numbers match live behavior.
@@ -819,7 +820,7 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
     signal = CompositeSignal(timeframe=timeframe)
 
     work = df
-    if cfg.DROP_UNCLOSED_CANDLE and df is not None and len(df) > 1:
+    if cfg.DROP_UNCLOSED_CANDLE and not data_is_closed and df is not None and len(df) > 1:
         work = df.iloc[:-1]
 
     if work is None or len(work) < 55:
@@ -913,3 +914,20 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
     if cache_key is not None:
         _stable_cache.set(cache_key, deepcopy(signal))
     return signal
+
+
+def generate_validated_signal(df, now, policy, *, provider_open=None, signal_factory=None, **kwargs):
+    """Validate closed daily data before producing a V1 signal."""
+    from market_validation import validate_market_data
+
+    validation = validate_market_data(
+        df, now, policy, provider_open=provider_open or set(),
+        components_ready=kwargs.pop("components_ready", True),
+    )
+    if not validation.is_valid:
+        return None
+    factory = signal_factory or generate_stable_signal
+    if signal_factory is None:
+        # The validator has already removed provider-open candles.
+        kwargs.setdefault("data_is_closed", True)
+    return factory(validation.usable, **kwargs)
