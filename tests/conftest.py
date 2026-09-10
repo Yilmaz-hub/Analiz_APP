@@ -50,3 +50,42 @@ def trending_df():
     df = make_ohlcv(seed=7, segments=[(300, 0.004)])
     df, _ = process_data(df, "test")
     return df
+
+
+@pytest.fixture(autouse=True)
+def store(tmp_path, monkeypatch):
+    """İzole bir kayıt deposu (spec 0004).
+
+    Her test kendi veri klasörünü kullanır; eski dosya taraması da test
+    klasörüne yönlendirilir. `autouse` olmasının nedeni koruma: hiçbir test,
+    geliştiricinin ya da yayının gerçek kayıtlarını okuyup yazamaz.
+    """
+    import storage
+
+    data_dir = tmp_path / "data"
+    legacy_dir = tmp_path / "legacy"
+    data_dir.mkdir()
+    legacy_dir.mkdir()
+
+    monkeypatch.setenv(storage.DATA_DIR_ENV, str(data_dir))
+    monkeypatch.delenv(storage.DB_URL_ENV, raising=False)
+    monkeypatch.setattr(storage, "legacy_search_dirs", lambda: [legacy_dir])
+    storage.reset_engine()
+
+    # Erişim kopmasını taklit eden testler modül işlevlerini elle değiştiriyor;
+    # bir iddia düşerse geri alma atlanabilir ve kırık işlev sonraki testlere
+    # sızar. Emniyet ağı: her testten sonra özgün işlevler geri konur.
+    korunan = {ad: getattr(storage, ad)
+               for ad in ("read_doc", "write_doc", "ping", "get_engine")}
+    try:
+        yield storage
+    finally:
+        for ad, fn in korunan.items():
+            setattr(storage, ad, fn)
+        storage.reset_engine()
+
+
+@pytest.fixture
+def legacy_dir(store, tmp_path):
+    """Eski kayıt dosyalarının konacağı klasör."""
+    return tmp_path / "legacy"

@@ -1,12 +1,16 @@
 import streamlit as st
 import pandas as pd
+import copy
 import time
 import requests
 import traceback
 from datetime import datetime, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
-from config import DEFAULT_COIN_MAP, PATTERN_INFO, UIConfig, FileConfig, DataFetchConfig
+from config import PATTERN_INFO, UIConfig, FileConfig, DataFetchConfig
+import storage
+from storage import StorageAccessError
+from assets import load_assets, save_assets
 from logger import logger
 
 # === YENİ MODÜLLERDEN IMPORTLAR ===
@@ -15,12 +19,18 @@ from technical_analysis import (detect_advanced_patterns, calculate_extended_tre
                                 detect_patterns, run_strategy_backtest,
                                 run_v1_strategy_backtest, build_v1_decisions)
 from ml_models import calculate_smart_prediction_FIXED
-from portfolio import load_portfolio, save_portfolio, validate_portfolio_risk, check_active_positions_auto_close, multi_timeframe_confirmation
-from ui_components import render_sidebar_settings, render_asset_management, render_main_chart, is_chart_renderable, is_mobile_mode, is_empty_data_reason
+from portfolio import (load_portfolio, save_portfolio, reset_portfolio, validate_portfolio_risk,
+                       check_active_positions_auto_close, multi_timeframe_confirmation)
+from ui_components import (render_sidebar_settings, render_asset_management, render_main_chart,
+                           is_chart_renderable, is_mobile_mode, is_empty_data_reason,
+                           render_records_status, render_no_records_state)
 from scanner import render_opportunity_scanner
 from data_fetchers import get_live_price_for_portfolio
 from signal_engine import generate_stable_signal, generate_validated_signal, CompositeSignal
 from market_validation import policy_for_symbol, validate_market_data
+from positions import (group_positions, build_active_rows, asset_name as position_asset_name,
+                       AKTIF as POS_AKTIF, BEKLEYEN as POS_BEKLEYEN,
+                       SORUNLU as POS_SORUNLU)
 from weight_profiles import get_weights_for_symbol
 from prediction_tracker import record_prediction, evaluate_predictions, get_track_record
 from advanced_analysis import detect_elliott_wave, analyze_ichimoku, detect_wyckoff_phase, analyze_market_structure
@@ -34,47 +44,102 @@ st.set_page_config(layout="wide", page_title="Pro Trader V48 (Modular Edition)")
 # CSS
 theme.inject()
 
-# GİRİŞ VERİLERİNİ YÜKLE
-def load_assets():
-    f = FileConfig.ASSETS_FILE
-    import os, json
-    if os.path.exists(f):
-        try:
-            with open(f, 'r', encoding='utf-8') as file:
-                return json.load(file)
-        except Exception as e:
-            logger.error(f"Asset list load error, using defaults: {e}")
-            return DEFAULT_COIN_MAP.copy()
-    return DEFAULT_COIN_MAP.copy()
+# KAYITLARI YÜKLE (spec 0004)
+# Kayıtlar dosyadan değil, ortamdan bağımsız belge deposundan okunur. Erişim
+# sorununda varsayılan listeye DÜŞÜLMEZ: kullanıcıya durum bildirilir ve kayıt
+# değiştiren işlemler gösterilmez (R8.1 / AC16 / AC16b).
+if 'records_loaded' not in st.session_state:
+    try:
+        storage.import_legacy_documents()
+        st.session_state['coin_map'] = load_assets()
+        st.session_state['portfolio_data'] = load_portfolio()
+        st.session_state['portfolio_snapshot'] = copy.deepcopy(st.session_state['portfolio_data'])
+        st.session_state['storage_ok'] = True
+        st.session_state['storage_msg'] = storage.check_access()[1]
+    except StorageAccessError as e:
+        logger.error(f"Records unavailable at startup: {e}")
+        st.session_state['coin_map'] = {}
+        st.session_state['portfolio_data'] = None
+        st.session_state['portfolio_snapshot'] = None
+        st.session_state['storage_ok'] = False
+        st.session_state['storage_msg'] = "Kayıtlara şu anda erişilemiyor; değişiklik yapılamaz."
+    st.session_state['records_loaded'] = True
 
-def save_assets(data):
-    f = FileConfig.ASSETS_FILE
-    import json, os
-    tmp = f"{f}.tmp"
-    with open(tmp, 'w', encoding='utf-8') as file:
-        json.dump(data, file, ensure_ascii=False, indent=4)
-    os.replace(tmp, f)
 
-if 'coin_map' not in st.session_state:
-    st.session_state['coin_map'] = load_assets()
+def safe_save_portfolio():
+    """Portföyü yazar; başarısızsa bellekteki değişikliği **geri alır**.
 
-if 'portfolio_data' not in st.session_state:
-    st.session_state['portfolio_data'] = load_portfolio()
+    Akışlar önce bellekteki portföyü değiştirip sonra yazıyor. Yazma koparsa
+    kullanıcıya "işlem kaydedilmedi" denip bellek değişmiş bırakılırsa, sonraki
+    başarılı yazma o işlemi kalıcılaştırıyordu (QA F1). Bu yüzden başarısızlıkta
+    son bilinen kayıtlı duruma dönülür.
+
+    Teknik hata metni kullanıcıya sızmaz.
+    """
+    try:
+        save_portfolio(st.session_state['portfolio_data'])
+    except StorageAccessError as e:
+        logger.error(f"Portfolio save blocked: {e}")
+        snapshot = st.session_state.get('portfolio_snapshot')
+        if snapshot is not None:
+            st.session_state['portfolio_data'] = copy.deepcopy(snapshot)
+        st.session_state['storage_ok'] = False
+        st.error("Kayıtlara şu anda erişilemiyor; işlem kaydedilmedi.")
+        return False
+    remember_saved_portfolio()
+    return True
+
+
+def remember_saved_portfolio():
+    """Bellekteki portföyü "son kayıtlı durum" olarak işaretler.
+
+    Geri alma bu anlık görüntüye döner. Portföyü **diske yazan her yol** bunu
+    çağırmak zorundadır; otomatik kapatma kendi içinden yazdığı için (bkz.
+    `portfolio.check_active_positions_auto_close`) anlık görüntü bayat kalıyor
+    ve ilk başarısız yazmada meşru bir kapanış geri alınıyordu (QA F10).
+    """
+    st.session_state['portfolio_snapshot'] = copy.deepcopy(st.session_state['portfolio_data'])
+
+
+# --- F2: kayıt yazan kontroller erişim durumuna bağlıdır --------------------
+# Erişim oturumun ortasında koparsa sayfa durmaz; bu yüzden her çalıştırmada
+# durum yeniden ölçülür ve yazan kontroller kapatılır.
+if st.session_state.get('records_loaded'):
+    _erisim_ok, _erisim_msg = storage.check_access()
+    st.session_state['storage_ok'] = _erisim_ok
+    st.session_state['storage_msg'] = _erisim_msg
+records_writable = st.session_state.get('storage_ok', True)
+
+# Spec 0003'ün işlem günlüğü; kayıtları kendi dosyasında tutar.
 if 'position_journal' not in st.session_state:
     st.session_state['position_journal'] = PositionJournal(FileConfig.TRADING_JOURNAL_FILE)
 
 # --- ARAYÜZ (SIDEBAR) ---
 tg_token, tg_chat = render_sidebar_settings()
-render_asset_management(st.session_state['coin_map'], save_assets)
+render_records_status(st.session_state.get('storage_ok', True), st.session_state.get('storage_msg', ''))
+render_asset_management(st.session_state['coin_map'], st.session_state['portfolio_data'],
+                        st.session_state.get('storage_ok', True))
 
 st.sidebar.divider()
 current_assets = list(st.session_state['coin_map'].keys())
 src_pref = st.sidebar.radio("📡 Kaynak:", ["Binance", "OKX", "Yahoo Finance"])
 
-if not current_assets: current_assets = ["Bitcoin (BTC)"]
+# Kayıt yoksa uydurma varlık gösterilmez: gerçekten boş olan liste ile
+# erişilemeyen liste ayrı durumlardır ve boş durumda kendiliğinden kayıt
+# oluşmaz (spec 0004, R8 / AC07).
+if not current_assets:
+    render_no_records_state(st.session_state.get('storage_ok', True),
+                            st.session_state.get('storage_msg', ''))
+    st.stop()
 
 sel_c = st.sidebar.selectbox("Enstrüman:", current_assets)
-symbol = st.session_state['coin_map'].get(sel_c, "BTC-USD")
+symbol = st.session_state['coin_map'].get(sel_c)
+
+# Seçilen varlığın karşılığı yoksa başka bir varlığın bilgileri gösterilmez
+# (spec 0004, R8.2); eski sürüm sessizce BTC verisine düşüyordu.
+if symbol is None:
+    st.warning(f"'{sel_c}' adlı varlık kayıtlarda bulunamadı. Lütfen listeden başka bir varlık seçin.")
+    st.stop()
 
 st.sidebar.divider()
 show_cloud = st.sidebar.checkbox("☁️ Destek/Direnç Bulutu", value=True)
@@ -550,7 +615,7 @@ if is_chart_renderable(df_view):
         )
         st.caption(f"2,5 ATR başlangıç stop önerisi: ${stop_default:.2f}")
 
-        if st.button("➕ Emri Gir / Ekle"):
+        if st.button("➕ Emri Gir / Ekle", disabled=not records_writable):
             is_valid, risk_msg = validate_portfolio_risk(investment, current_balance, st.session_state['portfolio_data']['positions'])
             if stop_default <= 0 or Decimal(str(stop_input)) <= 0 or Decimal(str(stop_input)) >= Decimal(str(entry_price)):
                 st.error("Başlangıç stopu pozitif ve giriş fiyatının altında olmalıdır.")
@@ -579,27 +644,44 @@ if is_chart_renderable(df_view):
                         "V1Verified": not is_limit, "JournalEventId": event_id,
                     })
                     st.session_state[f'flat_confirmed:{sel_c}'] = False
-                    save_portfolio(st.session_state['portfolio_data'])
-                    st.success("Limit Emir Girildi! Fiyat bekleniyor..." if is_limit else "Pozisyon Açıldı!")
-                    time.sleep(1)
-                    st.rerun()
+                    if safe_save_portfolio():
+                        st.success("Limit Emir Girildi! Fiyat bekleniyor..." if is_limit else "Pozisyon Açıldı!")
+                        time.sleep(1)
+                        st.rerun()
 
         st.write("---") 
         with st.expander("💳 Cüzdan Bakiyesi Düzenle"):
             new_balance_input = st.number_input("Güncel USDT Bakiyesi", value=float(current_balance), step=100.0)
-            if st.button("Bakiyeyi Güncelle"):
+            if st.button("Bakiyeyi Güncelle", disabled=not records_writable):
                 st.session_state['portfolio_data']['balance'] = new_balance_input
-                save_portfolio(st.session_state['portfolio_data'])
-                st.success("Bakiye güncellendi!"); time.sleep(0.5); st.rerun()
+                if safe_save_portfolio():
+                    st.success("Bakiye güncellendi!"); time.sleep(0.5); st.rerun()
 
     with col_wallet:
         st.subheader("💰 Varlıklarım")
+        if not records_writable:
+            st.error("⚠️ Kayıtlara şu anda erişilemiyor; kayıt değiştiren işlemler kapalı. "
+                     "Kayıtlarınız silinmedi.")
         positions = st.session_state['portfolio_data']['positions']
         total_active_value = 0.0 
         
         if positions:
-            active_pos = [p for p in positions if p.get('Status', 'ACTIVE') == 'ACTIVE']
-            pending_pos = [p for p in positions if p.get('Status') == 'PENDING']
+            # Aktiflik yorumu görünürlükte ve silme engelinde aynı kaynaktan
+            # gelir (spec 0004, R4.1): tek sınıflandırıcı.
+            groups = group_positions(positions)
+            active_pos = groups[POS_AKTIF]
+            pending_pos = groups[POS_BEKLEYEN]
+            broken_pos = groups[POS_SORUNLU]
+
+            if broken_pos:
+                st.markdown("##### ⚠️ Sorunlu Kayıtlar")
+                st.warning("Aşağıdaki kayıtların bilgileri okunamadı. Kayıtlar korunuyor, "
+                           "silinmedi; ilgili varlıklar da silinemez.")
+                st.dataframe(pd.DataFrame([
+                    {"Coin": position_asset_name(item) or "(adı okunamadı)",
+                     "Kayıt": str(item)[:120]}
+                    for item in broken_pos
+                ]), width="stretch")
             
             if active_pos:
                 with st.expander("🛑 Stop Seviyesini Yükselt"):
@@ -645,7 +727,7 @@ if is_chart_renderable(df_view):
                         sell_amt = target_pos['Adet']
                         total_return = sell_amt * sell_price
                         st.write(f"**Gelecek Nakit:** ${total_return:,.2f}")
-                        if st.button("Satışı Onayla"):
+                        if st.button("Satışı Onayla", disabled=not records_writable):
                             executed_at = datetime.now(timezone.utc)
                             event_id = f"{s_coin}:SELL:{executed_at.isoformat()}"
                             st.session_state['position_journal'].confirm_trade(
@@ -662,21 +744,14 @@ if is_chart_renderable(df_view):
                             target_pos['Gerçekleşen Çıkış'] = sell_price
                             target_pos['Çıkış Zamanı'] = executed_at.isoformat()
                             st.session_state[f'flat_confirmed:{s_coin}'] = True
-                            save_portfolio(st.session_state['portfolio_data'])
-                            st.success("Satış gerçekleşti!")
-                            st.rerun()
+                            if safe_save_portfolio():
+                                st.success("Satış gerçekleşti!")
+                                st.rerun()
 
-                active_data = []
-                for item in active_pos:
-                    if item['Adet'] > 0:
-                        lp = curr if item['Coin'] == sel_c else get_live_price_for_portfolio(item['Coin'], st.session_state['coin_map'])
-                        if lp == 0: lp = item['Giriş']
-                        val = float(str(item.get('Adet', '0.0'))) * float(str(lp))
-                        total_active_value = float(str(total_active_value)) + val
-                        active_data.append({
-                            "Coin": item['Coin'], "Giriş": item['Giriş'], "Adet": item['Adet'],
-                            "Değer ($)": val, "Kar/Zarar ($)": val - item['Yatırım'], "Kar/Zarar (%)": f"%{((val - item['Yatırım']) / item['Yatırım']) * 100:.2f}"
-                        })
+                active_data, total_active_value = build_active_rows(
+                    active_pos,
+                    lambda coin: curr if coin == sel_c else get_live_price_for_portfolio(coin, st.session_state['coin_map']),
+                )
                 if active_data: st.dataframe(pd.DataFrame(active_data), width="stretch")
 
             if pending_pos:
@@ -699,23 +774,25 @@ if is_chart_renderable(df_view):
                     if target_pending:
                         c_man1, c_man2, c_man3 = st.columns(3)
                         with c_man1:
-                            if st.button("❌ İptal Et"):
+                            if st.button("❌ İptal Et", disabled=not records_writable):
                                 st.session_state['portfolio_data']['balance'] += target_pending['Yatırım']
                                 st.session_state['portfolio_data']['positions'].remove(target_pending)
-                                save_portfolio(st.session_state['portfolio_data'])
-                                st.success("Emir iptal edildi.")
-                                time.sleep(1); st.rerun()
+                                if safe_save_portfolio():
+                                    st.success("Emir iptal edildi.")
+                                    time.sleep(1); st.rerun()
                         with c_man2:
                             new_limit_price = st.number_input("Yeni Hedef Fiyat", value=float(target_pending['Giriş']), format="%.4f")
-                            if st.button("✏️ Güncelle") and new_limit_price > 0:
+                            if st.button("✏️ Güncelle", disabled=not records_writable) and new_limit_price > 0:
                                 target_pending['Giriş'] = new_limit_price
                                 target_pending['Adet'] = target_pending['Yatırım'] / new_limit_price
-                                save_portfolio(st.session_state['portfolio_data'])
-                                st.success("Fiyat güncellendi.")
-                                time.sleep(1); st.rerun()
+                                if safe_save_portfolio():
+                                    st.success("Fiyat güncellendi.")
+                                    time.sleep(1); st.rerun()
                         with c_man3:
-                            if st.button("🚀 Başlat"):
-                                target_pending['Status'] = 'ACTIVE'; save_portfolio(st.session_state['portfolio_data']); st.rerun()
+                            if st.button("🚀 Başlat", disabled=not records_writable):
+                                target_pending['Status'] = 'ACTIVE'
+                                if safe_save_portfolio():
+                                    st.rerun()
 
             st.divider()
             total_equity = current_balance + total_active_value + sum([p['Yatırım'] for p in pending_pos])
@@ -723,8 +800,19 @@ if is_chart_renderable(df_view):
             m1.metric("Boştaki USDT", f"${current_balance:,.2f}")
             m2.metric("Aktif Pozisyonlar", f"${total_active_value:,.2f}")
             m3.metric("🏆 TOPLAM VARLIK", f"${total_equity:,.2f}")
-            if st.button("🗑️ Portföyü Sıfırla"):
-                st.session_state['portfolio_data'] = {"balance": 1000.0, "positions": []}; save_portfolio(st.session_state['portfolio_data']); st.rerun()
+            # Sıfırlama birden çok kaydı birden kaldırdığı için ayrıca onay ister
+            # ve engelleyici kayıt varken çalışmaz (spec 0004, AC11d).
+            reset_confirmed = st.checkbox("Portföyü sıfırlamayı onaylıyorum", key="pf_reset_ok",
+                                          disabled=not records_writable)
+            if st.button("🗑️ Portföyü Sıfırla", disabled=not records_writable):
+                ok, msg, new_pf = reset_portfolio(st.session_state['portfolio_data'], reset_confirmed)
+                if ok:
+                    st.session_state['portfolio_data'] = new_pf
+                    if safe_save_portfolio():
+                        st.success(msg)
+                        st.rerun()
+                else:
+                    st.error(msg)
         else:
             st.info("Portföy boş.")
             st.metric("Mevcut Bakiye", f"${current_balance:,.2f}")
@@ -738,6 +826,9 @@ else:
         st.info("📭 Bu enstrüman için gösterilecek veri yok.")
 
 # OTOMATİK KAPATMA / TELEGRAM
+# Spec 0003 ile otomatik kapatma kaldırıldı: fiyat teması yalnız uyarı üretir,
+# pozisyonu ve nakdi değiştirmez. Bu yol kayıtlara yazmadığı için portföyü
+# yazan tek nokta safe_save_portfolio olarak kalır (spec 0004, QA F10).
 if st.session_state.get('portfolio_data'):
     _, stop_alerts = check_active_positions_auto_close(
         st.session_state['portfolio_data'], st.session_state['coin_map']

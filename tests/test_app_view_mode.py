@@ -16,6 +16,16 @@ from conftest import make_ohlcv
 APP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app.py")
 
 
+@pytest.fixture(autouse=True)
+def _kayitli_varlik(store):
+    """Bu dosyadaki testler grafik davranışını ölçer; kayıt gerektirir.
+
+    Kayıt yokken uygulama boş durumu gösterip durur (spec 0004, AC07), bu
+    yüzden başlangıç durumu olarak tek bir varlık yazılır.
+    """
+    store.write_doc(store.ASSETS_KEY, {"Bitcoin (BTC)": "BTC-USD"})
+
+
 @pytest.fixture
 def app_processed_df():
     """App-shell fixture without the environment-heavy pandas_ta import."""

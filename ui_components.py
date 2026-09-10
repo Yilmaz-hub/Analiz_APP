@@ -3,7 +3,9 @@ import time
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from config import PATTERN_INFO, DEFAULT_COIN_MAP, UIConfig
+from config import PATTERN_INFO, UIConfig
+import assets
+import storage
 from technical_analysis import calculate_sr_advanced, detect_advanced_patterns, calculate_oracle_signal_v2, calculate_trade_setup, get_pattern_status
 from logger import logger
 import theme
@@ -59,44 +61,110 @@ def render_sidebar_settings():
         st.caption("Bu ayarlar varsayılan olarak kapalıdır.")
     return tg_token, tg_chat
 
-def render_asset_management(coin_map, save_assets_func):
+def render_records_status(storage_ok, message):
+    """Kayıtların korunma/erişim durumunu kenar çubuğunda gösterir (spec 0004).
+
+    Kullanıcıya sunucudaki klasör yolu değil, kayıtlarının korunup korunmadığı
+    bildirilir. Yerel arka uç **yeşil gösterilmez**: kayıtların yeniden
+    yayınlamada kaybolabildiği yapılandırmada başarı bildirmek, düzeltilmek
+    istenen hatanın üstünü örtüyordu (QA F5).
+    """
+    st.sidebar.divider()
+    if not storage_ok:
+        st.sidebar.error(f"⚠️ {message}")
+        return
+    if storage.is_remote_backend():
+        st.sidebar.caption(f"✅ {message}")
+    else:
+        st.sidebar.warning(f"⚠️ {message}")
+
+
+def render_no_records_state(storage_ok, message):
+    """Kayıt yokken gösterilen ana ekran (spec 0004, AC07 / AC16).
+
+    Gerçekten boş olan liste ile erişilemeyen liste ayrı ayrı anlatılır;
+    hiçbir varlık adı gösterilmez ve kendiliğinden kayıt oluşturulmaz.
+    """
+    if not storage_ok:
+        st.error(f"⚠️ {message}")
+        st.info("Kayıtlarınız silinmedi. Erişim düzeldiğinde önceki bilgileriyle görünecekler.")
+        return
+    st.info("📭 Henüz kayıtlı varlık yok.")
+    st.caption("Kenar çubuğundaki **Varlık Yönetimi** bölümünden ilk varlığınızı ekleyebilir "
+               "ya da uygulamayla gelen varsayılan listeyi yükleyebilirsiniz.")
+
+
+def _persist_assets(updated):
+    """Varlık listesini yazar; erişim sorununda kullanıcıya bildirir."""
+    try:
+        assets.save_assets(updated)
+        return True
+    except storage.StorageAccessError as e:
+        logger.error(f"Asset save blocked: {e}")
+        st.error("Kayıtlara şu anda erişilemiyor; işlem kaydedilmedi.")
+        return False
+
+
+def render_asset_management(coin_map, portfolio_data, storage_ok=True):
+    """Varlık ekleme/silme/sıfırlama kontrolleri (spec 0004).
+
+    Kayıtlara erişilemiyorsa kayıt değiştiren hiçbir kontrol gösterilmez
+    (R8.1 / AC16b). Silme engelleri `assets` modülündeki iş kurallarından,
+    aktiflik yorumu ise `positions` modülündeki tek sınıflandırıcıdan gelir.
+    """
     st.sidebar.divider()
     with st.sidebar.expander("➕ Varlık Yönetimi", expanded=False):
+        if not storage_ok:
+            st.error("Kayıtlara erişilemediği için varlık ekleme/silme kapalı.")
+            return
+
+        positions_list = (portfolio_data or {}).get('positions', [])
         st.info("Listeye yeni Coin, Hisse veya Emtia ekleyin.")
-        
+
         with st.form("add_asset_form"):
             new_name = st.text_input("Görünen İsim (Örn: Pound)")
             new_symbol = st.text_input("Yahoo Kodu (Örn: GBPUSD=X)")
             submitted = st.form_submit_button("Listeye Ekle")
-            
-            if submitted:
-                if new_name and new_symbol:
-                    st.session_state['coin_map'][new_name] = new_symbol
-                    save_assets_func(st.session_state['coin_map'])
-                    st.success(f"{new_name} eklendi!")
-                    time.sleep(0.5)
-                    st.rerun()
-                else:
-                    st.error("İsim ve Sembol boş olamaz!")
-        
-        st.write("---")
-        del_asset = st.selectbox("Silinecek Varlık", list(st.session_state['coin_map'].keys()), key="del_box")
-        
-        if st.button("Seçileni Sil"):
-            if del_asset in st.session_state['coin_map']:
-                if len(st.session_state['coin_map']) > 1:
-                    del st.session_state['coin_map'][del_asset]
-                    save_assets_func(st.session_state['coin_map'])
-                    st.warning(f"{del_asset} silindi.")
-                    time.sleep(0.5)
-                    st.rerun()
-                else:
-                    st.error("Listede en az 1 varlık kalmalı!")
 
-        if st.button("🔄 Listeyi Sıfırla"):
-            st.session_state['coin_map'] = DEFAULT_COIN_MAP.copy()
-            save_assets_func(st.session_state['coin_map'])
-            st.rerun()
+            if submitted:
+                ok, msg, updated = assets.add_asset(coin_map, new_name, new_symbol)
+                if not ok:
+                    st.error(msg)
+                elif _persist_assets(updated):
+                    st.session_state['coin_map'] = updated
+                    st.success(msg)
+                    time.sleep(0.5)
+                    st.rerun()
+
+        st.write("---")
+        names = list(coin_map.keys())
+        if names:
+            del_asset = st.selectbox("Silinecek Varlık", names, key="del_box")
+            if st.button("Seçileni Sil"):
+                ok, msg, updated = assets.delete_asset(coin_map, del_asset, positions_list)
+                if not ok:
+                    st.error(msg)
+                elif _persist_assets(updated):
+                    st.session_state['coin_map'] = updated
+                    st.warning(msg)
+                    time.sleep(0.5)
+                    st.rerun()
+        else:
+            st.caption("Listede varlık yok.")
+
+        st.write("---")
+        # Sıfırlama birden çok kaydı birden kaldırdığı için ayrıca onay ister ve
+        # engelleyici kayıt varken çalışmaz (spec 0004, R6.2 / AC11c).
+        reset_ok = st.checkbox("Listeyi sıfırlamayı onaylıyorum", key="asset_reset_ok")
+        if st.button("🔄 Varsayılan Listeyi Yükle"):
+            ok, msg, updated = assets.reset_assets(coin_map, positions_list, reset_ok)
+            if not ok:
+                st.error(msg)
+            elif _persist_assets(updated):
+                st.session_state['coin_map'] = updated
+                st.success(msg)
+                time.sleep(0.5)
+                st.rerun()
 
 def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_cloud, show_pred, show_ai, show_all_pats, f_wm, f_candle, f_advanced, items_raw, lines, mobile=False):
     fig = go.Figure()
