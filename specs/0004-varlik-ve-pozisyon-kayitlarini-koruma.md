@@ -111,7 +111,7 @@ Geçmişte kaybolmuş kayıtları geri getirmek ve alım-satım ya da analiz kur
   4. Kullanım sırasında eklenen varlık ve pozisyonlar yalnız yayın ortamının kendi diskine yazılır; ortam yeniden başladığında veya yeniden yayınlandığında 3. adıma dönülür.
   **Durum:** 1. ve 3. adımlar kod üzerinde doğrulanmıştır; 2. ve 4. adımlar yayında ölçülerek kesinleşecektir — doğrulaması **AC19**'dur. Bu madde bir karar değil, PLAN'a girdi olarak bırakılan kanıttır.
   **Sonuç:** Kullanıcının gözlemi ("eklediğim varlıklar kayboluyor, liste eski hâline dönüyor") bu zincirle birebir örtüşmektedir.
-- **P8 — yayın erişimi (QA F3; onay bekliyor):** Kayıtlar artık kalıcı olduğu için risk
+- **P8 — yayın erişimi (QA F3; KARAR: yayın herkese açık, kısıtlanacak):** Kayıtlar artık kalıcı olduğu için risk
   profili değişti: eskiden yayının diskindeki kayıtlar yeniden başlatmada siliniyordu,
   şimdi paylaşılan bir veritabanında kalıcı. Uygulamada kimlik doğrulama yoktur; yayın
   herkese açıksa adresi bilen herkes portföyü görebilir, pozisyon açabilir, emir iptal
@@ -120,7 +120,11 @@ Geçmişte kaybolmuş kayıtları geri getirmek ve alım-satım ya da analiz kur
   izleyici listesi) açılsın. **Gerekçe:** Uygulamaya yetki katmanı eklemek bu spec'in
   kapsamı dışındadır; kalıcı depo koruma sorununu çözerken yetkisiz kalıcı değişiklik
   yüzeyi açar ve bu yüzey yayın ayarından kapatılabilir.
-- P1–P7 karara bağlanmıştır (rev.8); **P8 onay beklemektedir.**
+  **Karar (rev.9):** Takım Yöneticisi yayının herkese açık olduğunu bildirdi ve erişimi
+  Streamlit tarafından kısıtlayacağını belirtti. Kodda değişiklik yapılmaz; kısıtlama
+  yapılana kadar yayına gerçek portföy verisi girilmemelidir. Uygulama içi giriş/parola
+  ayrı bir spec konusudur.
+- P1–P8 karara bağlanmıştır (rev.9). Uygulama önünde açık CLARIFY konusu kalmamıştır.
 
 ## Acceptance Criteria
 > Her satır bağımsız başlangıç koşuluyla doğrulanır; her kriter için ayrı test/kanıt sağlanır.
@@ -158,7 +162,7 @@ Geçmişte kaybolmuş kayıtları geri getirmek ve alım-satım ya da analiz kur
 
 ## Definition of Done
 - [x] P1–P7 için Takım Yöneticisi kararları spec'e işlendi; spec uygulama için onaylandı (rev.8).
-- [ ] **P8 (yayın erişimi) için Takım Yöneticisi kararı alındı** ve gereği yapıldı.
+- [ ] **P8:** Yayın erişimi Streamlit ayarlarından kısıtlandı (karar alındı; uygulanması bekleniyor).
 - [ ] Tüm kabul kriterleri ayrı test/kanıtla karşılandı; uygulanamaz kriter bırakılmadı.
 - [ ] İş davranışı testleri P3 kararına uygun yürütüldü: her kabul kriteri için `tests/` altında en az bir pytest testi yazıldı ve `.github/workflows/tests.yml` ile yeşil geçti.
 - [ ] Her arayüz kriteri için ekran görüntüsü ve kritik ekleme → uyku → yeniden açma akışı için smoke test kanıtı üretildi.
