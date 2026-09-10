@@ -12,12 +12,12 @@ Teknik çözümü değil, iş sonucunu anlat.>
 - <...>
 
 ## Constraints
-- <Teknik/iş kısıtları. Örn: para/yüzde decimal; endpoint minimal API.>
+- <Teknik/iş kısıtları. Örn: para/yüzde `Decimal`; arayüz katmanı iş mantığı barındırmaz.>
 - **Kapsam dışı:** <bu spec'in KAPSAMADIĞI şeyler — açıkça yaz.>
 
 ## Context
-- İlgili modül(ler): <catalog / ordering / pricing / returns — bkz. docs/architecture.md>
-- İlgili alan terimleri: <bkz. docs/domain.md>
+- İlgili modül(ler): <kök dizindeki Python modülleri, ör. signal_engine / portfolio / scanner / data_fetchers>
+- İlgili alan terimleri: <bu spec'te tanımla — Terimler>
 - Bağımlılıklar / ilgili spec'ler: <NNNN, ...>
 
 ## Acceptance Criteria
@@ -28,10 +28,10 @@ Teknik çözümü değil, iş sonucunu anlat.>
 
 ## Definition of Done
 - [ ] Tüm kabul kriterleri test/kanıtla karşılandı.
-- [ ] Backend: her kriter bir xUnit testi (docs/testing.md).
+- [ ] Her kriter bir pytest testi (docs/testing.md).
 - [ ] Arayüz: her kritere ekran görüntüsü + kritik akış smoke test.
-- [ ] Yeşil pipeline (lint + build + test).
-- [ ] Para/yüzde alanları decimal; kullanıcıya teknik hata sızmıyor.
+- [ ] Yeşil test pipeline (pytest).
+- [ ] Para/yüzde alanları `Decimal`; kullanıcıya teknik hata / traceback sızmıyor.
 - [ ] PR şablonu dolduruldu, squash-merge (docs/git.md).
 
 ---

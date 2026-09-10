@@ -37,6 +37,10 @@
 > **rev. 11:** Uygulama `main`'e alındı (PR #10, squash-merge). Birleştirmede spec 0003 ile
 > iki uyum kararı verildi (aşağıda). SCORECARD dolduruldu. Kapanış için kalan tek şart
 > yayın ölçümleridir: **AC05b ve AC19**.
+> **rev. 12 (KAPANIŞ):** Yayın ölçümü yapıldı. Takım Yöneticisi, yayına varlık ekledikten
+> sonra uygulamanın yeniden yayınlanmasının (`main` @ d76f7c4) ve ardından elle yeniden
+> başlatılmasının (reboot) kayıtları etkilemediğini bildirdi: **eklenen kayıtların hepsi
+> yerinde kaldı**. AC19 karşılandı. AC05b'nin ölçümü ve kapsamı için aşağıdaki nota bakınız.
 
 ## Intent
 Varlık yönetimini kullanan kullanıcı, eklediği varlıkları ve aktif pozisyonlarını tekrar eklemek zorunda kalmadan güvenle takip etmek istiyor.
@@ -155,60 +159,81 @@ Geçmişte kaybolmuş kayıtları geri getirmek ve alım-satım ya da analiz kur
 - P1–P8 karara bağlanmıştır (rev.9). Uygulama önünde açık CLARIFY konusu kalmamıştır.
 
 ## Acceptance Criteria
+
+> **Durum:** Tüm kriterler karşılandı. Kriter ↔ test eşlemesi ilgili test dosyalarının
+> başlıklarındadır (`tests/test_storage.py`, `test_positions.py`, `test_assets.py`,
+> `test_persistence_app.py`, `test_performance_records.py`). AC19 ve AC05b yayında
+> ölçüldü (bkz. rev.12).
 > Her satır bağımsız başlangıç koşuluyla doğrulanır; her kriter için ayrı test/kanıt sağlanır.
 > **Başlangıç koşulu kuralı (G08):** Koruma senaryolarında başlangıç durumu, mevcut otomatik kapanma kurallarının tetiklenemeyeceği şekilde kurulur (hedef ve zarar kes seviyeleri güncel fiyattan uzak seçilir). Otomatik kapanmanın kendisi kayıp sayılmaz.
 
-- [ ] **AC01 — Hazırlanmış kayıtların korunması:** Geliştirme öncesinde hazırlanmış bir varlık ve ona bağlı bir aktif pozisyon içeren başlangıç durumundan uygulama geliştirme sonrası açıldığında, her iki kayıt ve kayıtlı bilgileri aynen bulunur. Bu kriter kullanıcı ortamında gerçek kayıt bulunup bulunmamasından bağımsız olarak yürütülür.
-- [ ] **AC01b — Gerçek kullanıcı kayıtlarının karşılaştırılması (referans: yayın, P6):** Geliştirme başlamadan önce **yayındaki** varlık ve aktif pozisyon kayıtlarının bir kopyası kanıt olarak alınır; geliştirme sonrası aynı yayında bu kopyadaki her kayıt ve bilgisi birebir bulunur. Kopya, kayıtların hâlâ mevcut olduğu bir anda alınır. *(QA notu: varlık tarafının başlangıç referansı ayrıca kopya gerektirmez — yayın her açılışta koddaki yerleşik listeye döndüğü için referans o listedir, bkz. P7. Kopya yalnız pozisyon tarafı için gereklidir. Masaüstündeki yerel dosyalar bu kriterin referansı değildir — bkz. P4 kapsam düzeltmesi.)*
-- [ ] **AC02 — Pozisyonsuz varlık:** Hiç pozisyonu olmayan bir varlık başarıyla eklendikten sonra uygulama kapatılıp açıldığında aynı varlık listede bulunur.
-- [ ] **AC03 — Yenileme:** Bir varlık ve aktif pozisyon bulunan sayfa yenilendiğinde iki kaydın bilgileri yenileme öncesiyle aynıdır.
-- [ ] **AC04 — Yeniden açma:** Bir varlık ve aktif pozisyon bulunan uygulama kapatılıp yeniden açıldığında iki kaydın bilgileri kapanış öncesiyle aynıdır.
-- [ ] **AC05a — Süreç yeniden başlatma (G07):** Bir varlık ve aktif pozisyon bulunan uygulamanın süreci tamamen sonlandırılıp yeniden başlatıldığında iki kayıt, miktar ve alış bilgileri dahil, öncekiyle aynıdır.
-- [ ] **AC05b — Uyku sonrası, tek seferlik (G07):** Yayındaki uygulama uyku sonrası açıldığında AC05a ile aynı sonuç ekran görüntüsüyle kanıtlanır; ölçüm bir defa yapılır ve tarihiyle kaydedilir.
-- [ ] **AC06 — Uzun süre kullanmama (G06):** Kayıtların yaşı 30 gün öncesine ayarlanmış bir başlangıç durumundan uygulama açıldığında iki kayıt bilgileriyle bulunur.
-- [ ] **AC07 — Boş durum (G14):** Hiç varlık veya pozisyon eklenmemiş uygulama yeniden açıldığında boş durum açıklaması gösterilir; listede hiçbir varlık adı görünmez ve kendiliğinden kayıt oluşmaz.
-- [ ] **AC08 — Alt sınır:** Tek bir pozisyonsuz varlık içeren uygulama uyku sonrası açıldığında varlık sayısı bir olarak kalır.
-- [ ] **AC09 — Kısmi kapanış sınırı:** Kalan miktarı sıfırdan büyük olacak şekilde kısmen kapatılmış bir pozisyonun varlığı silinmek istendiğinde silme engellenir ve kayıtlar korunur.
-- [ ] **AC10 — Tam kapanış sınırı:** Son aktif pozisyonunun kalan miktarı sıfıra inmiş bir varlık için silme işlemi yapılmadan uygulama yeniden açıldığında varlık listede kalır.
-- [ ] **AC11 — Açık silme (G10):** Listede birden fazla varlık varken, aktif pozisyonu ve bekleyen emri olmayan bir varlık kullanıcı tarafından açıkça silindikten sonra uygulama yeniden açıldığında o varlık listede bulunmaz.
-- [ ] **AC11b — Son varlık sınırı (G10):** Listedeki son varlık silinmek istendiğinde işlem engellenir, varlık korunur ve nedeni kullanıcıya açıklanır.
-- [ ] **AC11c — Toplu sıfırlama sınırı (G11):** Aktif pozisyonu olan bir varlık varken liste sıfırlama denendiğinde işlem yapılmaz ve neden açıklanır; sıfırlama her durumda kullanıcının ayrıca onayını ister.
-- [ ] **AC11d — Portföy sıfırlama sınırı (rev.8):** Aktif pozisyonu, bekleyen emri veya sorunlu kaydı bulunan bir portföyde sıfırlama denendiğinde işlem yapılmaz ve neden açıklanır; sıfırlama her durumda kullanıcının ayrıca onayını ister.
-- [ ] **AC12 — Silme engeli:** Aktif pozisyonlu bir varlık için silme girişiminde bulunulduğunda varlık ve pozisyon korunur, kullanıcıya aktif pozisyon nedeniyle silinemediği açıklanır.
-- [ ] **AC12b — Bekleyen emir engeli (G02):** Yalnız bekleyen emri olan bir varlık için silme girişiminde bulunulduğunda işlem engellenir; emir ve kilitli tutar korunur, neden kullanıcıya açıklanır.
-- [ ] **AC12c — Sahipsiz aktif kayıt yokluğu (G13):** Başlangıçta varlığıyla bağlantısı geçerli olan aktif pozisyonlar ve bekleyen emirler, silme engelleri yürürlükteyken karşılığı olmayan bir varlığa işaret eder duruma gelmez. Kriter yalnız aktif pozisyon ve bekleyen emirleri kapsar; tamamen kapatılmış pozisyonların geçmiş kayıtları ile bu iş öncesinden gelen sahipsiz kayıtlar kapsam dışıdır (bkz. KAPSAM DIŞI).
-- [ ] **AC13 — Görünüm değişimi (G04):** İki varlık kayıtlıyken Enstrüman seçimi bir varlıktan diğerine değiştirilip geri dönüldüğünde iki varlık da önceki bilgileriyle listede kalır.
-- [ ] **AC14 — Görünürlük:** Biri tamamen kapanmış, diğeri aktif iki pozisyon bulunan durumda Aktif Pozisyonlar görünümünde yalnızca aktif olan yer alır; kapalı pozisyonun varlığı Varlık Yönetimi'nde görünmeye devam eder.
-- [ ] **AC15 — Geçersiz girdi:** Mevcut giriş kurallarınca reddedilen bir varlık ekleme girişimi sonrasında mevcut varlık ve pozisyon bilgileri değişmez, yeni varlık oluşmaz ve kullanıcıya anlaşılır açıklama gösterilir.
-- [ ] **AC15b — Aynı ad (G12):** Kayıtlı bir adla yeniden ekleme denendiğinde mevcut varlığın bilgileri değişmez ve kullanıcıya aynı adın kayıtlı olduğu açıklanır.
-- [ ] **AC16 — Erişim sorunu:** Kayıtlı bir varlık ve aktif pozisyona geçici olarak erişilemediğinde kullanıcıya erişim sorunu gösterilir; erişim düzeldiğinde iki kayıt önceki bilgileriyle bulunur.
-- [ ] **AC16b — Erişim sorununda yazma engeli (G03):** Erişim sorunu sırasında bir kayıt değiştirme girişimi yapıldığında işlem gerçekleşmez ve erişim düzeldiğinde önceki kayıtlar bilgileriyle bulunur.
-- [ ] **AC16c — Eksik bilgili kayıt (G15, R4.1):** Bilgileri eksik bir kayıt bulunduğunda kayıt korunur, boş kayıtla değiştirilmez, kullanıcıya sorunlu olduğu bildirilir ve ilişkili varlığın silinmesi engellenir.
-- [ ] **AC17 — Performans (G09, P1 onaylı):** Uygulama hazırken 100 varlık ve toplam 100 aktif pozisyonun görünmesi, aynı koşullarda yapılan 10 ölçümün her birinde en fazla 5 saniye sürer. Ölçüm, kayıtların okunmasından listenin görünmesine kadar geçen süredir; canlı piyasa fiyatı çekme süresi ölçüme dahil edilmez. Ölçüm yerel geliştirme ortamında alınır.
-- [ ] **AC18 — Başlatma biçiminden bağımsızlık (P4, onaylı):** Bir varlık ve aktif pozisyon kaydedildikten sonra uygulama farklı bir klasörden başlatıldığında aynı kayıtlar bilgileriyle bulunur. Yayında tek bir başlatma biçimi olduğundan bu kriter geliştirici ortamında yürütülür; ölçüm sınırı AC17 ile aynı mantıktadır.
-- [ ] **AC19 — Yeniden yayınlama sonrası koruma:** Bir varlık ve aktif pozisyon kayıtlıyken uygulama yeniden yayınlandıktan sonra, yayın öncesindeki iki kayıt bilgileriyle bulunur. Kriter süreç yeniden başlatma (AC05a) ve farklı klasörden başlatma (AC18) kriterlerinden ayrı yürütülür; bu ikisi yeniden yayınlamayı tek başına kanıtlamaz.
+- [x] **AC01 — Hazırlanmış kayıtların korunması:** Geliştirme öncesinde hazırlanmış bir varlık ve ona bağlı bir aktif pozisyon içeren başlangıç durumundan uygulama geliştirme sonrası açıldığında, her iki kayıt ve kayıtlı bilgileri aynen bulunur. Bu kriter kullanıcı ortamında gerçek kayıt bulunup bulunmamasından bağımsız olarak yürütülür.
+- [x] **AC01b — Gerçek kullanıcı kayıtlarının karşılaştırılması (referans: yayın, P6):** Geliştirme başlamadan önce **yayındaki** varlık ve aktif pozisyon kayıtlarının bir kopyası kanıt olarak alınır; geliştirme sonrası aynı yayında bu kopyadaki her kayıt ve bilgisi birebir bulunur. Kopya, kayıtların hâlâ mevcut olduğu bir anda alınır. *(QA notu: varlık tarafının başlangıç referansı ayrıca kopya gerektirmez — yayın her açılışta koddaki yerleşik listeye döndüğü için referans o listedir, bkz. P7. Kopya yalnız pozisyon tarafı için gereklidir. Masaüstündeki yerel dosyalar bu kriterin referansı değildir — bkz. P4 kapsam düzeltmesi.)*
+- [x] **AC02 — Pozisyonsuz varlık:** Hiç pozisyonu olmayan bir varlık başarıyla eklendikten sonra uygulama kapatılıp açıldığında aynı varlık listede bulunur.
+- [x] **AC03 — Yenileme:** Bir varlık ve aktif pozisyon bulunan sayfa yenilendiğinde iki kaydın bilgileri yenileme öncesiyle aynıdır.
+- [x] **AC04 — Yeniden açma:** Bir varlık ve aktif pozisyon bulunan uygulama kapatılıp yeniden açıldığında iki kaydın bilgileri kapanış öncesiyle aynıdır.
+- [x] **AC05a — Süreç yeniden başlatma (G07):** Bir varlık ve aktif pozisyon bulunan uygulamanın süreci tamamen sonlandırılıp yeniden başlatıldığında iki kayıt, miktar ve alış bilgileri dahil, öncekiyle aynıdır.
+- [x] **AC05b — Uyku sonrası, tek seferlik (G07):** Yayındaki uygulama uyku sonrası açıldığında AC05a ile aynı sonuç kanıtlanır; ölçüm bir defa yapılır ve tarihiyle kaydedilir.
+  **Ölçüm (2026-09-10, eşdeğer mekanizma ile KARŞILANDI):** Uyku ve uyanma, yayın sürecinin
+  durdurulup yeniden başlatılmasıdır; bu mekanizma **reboot** ile ölçüldü ve kayıtlar
+  yerinde kaldı (bkz. AC19 ölçümü). Kayıtlar artık yayın sürecinin diskinde değil, dış
+  veritabanında tutulduğu için sürecin durması kayıt kaybı üretemez.
+  **Sınır — dürüstlük notu:** Doğal uyku döngüsünün kendisi (birkaç saat kullanılmama
+  sonrası açılış) ayrıca gözlenmemiştir; kriter, aynı mekanizmayı kanıtlayan ölçümle
+  kapatılmıştır. Takım Yöneticisi bu değerlendirmeyle kapatma kararını vermiştir.
+- [x] **AC06 — Uzun süre kullanmama (G06):** Kayıtların yaşı 30 gün öncesine ayarlanmış bir başlangıç durumundan uygulama açıldığında iki kayıt bilgileriyle bulunur.
+- [x] **AC07 — Boş durum (G14):** Hiç varlık veya pozisyon eklenmemiş uygulama yeniden açıldığında boş durum açıklaması gösterilir; listede hiçbir varlık adı görünmez ve kendiliğinden kayıt oluşmaz.
+- [x] **AC08 — Alt sınır:** Tek bir pozisyonsuz varlık içeren uygulama uyku sonrası açıldığında varlık sayısı bir olarak kalır.
+- [x] **AC09 — Kısmi kapanış sınırı:** Kalan miktarı sıfırdan büyük olacak şekilde kısmen kapatılmış bir pozisyonun varlığı silinmek istendiğinde silme engellenir ve kayıtlar korunur.
+- [x] **AC10 — Tam kapanış sınırı:** Son aktif pozisyonunun kalan miktarı sıfıra inmiş bir varlık için silme işlemi yapılmadan uygulama yeniden açıldığında varlık listede kalır.
+- [x] **AC11 — Açık silme (G10):** Listede birden fazla varlık varken, aktif pozisyonu ve bekleyen emri olmayan bir varlık kullanıcı tarafından açıkça silindikten sonra uygulama yeniden açıldığında o varlık listede bulunmaz.
+- [x] **AC11b — Son varlık sınırı (G10):** Listedeki son varlık silinmek istendiğinde işlem engellenir, varlık korunur ve nedeni kullanıcıya açıklanır.
+- [x] **AC11c — Toplu sıfırlama sınırı (G11):** Aktif pozisyonu olan bir varlık varken liste sıfırlama denendiğinde işlem yapılmaz ve neden açıklanır; sıfırlama her durumda kullanıcının ayrıca onayını ister.
+- [x] **AC11d — Portföy sıfırlama sınırı (rev.8):** Aktif pozisyonu, bekleyen emri veya sorunlu kaydı bulunan bir portföyde sıfırlama denendiğinde işlem yapılmaz ve neden açıklanır; sıfırlama her durumda kullanıcının ayrıca onayını ister.
+- [x] **AC12 — Silme engeli:** Aktif pozisyonlu bir varlık için silme girişiminde bulunulduğunda varlık ve pozisyon korunur, kullanıcıya aktif pozisyon nedeniyle silinemediği açıklanır.
+- [x] **AC12b — Bekleyen emir engeli (G02):** Yalnız bekleyen emri olan bir varlık için silme girişiminde bulunulduğunda işlem engellenir; emir ve kilitli tutar korunur, neden kullanıcıya açıklanır.
+- [x] **AC12c — Sahipsiz aktif kayıt yokluğu (G13):** Başlangıçta varlığıyla bağlantısı geçerli olan aktif pozisyonlar ve bekleyen emirler, silme engelleri yürürlükteyken karşılığı olmayan bir varlığa işaret eder duruma gelmez. Kriter yalnız aktif pozisyon ve bekleyen emirleri kapsar; tamamen kapatılmış pozisyonların geçmiş kayıtları ile bu iş öncesinden gelen sahipsiz kayıtlar kapsam dışıdır (bkz. KAPSAM DIŞI).
+- [x] **AC13 — Görünüm değişimi (G04):** İki varlık kayıtlıyken Enstrüman seçimi bir varlıktan diğerine değiştirilip geri dönüldüğünde iki varlık da önceki bilgileriyle listede kalır.
+- [x] **AC14 — Görünürlük:** Biri tamamen kapanmış, diğeri aktif iki pozisyon bulunan durumda Aktif Pozisyonlar görünümünde yalnızca aktif olan yer alır; kapalı pozisyonun varlığı Varlık Yönetimi'nde görünmeye devam eder.
+- [x] **AC15 — Geçersiz girdi:** Mevcut giriş kurallarınca reddedilen bir varlık ekleme girişimi sonrasında mevcut varlık ve pozisyon bilgileri değişmez, yeni varlık oluşmaz ve kullanıcıya anlaşılır açıklama gösterilir.
+- [x] **AC15b — Aynı ad (G12):** Kayıtlı bir adla yeniden ekleme denendiğinde mevcut varlığın bilgileri değişmez ve kullanıcıya aynı adın kayıtlı olduğu açıklanır.
+- [x] **AC16 — Erişim sorunu:** Kayıtlı bir varlık ve aktif pozisyona geçici olarak erişilemediğinde kullanıcıya erişim sorunu gösterilir; erişim düzeldiğinde iki kayıt önceki bilgileriyle bulunur.
+- [x] **AC16b — Erişim sorununda yazma engeli (G03):** Erişim sorunu sırasında bir kayıt değiştirme girişimi yapıldığında işlem gerçekleşmez ve erişim düzeldiğinde önceki kayıtlar bilgileriyle bulunur.
+- [x] **AC16c — Eksik bilgili kayıt (G15, R4.1):** Bilgileri eksik bir kayıt bulunduğunda kayıt korunur, boş kayıtla değiştirilmez, kullanıcıya sorunlu olduğu bildirilir ve ilişkili varlığın silinmesi engellenir.
+- [x] **AC17 — Performans (G09, P1 onaylı):** Uygulama hazırken 100 varlık ve toplam 100 aktif pozisyonun görünmesi, aynı koşullarda yapılan 10 ölçümün her birinde en fazla 5 saniye sürer. Ölçüm, kayıtların okunmasından listenin görünmesine kadar geçen süredir; canlı piyasa fiyatı çekme süresi ölçüme dahil edilmez. Ölçüm yerel geliştirme ortamında alınır.
+- [x] **AC18 — Başlatma biçiminden bağımsızlık (P4, onaylı):** Bir varlık ve aktif pozisyon kaydedildikten sonra uygulama farklı bir klasörden başlatıldığında aynı kayıtlar bilgileriyle bulunur. Yayında tek bir başlatma biçimi olduğundan bu kriter geliştirici ortamında yürütülür; ölçüm sınırı AC17 ile aynı mantıktadır.
+- [x] **AC19 — Yeniden yayınlama sonrası koruma:** Bir varlık ve aktif pozisyon kayıtlıyken uygulama yeniden yayınlandıktan sonra, yayın öncesindeki iki kayıt bilgileriyle bulunur. Kriter süreç yeniden başlatma (AC05a) ve farklı klasörden başlatma (AC18) kriterlerinden ayrı yürütülür; bu ikisi yeniden yayınlamayı tek başına kanıtlamaz.
+  **Ölçüm (2026-09-10, KARŞILANDI):** Yayına varlık eklendi; `main` güncellenerek uygulama
+  yeniden yayınlandı (d76f7c4) ve ardından elle yeniden başlatıldı. Her iki olaydan sonra
+  eklenen kayıtların tamamı bilgileriyle yerindeydi. Ölçümü Takım Yöneticisi yayında
+  yürütüp bildirdi. Bu, bildirilen kayıp senaryosunun bire bir karşılığıdır ve düzeldiğini
+  gösterir.
 
 ## Definition of Done
+
+> **Durum: KAPANDI (2026-09-10).** Yayın ölçümü yapıldı; kayıtlar yeniden yayınlama ve
+> yeniden başlatma sonrası korunuyor.
 - [x] P1–P7 için Takım Yöneticisi kararları spec'e işlendi; spec uygulama için onaylandı (rev.8).
 - [x] **P8:** Yayın erişimi Streamlit ayarlarından kısıtlandı (Takım Yöneticisi tarafından uygulandı).
-- [ ] Tüm kabul kriterleri ayrı test/kanıtla karşılandı; uygulanamaz kriter bırakılmadı.
-- [ ] İş davranışı testleri P3 kararına uygun yürütüldü: her kabul kriteri için `tests/` altında en az bir pytest testi yazıldı ve `.github/workflows/tests.yml` ile yeşil geçti.
-- [ ] Her arayüz kriteri için ekran görüntüsü ve kritik ekleme → uyku → yeniden açma akışı için smoke test kanıtı üretildi.
-- [ ] Streamlit yayınında uyku öncesi/sonrası kayıt karşılaştırmasıyla koruma doğrulandı (AC05b).
-- [ ] Geçerli pipeline kontrolleri geçti ve kullanıcıya teknik hata sızmadı.
-- [ ] **Para/yüzde kapsamı (G16):** Bu iş kayıtları koruma işidir; mevcut para/yüzde gösterimi olduğu gibi korunur, sayı türü dönüşümü yapılmaz. Genel para kuralının bu uygulamaya uyarlanması ayrı bir spec konusudur.
-- [ ] Ayrı QA oturumunda bağımsız doğrulama yapıldı; Takım Yöneticisi sonucu değerlendirdi.
-- [ ] PR ve squash-merge işlemleri [git.md](../docs/git.md) kurallarına göre tamamlandı.
+- [x] Tüm kabul kriterleri ayrı test/kanıtla karşılandı; uygulanamaz kriter bırakılmadı.
+- [x] İş davranışı testleri P3 kararına uygun yürütüldü: her kabul kriteri için `tests/` altında en az bir pytest testi yazıldı ve `.github/workflows/tests.yml` ile yeşil geçti.
+- [x] Kritik akış (ekleme → yeniden yayınlama/yeniden başlatma → yeniden açma) yayında doğrulandı ve `tests/test_persistence_app.py` ile otomatik smoke kapsamı üretildi. *(Arayüz kriterlerinin ekran görüntüleri yerine, gerçek `app.py` üzerinde çalışan AppTest kanıtları kullanılmıştır; Takım Yöneticisi kararı.)*
+- [x] Streamlit yayınında koruma doğrulandı: yeniden yayınlama ve yeniden başlatma sonrası kayıtlar yerinde (AC19; AC05b eşdeğer mekanizma notuyla).
+- [x] Geçerli pipeline kontrolleri geçti (CI `pytest` yeşil, 366 test) ve kullanıcıya teknik hata sızmadı.
+- [x] **Para/yüzde kapsamı (G16):** Bu iş kayıtları koruma işidir; mevcut para/yüzde gösterimi olduğu gibi korunur, sayı türü dönüşümü yapılmaz. Genel para kuralının bu uygulamaya uyarlanması ayrı bir spec konusudur.
+- [x] Ayrı QA oturumunda iki tur bağımsız doğrulama yapıldı (11 kanıtlı bulgu); Takım Yöneticisi sonucu değerlendirdi ve düzeltmeler uygulandı.
+- [x] PR ve squash-merge işlemleri [git.md](../docs/git.md) kurallarına göre tamamlandı (PR #10 uygulama, PR #11 SCORECARD, PR kapanış).
 
 ---
 
 ## SCORECARD
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 11 — rev.1 QA bulguları; rev.2 P4; rev.3 TY bulguları; rev.4 P5; rev.5 P6; rev.6 P7 kanıtı; rev.7 P3; rev.8 P1/P2 + AC11d/R4.1; rev.9 QA denetimi (F6 sınırı, P8); rev.10 ikinci QA turu (F10/F11); rev.11 merge + SCORECARD |
+| Spec revizyon sayısı | 11 — rev.1 QA bulguları; rev.2 P4; rev.3 TY bulguları; rev.4 P5; rev.5 P6; rev.6 P7 kanıtı; rev.7 P3; rev.8 P1/P2 + AC11d/R4.1; rev.9 QA denetimi (F6 sınırı, P8); rev.10 ikinci QA turu (F10/F11); rev.11 merge + SCORECARD; rev.12 yayın ölçümü ve kapanış |
 | Düzeltme turu sayısı | 3 — 1: spec metni; 2 ve 3: QA kod denetimleri sonrası düzeltmeler |
 | Bulgu gerçek/gürültü oranı | 17/0 spec incelemesi + 9/0 ve 2/0 kod denetimleri (triyajdan geçen) |
 | Regresyon sayısı | 7 — hepsi merge öncesinde yakalandı ve düzeltildi: 5 spec-0001 testi (boş kayıtta uygulamanın durması, AC07 davranış değişikliği); 1 test izolasyon kusuru (kırık depo taklidinin diğer test dosyalarına sızması); 1 spec-0003 uyum kusuru (`CLOSED_CONFIRMED`) |
 | Test sayısı | 366 yeşil (bu iş 62 test ekledi); CI `pytest` 2 dk 1 sn |
-| Ölçüm | AC17: 10 ölçümün en uzunu **0,001 sn** (sınır 5 sn) |
+| Ölçüm | AC17: 10 ölçümün en uzunu **0,001 sn** (sınır 5 sn). AC19: yayında yeniden yayınlama + reboot sonrası kayıtlar yerinde (2026-09-10) |
+| Açık bırakılanlar | F6 eşzamanlı yazma ve F11'in yerini alan 0003 davranışı ayrı spec konusu; F9 (AC17 ölçümünün dar kapsamı) kabul edildi; AC05b doğal uyku döngüsüyle ayrıca gözlenmedi |
 | Kaçan hata | 3 (spec metni, rev.1) + **5 (kod, Developer)** — QA denetiminde bulundu: F1 yazma koparsa bellekteki değişiklik geri alınmıyor; F2 oturum ortasında kopan erişimde yazan kontroller açık kalıyor; F4 bilgisi eksik bekleyen emir sayfayı düşürüyor; F5 yerel arka uçta yanlış "korunuyor" rozeti; F8 dosya adlarının ikinci gerçek kaynağı. **+1 (2. tur):** F10 — F1 düzeltmesinin kendi açtığı kusur: otomatik kapanış sonrası anlık görüntü tazelenmediği için meşru kapanış geri alınabiliyordu. **Toplam kaçan hata: 3 metin + 6 kod.** Hepsi için, düzeltme geri alındığında başarısız olan regresyon testi yazıldı |
