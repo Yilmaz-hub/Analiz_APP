@@ -3,21 +3,30 @@ import pandas as pd
 import time
 import requests
 import traceback
+from datetime import datetime, timezone
+from decimal import Decimal
+from zoneinfo import ZoneInfo
 from config import DEFAULT_COIN_MAP, PATTERN_INFO, UIConfig, FileConfig, DataFetchConfig
 from logger import logger
 
 # === YENİ MODÜLLERDEN IMPORTLAR ===
 from data_fetchers import get_market_data, get_fear_greed_index
-from technical_analysis import detect_advanced_patterns, calculate_extended_trendlines, detect_patterns, run_strategy_backtest
+from technical_analysis import (detect_advanced_patterns, calculate_extended_trendlines,
+                                detect_patterns, run_strategy_backtest,
+                                run_v1_strategy_backtest, build_v1_decisions)
 from ml_models import calculate_smart_prediction_FIXED
 from portfolio import load_portfolio, save_portfolio, validate_portfolio_risk, check_active_positions_auto_close, multi_timeframe_confirmation
 from ui_components import render_sidebar_settings, render_asset_management, render_main_chart, is_chart_renderable, is_mobile_mode, is_empty_data_reason
 from scanner import render_opportunity_scanner
 from data_fetchers import get_live_price_for_portfolio
-from signal_engine import generate_stable_signal, CompositeSignal
+from signal_engine import generate_stable_signal, generate_validated_signal, CompositeSignal
+from market_validation import policy_for_symbol, validate_market_data
 from weight_profiles import get_weights_for_symbol
 from prediction_tracker import record_prediction, evaluate_predictions, get_track_record
 from advanced_analysis import detect_elliott_wave, analyze_ichimoku, detect_wyckoff_phase, analyze_market_structure
+from position_journal import PositionJournal
+from trade_decisions import Position, PositionState, Signal
+from trading_ui import PanelInput, build_decision_panel
 import theme
 
 st.set_page_config(layout="wide", page_title="Pro Trader V48 (Modular Edition)")
@@ -51,6 +60,8 @@ if 'coin_map' not in st.session_state:
 
 if 'portfolio_data' not in st.session_state:
     st.session_state['portfolio_data'] = load_portfolio()
+if 'position_journal' not in st.session_state:
+    st.session_state['position_journal'] = PositionJournal(FileConfig.TRADING_JOURNAL_FILE)
 
 # --- ARAYÜZ (SIDEBAR) ---
 tg_token, tg_chat = render_sidebar_settings()
@@ -100,6 +111,7 @@ active_src = ""
 
 # --- ANA VERİ DÖNGÜSÜ ---
 composite_signals = {}  # Store composite signals per timeframe
+validation_statuses = {}
 for tf, label in intervals.items():
     df, src = get_market_data(src_pref, symbol, tf)
     if tf == "1d": active_src = src
@@ -111,7 +123,32 @@ for tf, label in intervals.items():
         # only ever validates against daily data (see weight_profiles.py).
         sig_weights = get_weights_for_symbol(symbol) if tf == "1d" else None
         # Stable (whipsaw-filtered) composite signal — closed candles only
-        comp_sig = generate_stable_signal(df, tf, weights=sig_weights)
+        if tf == "1d":
+            evaluation_time = datetime.now(timezone.utc)
+            policy = policy_for_symbol(symbol, evaluation_time)
+            required_components = ("RSI", "EMA_20", "EMA_50", "MACD", "MACD_Signal", "ATR", "ADX")
+            components_ready = all(
+                column in df.columns and pd.notna(df[column].iloc[-1])
+                for column in required_components
+            )
+            validation = validate_market_data(
+                df, evaluation_time, policy,
+                provider_open=df.attrs.get("provider_open", set()),
+                components_ready=components_ready,
+            )
+            validation_statuses[tf] = validation.status
+            comp_sig = generate_validated_signal(
+                df, evaluation_time, policy,
+                provider_open=df.attrs.get("provider_open", set()),
+                components_ready=components_ready,
+                timeframe=tf, weights=sig_weights,
+            )
+            if comp_sig is None:
+                comp_sig = CompositeSignal(timeframe=tf, verdict="BEKLE")
+                comp_sig.reasons = [validation.reason or "Günlük veri doğrulanamadı"]
+        else:
+            validation_statuses[tf] = "V1_DOGRULANMADI"
+            comp_sig = generate_stable_signal(df, tf, weights=sig_weights)
         composite_signals[tf] = comp_sig
 
         st.sidebar.markdown("---")
@@ -234,6 +271,48 @@ if is_chart_renderable(df_view):
     # ═══════════════════════════════════════════
     st.markdown("### 🎯 KARAR PANELİ")
     
+    matching_positions = [p for p in st.session_state['portfolio_data'].get('positions', [])
+                          if p.get('Coin') == sel_c and p.get('Status') == 'ACTIVE']
+    verified_position = next((p for p in matching_positions if p.get('V1Verified')), None)
+    if verified_position:
+        position = Position(
+            PositionState.OPEN,
+            Decimal(str(verified_position.get('Adet', 0))),
+            Decimal(str(verified_position.get('Giriş', 0))),
+            datetime.fromisoformat(verified_position['Gerçekleşme Zamanı']),
+            Decimal(str(verified_position['Stop'])) if verified_position.get('Stop') else None,
+        )
+    elif matching_positions:
+        position = Position(PositionState.UNKNOWN)
+    elif st.session_state.get(f'flat_confirmed:{sel_c}', False):
+        position = Position.flat()
+    else:
+        position = Position(PositionState.UNKNOWN)
+
+    market_signal = Signal.BUY if "AL" in active_signal.verdict else (
+        Signal.SELL if "SAT" in active_signal.verdict else Signal.WAIT
+    )
+    decision_panel = build_decision_panel(PanelInput(
+        signal=market_signal, position=position,
+        data_status=validation_statuses.get(view_tf, "V1_DOGRULANMADI"),
+        fee=None, spread_bps=None, slippage_bps=None,
+        confidence=Decimal(str(active_signal.confidence)),
+        decision_at=datetime.now(timezone.utc),
+        suggested_stop=Decimal(str(active_signal.stop_loss)) if active_signal.stop_loss else None,
+        asset_kind=symbol if symbol in {"XAU_GOLD", "GRAM_TRY"} else None,
+        in_scope=view_tf == "1d" and symbol != "GRAM_TRY",
+    ))
+    if decision_panel.action:
+        st.success(f"Pozisyonuna göre eylem: **{decision_panel.action}**")
+    else:
+        st.warning("Pozisyon durumu teyit edilmeden kişisel işlem eylemi gösterilmez.")
+    if position.state is PositionState.UNKNOWN and st.button("Bu varlıkta pozisyonum yok", key=f"flat:{sel_c}"):
+        st.session_state[f'flat_confirmed:{sel_c}'] = True
+        st.rerun()
+    st.caption("Uyum puanı kazanma olasılığı değildir. Gerçek işlem yalnız kullanıcı teyidiyle değişir.")
+    for warning in decision_panel.messages:
+        st.caption(f"• {warning}")
+
     dash_col1, dash_col2, dash_col3 = st.columns([1.5, 1, 1.5])
     
     with dash_col1:
@@ -334,22 +413,32 @@ if is_chart_renderable(df_view):
     if df_view is not None:
         st.divider()
         with st.expander("📊 Backtest: Strateji Performansı", expanded=False):
-            st.info("Ekranda gördüğünüz Karar Motoru sinyalini (onay + histerezis filtreli) geçmiş veride test eder. Not: ML boyutu hız nedeniyle backtestte devre dışıdır, ağırlığı diğer boyutlara dağıtılır.")
+            st.info("Günlük V1 testi; ML dahil kapanmış mum kararını sonraki açılışta uygular, 2,5 ATR başlangıç stopunu sabit tutar ve hedef/otomatik iz süren stopla satış yapmaz.")
             if st.button("🚀 Backtest Başlat"):
                 with st.spinner("Backtest çalışıyor..."):
                     import plotly.graph_objects as go
                     tuned_weights = get_weights_for_symbol(symbol) if view_tf == "1d" else None
 
                     bt_progress = st.progress(0.0)
-                    bt_results = run_strategy_backtest(df_view, initial_balance=10000, timeframe=view_tf,
-                                                       weights=tuned_weights,
-                                                       progress_callback=lambda p: bt_progress.progress(min(1.0, p)))
+                    if view_tf == "1d":
+                        v1_decisions = build_v1_decisions(df_view, weights=tuned_weights, include_ml=True)
+                        bt_results = run_v1_strategy_backtest(
+                            df_view, v1_decisions, initial_cash=Decimal("10000"),
+                            trade_notional=Decimal("1000"),
+                        )
+                    else:
+                        st.warning("Bu zaman aralığı V1 kapsamı dışında; sonuç araştırma amaçlıdır.")
+                        bt_results = run_strategy_backtest(
+                            df_view, initial_balance=10000, timeframe=view_tf,
+                            weights=tuned_weights,
+                            progress_callback=lambda p: bt_progress.progress(min(1.0, p)),
+                        )
                     bt_progress.empty()
 
                     if bt_results is None:
                         st.warning("Yeterli işlem oluşmadı. Daha uzun veri gerekebilir.")
                     else:
-                        if tuned_weights:
+                        if tuned_weights and view_tf != "1d":
                             st.caption("🎯 Bu varlık sınıfı için ayarlanmış ağırlıklar kullanılıyor.")
                             bt_default = run_strategy_backtest(df_view, initial_balance=10000, timeframe=view_tf, weights=None)
                             if bt_default is not None:
@@ -395,11 +484,37 @@ if is_chart_renderable(df_view):
                 "sanal işlem yapar. Birkaç hafta sonra gerçek davranış ile backtest beklentisi "
                 "karşılaştırılır. Günlük otomatik görev kuruluysa buton sadece kontrol içindir.")
         from paper_trading import run_paper_update, paper_report
+        paper_currency = "TRY" if symbol.endswith(".IS") or symbol == "GRAM_TRY" else "USD/USDT"
+        paper_capital = st.number_input(
+            f"Sanal başlangıç sermayesi ({paper_currency})", min_value=0.01,
+            value=10000.0, step=100.0, key=f"paper-capital:{symbol}",
+        )
+        paper_notional = st.number_input(
+            f"Sanal işlem tutarı ({paper_currency})", min_value=0.01,
+            value=1000.0, step=100.0, key=f"paper-notional:{symbol}",
+        )
+        paper_quantity_step = st.number_input(
+            "Kurumun adet/lot adımı (bilinmiyorsa 0)", min_value=0.0,
+            value=0.0, step=0.00000001, format="%.8f", key=f"paper-step:{symbol}",
+        )
+        if paper_quantity_step == 0:
+            st.caption("Adet/lot adımı bilinmediği için sanal girişler bekler; bu bilgi sonradan girilebilir.")
         if st.button("📸 Bugünü Kaydet / Güncelle"):
             pp_bar = st.progress(0.0)
             pp_txt = st.empty()
-            status = run_paper_update(st.session_state['coin_map'], src_pref,
-                                      progress_callback=lambda p, n: (pp_bar.progress(min(1.0, p)), pp_txt.text(f"Kaydediliyor: {n}")))
+            paper_selection = {sel_c: symbol}
+            paper_settings = {sel_c: {
+                "capital": paper_capital,
+                "trade_notional": paper_notional,
+                "quantity_step": paper_quantity_step or None,
+                "currency": paper_currency,
+            }}
+            status = run_paper_update(
+                paper_selection, src_pref, paper_settings=paper_settings,
+                progress_callback=lambda p, n: (
+                    pp_bar.progress(min(1.0, p)), pp_txt.text(f"Kaydediliyor: {n}")
+                ),
+            )
             pp_bar.empty(); pp_txt.empty()
             if status["errors"]:
                 st.warning(f"{status['new_rows']} yeni kayıt. Veri alınamayan: {', '.join(status['errors'])}")
@@ -428,11 +543,18 @@ if is_chart_renderable(df_view):
         is_limit = st.checkbox("⏳ Limit Emir", value=False)
         use_balance = st.checkbox(f"🏦 Bakiyeden Kullan (${current_balance:,.2f})", value=True)
         atr_val = current_atr if 'current_atr' in locals() else entry_price*0.02
-        st.caption(f"Stop Önerisi: ${(entry_price - atr_val * 1.5):.2f}")
+        stop_default = Decimal(str(entry_price)) - Decimal("2.5") * Decimal(str(atr_val))
+        stop_input = st.number_input(
+            "Kuruma koyduğum stop", value=float(max(stop_default, Decimal("0"))),
+            step=0.01, format="%.4f",
+        )
+        st.caption(f"2,5 ATR başlangıç stop önerisi: ${stop_default:.2f}")
 
         if st.button("➕ Emri Gir / Ekle"):
             is_valid, risk_msg = validate_portfolio_risk(investment, current_balance, st.session_state['portfolio_data']['positions'])
-            if not is_valid: st.error(risk_msg)
+            if stop_default <= 0 or Decimal(str(stop_input)) <= 0 or Decimal(str(stop_input)) >= Decimal(str(entry_price)):
+                st.error("Başlangıç stopu pozitif ve giriş fiyatının altında olmalıdır.")
+            elif not is_valid: st.error(risk_msg)
             else:
                 proceed = True
                 if use_balance:
@@ -440,10 +562,23 @@ if is_chart_renderable(df_view):
                     else: st.session_state['portfolio_data']['balance'] -= investment
                 
                 if proceed:
+                    executed_at = datetime.now(timezone.utc)
+                    quantity = Decimal(str(investment)) / Decimal(str(entry_price))
+                    event_id = f"{sel_c}:BUY:{executed_at.isoformat()}"
+                    if not is_limit:
+                        st.session_state['position_journal'].confirm_trade(
+                            event_id, "BUY", quantity, Decimal(str(entry_price)),
+                            executed_at, datetime.now(timezone.utc), fee=None, symbol=symbol,
+                        )
                     st.session_state['portfolio_data']['positions'].append({
                         "Coin": sel_c, "Giriş": entry_price, "Adet": investment / entry_price,
-                        "Yatırım": investment, "Realized": 0.0, "Status": "PENDING" if is_limit else "ACTIVE", "Tarih": time.strftime("%Y-%m-%d")
+                        "Yatırım": investment, "Realized": 0.0,
+                        "Status": "PENDING" if is_limit else "ACTIVE",
+                        "Tarih": time.strftime("%Y-%m-%d"), "Stop": stop_input,
+                        "Gerçekleşme Zamanı": executed_at.isoformat(),
+                        "V1Verified": not is_limit, "JournalEventId": event_id,
                     })
+                    st.session_state[f'flat_confirmed:{sel_c}'] = False
                     save_portfolio(st.session_state['portfolio_data'])
                     st.success("Limit Emir Girildi! Fiyat bekleniyor..." if is_limit else "Pozisyon Açıldı!")
                     time.sleep(1)
@@ -467,6 +602,38 @@ if is_chart_renderable(df_view):
             pending_pos = [p for p in positions if p.get('Status') == 'PENDING']
             
             if active_pos:
+                with st.expander("🛑 Stop Seviyesini Yükselt"):
+                    stop_coins = list(dict.fromkeys(p['Coin'] for p in active_pos))
+                    stop_coin = st.selectbox("Varlık", stop_coins, key="stop_update_asset")
+                    stop_position = next(p for p in active_pos if p['Coin'] == stop_coin)
+                    current_stop = float(stop_position.get('Stop') or 0.0)
+                    raised_stop = st.number_input(
+                        "Yeni stop", min_value=0.0, value=current_stop,
+                        step=0.01, format="%.4f", key="raised_stop",
+                    )
+                    istanbul_now = datetime.now(ZoneInfo("Europe/Istanbul"))
+                    effective_date = st.date_input(
+                        "Geçerlilik tarihi", value=istanbul_now.date(), key="stop_effective_date"
+                    )
+                    effective_time = st.time_input(
+                        "Geçerlilik saati", value=istanbul_now.time().replace(microsecond=0),
+                        key="stop_effective_time",
+                    )
+                    if st.button("Stop Yükseltmesini Teyit Et"):
+                        if raised_stop <= current_stop:
+                            st.error("Yeni stop mevcut stop seviyesinden yüksek olmalıdır.")
+                        else:
+                            effective_at = datetime.combine(
+                                effective_date, effective_time, tzinfo=ZoneInfo("Europe/Istanbul")
+                            ).astimezone(timezone.utc)
+                            stop_position.setdefault('Stop Geçmişi', []).append({
+                                "Önceki": current_stop, "Yeni": raised_stop,
+                                "Geçerlilik Zamanı": effective_at.isoformat(),
+                            })
+                            stop_position['Stop'] = raised_stop
+                            save_portfolio(st.session_state['portfolio_data'])
+                            st.success("Stop yükseltmesi kaydedildi.")
+                            st.rerun()
                 st.markdown("##### ✅ Aktif Pozisyonlar")
                 with st.expander("💸 Kar Al / Satış Yap"):
                     p_coins = list(set([p['Coin'] for p in active_pos]))
@@ -474,16 +641,27 @@ if is_chart_renderable(df_view):
                     target_pos = next((p for p in active_pos if p['Coin'] == s_coin), None)
                     if target_pos:
                         sell_price = st.number_input("Satış Fiyatı", value=float(curr if s_coin == sel_c else target_pos['Giriş']))
-                        sell_pct = st.slider("Satış %", 0, 100, 50)
-                        sell_amt = target_pos['Adet'] * (sell_pct / 100)
+                        st.caption("V1 SAT sinyali ve stop çıkışı pozisyonun tamamını kapatır.")
+                        sell_amt = target_pos['Adet']
                         total_return = sell_amt * sell_price
                         st.write(f"**Gelecek Nakit:** ${total_return:,.2f}")
                         if st.button("Satışı Onayla"):
+                            executed_at = datetime.now(timezone.utc)
+                            event_id = f"{s_coin}:SELL:{executed_at.isoformat()}"
+                            st.session_state['position_journal'].confirm_trade(
+                                event_id, "SELL", Decimal(str(sell_amt)), Decimal(str(sell_price)),
+                                executed_at, datetime.now(timezone.utc), fee=None,
+                                symbol=st.session_state['coin_map'].get(s_coin, s_coin),
+                            )
                             st.session_state['portfolio_data']['balance'] += total_return
                             cost_basis = float(target_pos.get('Giriş', 0.0)) * float(sell_amt)
                             target_pos['Adet'] = float(target_pos.get('Adet', 0.0)) - float(sell_amt)
                             target_pos['Yatırım'] = float(target_pos.get('Yatırım', 0.0)) - cost_basis
                             target_pos['Realized'] = float(target_pos.get('Realized', 0.0)) + float(total_return - cost_basis)
+                            target_pos['Status'] = 'CLOSED_CONFIRMED'
+                            target_pos['Gerçekleşen Çıkış'] = sell_price
+                            target_pos['Çıkış Zamanı'] = executed_at.isoformat()
+                            st.session_state[f'flat_confirmed:{s_coin}'] = True
                             save_portfolio(st.session_state['portfolio_data'])
                             st.success("Satış gerçekleşti!")
                             st.rerun()
@@ -561,12 +739,14 @@ else:
 
 # OTOMATİK KAPATMA / TELEGRAM
 if st.session_state.get('portfolio_data'):
-    closed_count, closed_trades = check_active_positions_auto_close(st.session_state['portfolio_data'], st.session_state['coin_map'])
-    if closed_count > 0:
-        st.toast(f"🔔 {closed_count} pozisyon otomatik kapandı!", icon="✅")
-        for trade in closed_trades:
-            emoji = "✅" if trade['profit'] > 0 else "❌"
-            st.sidebar.success(f"{emoji} {trade['coin']}: {trade['type']} | ${trade['profit']:.2f} (%{trade['pct']:.1f})")
+    _, stop_alerts = check_active_positions_auto_close(
+        st.session_state['portfolio_data'], st.session_state['coin_map']
+    )
+    for trade in stop_alerts:
+        st.sidebar.warning(
+            f"🛑 {trade['coin']}: stop teması görüldü ({trade['observed_price']}). "
+            "Gerçek satış yapıldıysa fiyat ve zamanı teyit edin."
+        )
 
 def send_tg(token, chat_id, msg):
     try:

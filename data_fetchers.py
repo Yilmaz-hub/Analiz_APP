@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import requests
 import yfinance as yf
-import pandas_ta as ta
 from config import DataFetchConfig, IndicatorConfig, Constants
 from logger import logger
 
@@ -21,40 +20,53 @@ def fetch_binance_simple(symbol, interval, limit=1000):
         "https://api.binance.com/api/v3/klines"
     ]
     params = {"symbol": s_bin, "interval": b_interval, "limit": limit}
-    
+
     for url in base_urls:
         try:
             r = requests.get(url, params=params, headers=DataFetchConfig.HEADERS, timeout=3)
             if r.status_code == 200:
                 data = r.json()
                 if isinstance(data, dict) and 'code' in data: continue
-                df = pd.DataFrame(data, columns=["OpT", "Open", "High", "Low", "Close", "Volume", "x", "x", "x", "x", "x", "x"])
-                df["Date"] = pd.to_datetime(df["OpT"], unit='ms')
+                df = pd.DataFrame(data, columns=[
+                    "OpenTime", "Open", "High", "Low", "Close", "Volume",
+                    "CloseTime", "QuoteVolume", "Trades", "TakerBase", "TakerQuote", "Ignore",
+                ])
+                df["Date"] = pd.to_datetime(pd.to_numeric(df["OpenTime"]), unit='ms')
                 df.set_index("Date", inplace=True)
-                return df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
+                now_ms = int(pd.Timestamp.now(tz="UTC").timestamp() * 1000)
+                provider_open = set(df.index[pd.to_numeric(df["CloseTime"]) >= now_ms])
+                result = df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
+                result.attrs["provider_open"] = provider_open
+                return result
         except Exception as e:
             logger.debug(f"Binance URL failed: {url}, Error: {e}")
             continue
-            
+
     logger.error("Binance: Tüm URL'ler başarısız oldu.")
     return None
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_okx_simple(symbol, interval, limit=300):
     s_okx = symbol.replace("USD", "USDT")
-    omap = {"4h": "4H", "1d": "1D", "1wk": "1W"}
+    # V1 daily decisions share a UTC day boundary across crypto providers.
+    omap = {"4h": "4H", "1d": "1Dutc", "1wk": "1W"}
     url = "https://www.okx.com/api/v5/market/candles"
     params = {"instId": s_okx, "bar": omap.get(interval, "1D"), "limit": limit}
-    
+
     try:
         r = requests.get(url, params=params, headers=DataFetchConfig.HEADERS, timeout=5)
         data = r.json()
         if data.get('code') == '0':
-            df = pd.DataFrame(data['data'], columns=["ts", "Open", "High", "Low", "Close", "Volume", "x", "x", "x"])
-            df["Date"] = pd.to_datetime(df["ts"], unit='ms')
+            df = pd.DataFrame(data['data'], columns=[
+                "ts", "Open", "High", "Low", "Close", "Volume",
+                "VolumeCcy", "VolumeQuote", "Confirm",
+            ])
+            df["Date"] = pd.to_datetime(pd.to_numeric(df["ts"]), unit='ms')
             df.set_index("Date", inplace=True)
-            df = df[["Open", "High", "Low", "Close", "Volume"]].astype(float)
-            return df.sort_index()
+            provider_open = set(df.index[df["Confirm"].astype(str) == "0"])
+            result = df[["Open", "High", "Low", "Close", "Volume"]].astype(float).sort_index()
+            result.attrs["provider_open"] = provider_open
+            return result
     except Exception as e:
         logger.error(f"OKX Error: {e}")
         return None
@@ -65,22 +77,22 @@ def fetch_yahoo_safe(symbol, interval):
     try:
         p = "10y" if interval == "1wk" else ("4y" if interval == "1d" else "1mo")
         i = "1h" if interval == "4h" else ("1d" if interval == "1d" else "1wk")
-        
+
         df = yf.download(symbol, period=p, interval=i, progress=False, auto_adjust=True)
         if df.empty: return None
 
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
-            
-        if df.index.tz is not None: 
+
+        if df.index.tz is not None:
             df.index = df.index.tz_localize(None)
-            
+
         if interval == "4h":
             agg = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}
-            if 'Volume' not in df.columns: 
+            if 'Volume' not in df.columns:
                 df['Volume'] = 0
             df = df.resample('4h').agg(agg).dropna()
-            
+
         return df
     except Exception as e:
         logger.error(f"Yahoo Error ({symbol}): {e}")
@@ -98,11 +110,11 @@ def fetch_gram_gold_calculated(interval):
     try:
         df_ons = fetch_yahoo_retry(["GC=F"], interval)
         df_usd = fetch_yahoo_retry(["TRY=X", "USDTRY=X"], interval)
-        
+
         if df_ons is not None and df_usd is not None:
             df_ons = df_ons[['Close']].rename(columns={'Close': 'Ons'})
             df_usd = df_usd[['Close']].rename(columns={'Close': 'Usd'})
-            
+
             df = df_ons.join(df_usd, how='inner')
             df['Close'] = (df['Ons'] * df['Usd']) / Constants.OUNCE_TO_GRAMS
             df['Open'] = df['Close']
@@ -119,60 +131,17 @@ def fetch_gram_gold_calculated(interval):
 def process_data(df: pd.DataFrame, src: str):
     if isinstance(df, pd.DataFrame) and not df.empty and len(df) > 10:
         try:
-            if 'Volume' not in df.columns: df['Volume'] = 0
-            
-            rsi = df.ta.rsi(length=IndicatorConfig.RSI_LENGTH)
-            df['RSI'] = rsi if rsi is not None else 50
-            
-            ema_50 = df.ta.ema(length=IndicatorConfig.EMA_LONG)
-            df['EMA_50'] = ema_50 if ema_50 is not None else df['Close']
-            
-            ema_20 = df.ta.ema(length=IndicatorConfig.EMA_SHORT)
-            df['EMA_20'] = ema_20 if ema_20 is not None else df['Close']
-
-            macd = df.ta.macd(
-                fast=IndicatorConfig.MACD_FAST,
-                slow=IndicatorConfig.MACD_SLOW,
-                signal=IndicatorConfig.MACD_SIGNAL,
-            )
-            if macd is not None and not macd.empty:
-                macd_col = next((c for c in macd.columns if c.startswith('MACD_')), None)
-                signal_col = next((c for c in macd.columns if c.startswith('MACDs_')), None)
-                if macd_col is not None and signal_col is not None:
-                    df['MACD'] = macd[macd_col]
-                    df['MACD_Signal'] = macd[signal_col]
-
-            bb = df.ta.bbands(length=IndicatorConfig.BOLLINGER_LENGTH, std=IndicatorConfig.BOLLINGER_STD)
-            if bb is not None:
-                # Match by name prefix (BBL_/BBU_), not column position — the
-                # exact suffix (e.g. "20_2.0") depends on pandas_ta's version
-                # and formatting, but the BBL/BBU prefixes are stable.
-                bbl_col = next((c for c in bb.columns if c.startswith('BBL_')), None)
-                bbu_col = next((c for c in bb.columns if c.startswith('BBU_')), None)
-                if bbl_col and bbu_col:
-                    df['BB_Lower'] = bb[bbl_col]
-                    df['BB_Upper'] = bb[bbu_col]
-
-            atr = df.ta.atr(length=IndicatorConfig.ATR_LENGTH)
-            df['ATR'] = atr if atr is not None else (df['Close'] * 0.02)
-            
-            adx_df = df.ta.adx(length=14)
-            if adx_df is not None and not adx_df.empty:
-                adx_col = [c for c in adx_df.columns if 'ADX' in c][0]
-                df['ADX'] = adx_df[adx_col]
-            else:
-                df['ADX'] = 25
-                
-            # Never back-fill indicator warm-up values: doing so lets an
-            # earlier bar use an indicator calculated from future prices and
-            # contaminates historical signals/backtests.  Forward-fill is
-            # only retained for provider-side gaps after an indicator exists.
-            df = df.ffill()
+            source_attrs = dict(df.attrs)
+            if "Volume" not in df.columns:
+                df["Volume"] = 0
+            from indicator_calculations import add_core_indicators
+            df = add_core_indicators(df, IndicatorConfig).ffill()
+            df.attrs.update(source_attrs)
+            df["Source"] = src
             return df, src
         except Exception as e:
             logger.error(f"Process Error: {e}")
-            return None, "İşleme Hatası"
-            
+            return None, "ISLEME_HATASI"
     return None, "Yetersiz Veri"
 
 @st.cache_data(ttl=DataFetchConfig.CACHE_TTL, show_spinner=False)
@@ -186,27 +155,27 @@ def get_market_data(source_pref, symbol, interval):
         df = fetch_yahoo_retry(["GC=F"], interval)
         if df is not None: return process_data(df, "Yahoo (Gold)")
         return None, "Veri Yok (Yahoo)"
-    
+
     if symbol == "EURUSD=X":
         return process_data(fetch_yahoo_safe("EURUSD=X", interval), "Yahoo (Forex)")
 
     df = None
     src_name = ""
-    
+
     if source_pref == "Binance":
         df = fetch_binance_simple(symbol, interval)
         src_name = "Binance"
     elif source_pref == "OKX":
         df = fetch_okx_simple(symbol, interval)
         src_name = "OKX"
-    
+
     if df is None or df.empty:
         df = fetch_yahoo_safe(symbol, interval)
         src_name = "Yahoo (Yedek)"
 
-    if df is None or df.empty: 
+    if df is None or df.empty:
         return None, "Veri Alınamadı"
-        
+
     return process_data(df, src_name)
 
 @st.cache_data(ttl=3600, show_spinner=False)

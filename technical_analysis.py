@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from decimal import Decimal
 from scipy.signal import argrelextrema
 from config import IndicatorConfig, SignalConfig, Constants
 from logger import logger
@@ -985,3 +986,122 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
         'avg_win': avg_win, 'avg_loss': avg_loss, 'profit_factor': profit_factor,
         'trades': trades, 'equity_curve': equity_curve, 'include_ml': include_ml,
     }
+
+
+def run_v1_strategy_backtest(df, decisions, *, initial_cash, trade_notional,
+                             quantity_step=Decimal("0.00000001")):
+    """Daily spot V1: next-open fills, fixed 2.5 ATR stop, no target/trailing."""
+    from decimal import Decimal, ROUND_FLOOR
+
+    from trade_execution import Bar, evaluate_stop
+
+    cash = Decimal(initial_cash)
+    notional = Decimal(trade_notional)
+    step = Decimal(quantity_step)
+    position = None
+    trades = []
+    next_entry_index = 1
+
+    for index in range(1, len(df)):
+        decision_at = df.index[index - 1]
+        verdict = decisions.get(decision_at, "BEKLE")
+        row = df.iloc[index]
+        bar = Bar(
+            df.index[index], Decimal(str(row["Open"])), Decimal(str(row["High"])),
+            Decimal(str(row["Low"])), Decimal(str(row["Close"])),
+        )
+
+        if position is not None:
+            stop_fill = evaluate_stop(bar, position["stop"], position["entry_at"])
+            open_stop = stop_fill is not None and bar.open <= position["stop"]
+            if open_stop:
+                exit_price, reason = stop_fill.base_price, "STOP"
+            elif "SAT" in verdict:
+                exit_price, reason = bar.open, "SAT"
+            elif stop_fill is not None:
+                exit_price, reason = stop_fill.base_price, "STOP"
+            else:
+                continue
+            proceeds = position["quantity"] * exit_price
+            cash += proceeds
+            pnl = proceeds - position["cost"]
+            trades.append({
+                "entry_at": position["entry_at"], "entry": str(position["entry"]),
+                "exit_at": bar.at, "exit": str(exit_price),
+                "quantity": str(position["quantity"]), "reason": reason,
+                "pnl": str(pnl),
+            })
+            if pnl < 0:
+                # The exit bar is excluded.  Two later daily bars must close;
+                # their decision can therefore execute on the third open.
+                next_entry_index = index + 3
+            position = None
+            continue
+
+        if "AL" not in verdict or index < next_entry_index:
+            continue
+        atr = Decimal(str(df.iloc[index - 1]["ATR"]))
+        stop = bar.open - Decimal("2.5") * atr
+        if stop <= 0 or cash < notional:
+            continue
+        quantity = ((notional / bar.open) / step).to_integral_value(rounding=ROUND_FLOOR) * step
+        if quantity <= 0:
+            continue
+        cost = quantity * bar.open
+        cash -= cost
+        position = {"entry_at": bar.at, "entry": bar.open, "quantity": quantity,
+                    "cost": cost, "stop": stop}
+        same_bar_stop = evaluate_stop(bar, stop, bar.at, entered_at=bar.at)
+        if same_bar_stop is not None:
+            proceeds = quantity * same_bar_stop.base_price
+            cash += proceeds
+            pnl = proceeds - cost
+            trades.append({
+                "entry_at": bar.at, "entry": str(bar.open), "exit_at": bar.at,
+                "exit": str(same_bar_stop.base_price), "quantity": str(quantity),
+                "reason": "STOP", "pnl": str(pnl),
+            })
+            if pnl < 0:
+                next_entry_index = index + 3
+            position = None
+
+    last_close = Decimal(str(df["Close"].iloc[-1]))
+    equity = cash + (position["quantity"] * last_close if position is not None else Decimal("0"))
+    start = Decimal(initial_cash)
+    pnl_values = [Decimal(item["pnl"]) for item in trades]
+    wins = [value for value in pnl_values if value > 0]
+    losses = [value for value in pnl_values if value <= 0]
+    total_return = (equity / start - Decimal("1")) * Decimal("100") if start else Decimal("0")
+    win_rate = Decimal(len(wins)) / Decimal(len(trades)) * Decimal("100") if trades else Decimal("0")
+    loss_total = abs(sum(losses, Decimal("0")))
+    profit_factor = sum(wins, Decimal("0")) / loss_total if loss_total else Decimal("0")
+    return {
+        "initial_cash": str(start), "cash": str(cash), "position": position,
+        "trades": trades, "total_return": total_return, "win_rate": win_rate,
+        "total_trades": len(trades), "winning_trades": len(wins),
+        "losing_trades": len(losses), "profit_factor": profit_factor,
+        "avg_win": sum(wins, Decimal("0")) / len(wins) if wins else Decimal("0"),
+        "avg_loss": sum(losses, Decimal("0")) / len(losses) if losses else Decimal("0"),
+        "equity_curve": [{"date": df.index[0], "equity": start},
+                         {"date": df.index[-1], "equity": equity}],
+    }
+
+
+def build_v1_decisions(df, *, weights=None, include_ml=True):
+    """Produce point-in-time daily decisions with every required component."""
+    from signal_engine import SignalStateMachine, _compute_bar_score
+    from config import DecisionEngineConfig as cfg
+
+    machine = SignalStateMachine(cfg)
+    decisions = {}
+    for index in range(199, len(df)):
+        historical = df.iloc[:index + 1]
+        scored = _compute_bar_score(historical, "1d", include_ml=include_ml, weights=weights)
+        if scored is None:
+            continue
+        regime = scored.get("regime", 0)
+        machine.update(scored["score"], scored["confidence"], scored["rsi"], scored["adx"], regime)
+        decisions[df.index[index]] = "AL" if machine.signal == 1 else (
+            "SAT" if machine.signal == -1 else "BEKLE"
+        )
+    return decisions
