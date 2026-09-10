@@ -3,7 +3,7 @@ import pandas as pd
 import time
 import requests
 import traceback
-from config import DEFAULT_COIN_MAP, PATTERN_INFO, UIConfig, FileConfig, DataFetchConfig
+from config import PATTERN_INFO, UIConfig, DataFetchConfig
 import storage
 from storage import StorageAccessError
 from assets import load_assets, save_assets
