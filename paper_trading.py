@@ -23,11 +23,13 @@ and print the report (this is what the Windows scheduled task calls).
 """
 import json
 import os
+from copy import deepcopy
+from decimal import Decimal, ROUND_FLOOR
 import pandas as pd
 from config import FileConfig, BacktestConfig, DecisionEngineConfig
 from logger import logger
 
-PER_ASSET_BALANCE = 1000.0
+PER_ASSET_BALANCE = 10000.0
 # Daily-timeframe execution params — read from the same shared source as
 # run_strategy_backtest (BacktestConfig.TIMEFRAME_PARAMS) so this journal
 # can never silently drift from what the backtest actually validated.
@@ -38,6 +40,30 @@ TRAIL_BREAKEVEN = _DAILY_PARAMS["trail_breakeven"]
 TRAIL_LOCK_PCT = _DAILY_PARAMS["trail_lock_pct"]
 COOLDOWN_BARS = _DAILY_PARAMS["cooldown_bars"]
 MAX_BACKFILL = 10  # ML makes replay slow; cap catch-up bars per asset
+
+
+def advance_v1_book(book, verdict, bar):
+    """Advance a V1 paper position without targets or automatic trailing."""
+    from trade_execution import evaluate_stop
+
+    result = deepcopy(book)
+    position = result.get("position")
+    if position is None:
+        return result
+    stop_fill = evaluate_stop(bar, Decimal(position["stop"]), bar.at)
+    if stop_fill is not None:
+        exit_price, reason = stop_fill.base_price, "STOP"
+    elif "SAT" in verdict:
+        exit_price, reason = bar.open, "SAT"
+    else:
+        return result
+    quantity = Decimal(position["quantity"])
+    result["cash"] = str(Decimal(result.get("cash", "0")) + quantity * exit_price)
+    result.setdefault("trades", []).append({
+        "exit": str(exit_price), "at": bar.at.isoformat(), "reason": reason,
+    })
+    result["position"] = None
+    return result
 
 
 def _load_state():
@@ -62,31 +88,94 @@ def _save_state(state):
     os.replace(tmp, target)
 
 
-def _blank_book():
-    return {"balance": PER_ASSET_BALANCE, "position": None, "cooldown": 0,
-            "trades": [], "last_date": None, "first_price": None}
+def _blank_book(capital=PER_ASSET_BALANCE):
+    return {"balance": float(capital), "initial_balance": float(capital),
+            "position": None, "cooldown": 0,
+            "trades": [], "last_date": None, "first_price": None,
+            "pending": None, "quantity_step": None,
+            "trade_notional": 1000.0, "currency": "USD/USDT"}
+
+
+def advance_pending_daily_decision(book, bar):
+    """Execute a prior closed-bar decision at this bar's open, then check its stop."""
+    pending = book.get("pending")
+    if not pending or str(bar["date"]) <= str(pending["known_at"]):
+        return False
+
+    verdict = str(pending["verdict"])
+    opening = Decimal(str(bar["open"]))
+    low = Decimal(str(bar["low"]))
+    fee_rate = Decimal(str(BacktestConfig.FEE_RATE))
+    position = book.get("position")
+    changed = False
+
+    def close(price, reason):
+        nonlocal changed
+        pos = book["position"]
+        exit_price = Decimal(str(price))
+        quantity = Decimal(str(pos["qty"]))
+        proceeds = quantity * exit_price * (Decimal("1") - fee_rate)
+        cost = Decimal(str(pos["cost"]))
+        pnl = proceeds - cost
+        book["balance"] = float(Decimal(str(book["balance"])) + proceeds)
+        book["trades"].append({
+            "entry": pos["entry"], "exit": float(exit_price),
+            "entry_date": pos["entry_date"], "exit_date": str(bar["date"]),
+            "pnl": round(float(pnl), 2),
+            "pnl_pct": round(float(pnl / cost * Decimal("100")), 2),
+            "reason": reason,
+        })
+        if pnl < 0:
+            book["cooldown"] = COOLDOWN_BARS
+        book["position"] = None
+        changed = True
+
+    if position is not None:
+        stop = Decimal(str(position["sl"]))
+        if opening <= stop:
+            close(opening, "STOP")
+        elif "SAT" in verdict:
+            close(opening, "SAT")
+        elif low <= stop:
+            close(stop, "STOP")
+    elif book.get("cooldown", 0) > 0:
+        book["cooldown"] -= 1
+    elif "AL" in verdict:
+        atr = Decimal(str(pending["atr"]))
+        stop = opening - Decimal("2.5") * atr
+        step_value = book.get("quantity_step")
+        if stop > 0 and step_value is not None and Decimal(str(step_value)) > 0:
+            step = Decimal(str(step_value))
+            notional = Decimal(str(book.get("trade_notional", 1000.0)))
+            quantity = ((notional / opening) / step).to_integral_value(rounding=ROUND_FLOOR) * step
+            spent = quantity * opening
+            fee = spent * fee_rate
+            cash = Decimal(str(book["balance"]))
+            if quantity > 0 and spent + fee <= cash:
+                book["balance"] = float(cash - spent - fee)
+                book["position"] = {
+                    "entry": float(opening), "entry_date": str(bar["date"]),
+                    "qty": float(quantity), "cost": float(spent + fee),
+                    "highest": float(opening), "sl": float(stop), "tp": None,
+                }
+                changed = True
+                if low <= stop:
+                    close(stop, "STOP")
+
+    book["pending"] = None
+    return changed
 
 
 def _step_book(book, verdict, price, atr, date_str):
-    """Advance one asset's paper book by one closed bar (backtest rules)."""
+    """Legacy storage adapter for the approved fixed-stop V1 behavior."""
     fee = BacktestConfig.FEE_RATE
     pos = book["position"]
     if pos is not None:
-        if price > pos["highest"]:
-            pos["highest"] = price
-        profit_distance = pos["highest"] - pos["entry"]
-        if profit_distance > atr * 2.0:
-            pos["sl"] = max(pos["sl"], pos["entry"] + profit_distance * TRAIL_LOCK_PCT)
-        elif profit_distance > atr * TRAIL_BREAKEVEN:
-            pos["sl"] = max(pos["sl"], pos["entry"])
-
         reason = None
         if price <= pos["sl"]:
-            reason = "SL"
-        elif price >= pos["tp"]:
-            reason = "TP"
-        elif "AL" not in verdict:
-            reason = "Sinyal"
+            reason = "STOP"
+        elif "SAT" in verdict:
+            reason = "SAT"
         if reason:
             proceeds = pos["qty"] * price * (1 - fee)
             pnl = proceeds - pos["cost"]
@@ -107,16 +196,17 @@ def _step_book(book, verdict, price, atr, date_str):
         book["position"] = {
             "entry": price, "entry_date": date_str, "qty": qty, "cost": cost,
             "highest": price,
-            "sl": price - atr * SL_MULT, "tp": price + atr * TP_MULT,
+            "sl": price - atr * 2.5, "tp": None,
         }
         book["balance"] -= cost
 
 
-def run_paper_update(coin_map, source_pref="Binance", progress_callback=None):
+def run_paper_update(coin_map, source_pref="Binance", progress_callback=None, paper_settings=None):
     """Record any unrecorded closed daily bars for every asset. Returns a
     short status dict: {"new_rows": int, "assets": int, "errors": [names]}."""
     from data_fetchers import get_market_data
     from signal_engine import generate_stable_signal
+    from market_validation import policy_for_symbol, validate_market_data
     from weight_profiles import get_weights_for_symbol
 
     state = _load_state()
@@ -130,11 +220,35 @@ def run_paper_update(coin_map, source_pref="Binance", progress_callback=None):
             progress_callback(idx / max(len(items), 1), name)
         try:
             df, _ = get_market_data(source_pref, sym, "1d")
-            if df is None or len(df) < 130:
+            if df is None:
                 errors.append(name); continue
 
-            book = state["assets"].setdefault(name, _blank_book())
-            closed = df.iloc[:-1] if DecisionEngineConfig.DROP_UNCLOSED_CANDLE else df
+            evaluation_time = pd.Timestamp.now(tz="UTC").to_pydatetime()
+            policy = policy_for_symbol(sym, evaluation_time)
+            required_components = ("RSI", "EMA_20", "EMA_50", "MACD", "MACD_Signal", "ATR", "ADX")
+            validation = validate_market_data(
+                df, evaluation_time, policy,
+                provider_open=df.attrs.get("provider_open", set()),
+                components_ready=all(
+                    column in df.columns and pd.notna(df[column].iloc[-1])
+                    for column in required_components
+                ),
+            )
+            if not validation.is_valid:
+                errors.append(f"{name}: {validation.reason}")
+                continue
+
+            asset_settings = (paper_settings or {}).get(name, {})
+            capital = float(asset_settings.get("capital", PER_ASSET_BALANCE))
+            book = state["assets"].setdefault(name, _blank_book(capital))
+            for key, value in _blank_book().items():
+                book.setdefault(key, deepcopy(value))
+            if asset_settings:
+                book["trade_notional"] = float(asset_settings.get("trade_notional", book["trade_notional"]))
+                book["currency"] = str(asset_settings.get("currency", book["currency"]))
+                quantity_step = asset_settings.get("quantity_step")
+                book["quantity_step"] = None if quantity_step in (None, "") else float(quantity_step)
+            closed = validation.usable
 
             # Which closed bars still need recording?
             if book["last_date"] is None:
@@ -144,16 +258,25 @@ def run_paper_update(coin_map, source_pref="Binance", progress_callback=None):
                         if str(closed.index[k].date()) > book["last_date"]][-MAX_BACKFILL:]
 
             for k in todo:
-                # Live-signal input as of bar k's close: bars 0..k+1, where
-                # k+1 was the then-forming candle the engine drops itself.
-                slice_df = df.iloc[:k + 2]
-                sig = generate_stable_signal(slice_df, "1d", weights=get_weights_for_symbol(sym))
+                slice_df = closed.iloc[:k + 1]
+                sig = generate_stable_signal(
+                    slice_df, "1d", weights=get_weights_for_symbol(sym), data_is_closed=True,
+                )
                 price = float(closed['Close'].iloc[k])
                 atr = float(closed['ATR'].iloc[k]) if 'ATR' in closed.columns else price * 0.02
                 date_str = str(closed.index[k].date())
                 is_backfill = k < len(closed) - 1
 
-                _step_book(book, sig.verdict, price, atr, date_str)
+                advance_pending_daily_decision(book, {
+                    "date": date_str,
+                    "open": float(closed['Open'].iloc[k]),
+                    "high": float(closed['High'].iloc[k]),
+                    "low": float(closed['Low'].iloc[k]),
+                    "close": price,
+                })
+                book["pending"] = {
+                    "verdict": sig.verdict, "atr": atr, "known_at": date_str,
+                }
                 if book["first_price"] is None:
                     book["first_price"] = price
                 state["journal"].append({
@@ -184,13 +307,15 @@ def paper_report():
         pos = book["position"]
         pos_value = pos["qty"] * lp if pos else 0.0
         equity = book["balance"] + pos_value
-        ret = (equity / PER_ASSET_BALANCE - 1) * 100
+        initial_balance = float(book.get("initial_balance", PER_ASSET_BALANCE))
+        ret = (equity / initial_balance - 1) * 100
         bh = (lp / book["first_price"] - 1) * 100 if book.get("first_price") else 0.0
         days = sum(1 for j in state["journal"] if j["asset"] == name)
         rows.append({
             "Varlık": name, "Gün": days, "İşlem": len(book["trades"]),
             "Pozisyon": "LONG" if pos else "-",
-            "Bakiye ($)": round(equity, 2), "Getiri (%)": round(ret, 2),
+            "Bakiye": round(equity, 2), "Para Birimi": book.get("currency", "USD/USDT"),
+            "Getiri (%)": round(ret, 2),
             "Al&Tut (%)": round(bh, 2),
         })
     df = pd.DataFrame(rows)

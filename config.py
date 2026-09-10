@@ -342,6 +342,23 @@ class FileConfig:
     PAPER_FILE = 'paper_trading.json'
     WEIGHT_PROFILES_FILE = 'weight_profiles.json'
     PREDICTIONS_LOG_FILE = 'predictions_log.json'
+    TRADING_JOURNAL_FILE = 'position_journal.json'
+
+
+class TradingV1Config:
+    REQUIRED_DAILY_BARS = 200
+    INITIAL_STOP_ATR_MULTIPLIER = "2.5"
+    DEFAULT_PAPER_CAPITAL = "10000"
+    DEFAULT_TRADE_NOTIONAL = "1000"
+    CRYPTO_PUBLICATION_DELAY_MINUTES = 5
+    YAHOO_PUBLICATION_DELAY_MINUTES = 30
+    # Measured on 2026-09-10: panel computation was below 1 ms and a cold
+    # data-fetcher import was about 1.5 s on Python 3.14.  These budgets leave
+    # headroom while still catching the previous 120+ s eager-import failure.
+    SCREEN_COMPUTE_BUDGET_SECONDS = 0.01
+    SCREEN_COMPUTE_MAX_SECONDS = 0.05
+    FIRST_SIGNAL_COMPUTE_BUDGET_SECONDS = 2.0
+    COLD_START_BUDGET_SECONDS = 8.0
 
 #telegram
 class TelegramConfig:

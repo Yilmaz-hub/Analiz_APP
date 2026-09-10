@@ -50,7 +50,10 @@ def validate_portfolio_risk(new_investment, current_balance, open_positions):
 
 def check_active_positions_auto_close(portfolio_data, coin_map):
     """
-    Aktif pozisyonları kontrol eder, TP/SL'ye ulaşanları otomatik kapatır
+    Backward-compatible name for V1 protective alerts.
+
+    Price contact never confirms a real execution.  The position and cash are
+    unchanged until the user records the broker fill explicitly.
     """
     if "positions" not in portfolio_data: return 0, []
     
@@ -62,42 +65,19 @@ def check_active_positions_auto_close(portfolio_data, coin_map):
     for pos in portfolio_data["positions"]:
         if pos.get("Status") == "ACTIVE":
             coin_name = pos.get("Coin")
-            tp = pos.get("TP")
             sl = pos.get("SL")
-            entry = pos.get("Giris")
-            qty = pos.get("Miktar", 0)
-            investment = pos.get("Yatırım", 0)
             
             live_price = get_live_price_for_portfolio(coin_name, coin_map)
             
             if live_price > 0:
-                if tp and live_price >= tp:
-                    profit = (tp - entry) * qty
-                    pos['Status'] = 'CLOSED_TP'
-                    pos['Exit_Price'] = tp
-                    pos['Profit'] = profit
-                    pos['Exit_Date'] = time.strftime("%Y-%m-%d %H:%M")
-                    portfolio_data['balance'] = portfolio_data.get('balance', 0) + investment + profit
-                    closed_count += 1
+                if sl and live_price <= sl:
                     closed_trades.append({
-                        'coin': coin_name, 'type': 'TP', 'profit': profit, 'pct': (profit / investment) * 100
+                        'coin': coin_name,
+                        'type': 'STOP_TEMASI_TEYIT_BEKLIYOR',
+                        'observed_price': live_price,
+                        'stop': sl,
                     })
-                
-                elif sl and live_price <= sl:
-                    loss = (sl - entry) * qty
-                    pos['Status'] = 'CLOSED_SL'
-                    pos['Exit_Price'] = sl
-                    pos['Profit'] = loss
-                    pos['Exit_Date'] = time.strftime("%Y-%m-%d %H:%M")
-                    portfolio_data['balance'] = portfolio_data.get('balance', 0) + investment + loss
-                    closed_count += 1
-                    closed_trades.append({
-                        'coin': coin_name, 'type': 'SL', 'profit': loss, 'pct': (loss / investment) * 100
-                    })
-    
-    if closed_count > 0:
-        save_portfolio(portfolio_data)
-    
+
     return closed_count, closed_trades
 
 def multi_timeframe_confirmation(coin_name, symbol, source_pref):
