@@ -87,8 +87,21 @@ değiştirmek, tahmin hesabına dokunmak veya y-eksenini değiştirmektir.
 ## SCORECARD
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 0 |
-| Düzeltme turu sayısı | 0 |
-| Bulgu gerçek/gürültü oranı | 0/0 |
+| Spec revizyon sayısı | 1 |
+| Düzeltme turu sayısı | 1 |
+| Bulgu gerçek/gürültü oranı | 1/0 |
 | Regresyon sayısı | 0 |
-| Kaçan hata | - |
+| Kaçan hata | 1 |
+
+> Notlar: **Revizyon 1** — kök neden düzeltmesi (forecast uzatması değil, legend margini).
+> **Düzeltme turu (1):** ilk uygulama cihazda etki etmedi, ikinci tur çözdü.
+> **Bulgu (1/0):** cihaz testinden gelen tek gerçek bulgu ("değişmedi"), gürültü yok.
+> **Kaçan hata (1):** İlk uygulama (mobilde forecast x-uzatmasının kaldırılması) yeşil
+> testlerle `main`'e gitti ama kullanıcının gördüğü sorunu **çözmedi** — kök neden yanlış
+> teşhis edilmişti. Ders: ekran görüntüsü "sağ taraf boş" derken, boşluğun *çizim alanı
+> içinde* mi (eksen aralığı) yoksa *çizim alanı dışında* mı (margin/legend) olduğu
+> ölçülmeden teşhis konmamalı; Python testleri Plotly'nin tarayıcıda hesaplanan
+> margin/legend yerleşimini yakalayamaz, bu yüzden cihaz teyidi şart.
+>
+> **Kapanış:** Cihazda doğrulandı (mumlar tam genişliği kullanıyor) — DoD'un görsel kanıt
+> maddesi karşılandı, spec `done/` altına alındı.

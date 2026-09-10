@@ -148,10 +148,18 @@ değiştirmek, yeni gösterge (volume/RSI) eklemek veya masaüstü görünümün
 | Düzeltme turu sayısı | 2 |
 | Bulgu gerçek/gürültü oranı | 8/0 |
 | Regresyon sayısı | 1 |
-| Kaçan hata | - |
+| Kaçan hata | 1 |
 
 > Notlar: **Düzeltme turu (2):** QA 1. tur (8 bulgu) + QA 2. tur (yeniden açılan
 > BULGU-5). **Bulgu 8/0:** sekiz bulgunun tamamı git/ölçüm ile doğrulandı, gürültü yok.
 > **Regresyon (1):** BULGU-4 — `main`'deki `st.error("Veri Alınamadı")` sinyali
 > geçici olarak sessiz `st.info`'ya düşmüştü; boş/hata ayrımıyla giderildi.
-> **Kaçan hata:** henüz üretimde gözlenmedi (-).
+> **Kaçan hata (1):** Bu spec'in Constraints bölümü "genişlik `use_container_width` ile
+> zaten uyum sağlıyor, sorun yüksekliktedir" varsayımını yapmıştı. Bu **yanlıştı**:
+> Plotly'nin varsayılan legend'i çizim alanının sağ dışında durup yatay margin rezerve
+> ediyor ve dar ekranda genişliğin ~%60'ını yiyordu. Yükseklik düzeltilse de grafik
+> mobilde sol üçte bire sıkışık kaldı; cihaz testinde yakalandı ve **spec 0002 (rev 1)**
+> ile kapatıldı.
+>
+> **Kapanış:** Cihazda doğrulandı (mobil görünüm çalışıyor) — DoD'un görsel kanıt maddesi
+> karşılandı, spec `done/` altına alındı.
