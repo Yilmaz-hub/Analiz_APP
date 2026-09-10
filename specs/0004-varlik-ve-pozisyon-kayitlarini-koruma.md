@@ -124,6 +124,7 @@ Geçmişte kaybolmuş kayıtları geri getirmek ve alım-satım ya da analiz kur
   Streamlit tarafından kısıtlayacağını belirtti. Kodda değişiklik yapılmaz; kısıtlama
   yapılana kadar yayına gerçek portföy verisi girilmemelidir. Uygulama içi giriş/parola
   ayrı bir spec konusudur.
+  **Durum:** Kısıtlama Takım Yöneticisi tarafından uygulandı; P8 kapandı.
 - P1–P8 karara bağlanmıştır (rev.9). Uygulama önünde açık CLARIFY konusu kalmamıştır.
 
 ## Acceptance Criteria
@@ -162,7 +163,7 @@ Geçmişte kaybolmuş kayıtları geri getirmek ve alım-satım ya da analiz kur
 
 ## Definition of Done
 - [x] P1–P7 için Takım Yöneticisi kararları spec'e işlendi; spec uygulama için onaylandı (rev.8).
-- [ ] **P8:** Yayın erişimi Streamlit ayarlarından kısıtlandı (karar alındı; uygulanması bekleniyor).
+- [x] **P8:** Yayın erişimi Streamlit ayarlarından kısıtlandı (Takım Yöneticisi tarafından uygulandı).
 - [ ] Tüm kabul kriterleri ayrı test/kanıtla karşılandı; uygulanamaz kriter bırakılmadı.
 - [ ] İş davranışı testleri P3 kararına uygun yürütüldü: her kabul kriteri için `tests/` altında en az bir pytest testi yazıldı ve `.github/workflows/tests.yml` ile yeşil geçti.
 - [ ] Her arayüz kriteri için ekran görüntüsü ve kritik ekleme → uyku → yeniden açma akışı için smoke test kanıtı üretildi.
