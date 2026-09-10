@@ -209,13 +209,15 @@ if __name__ == "__main__":
         sys.stdout.reconfigure(encoding="utf-8")
     from config import DEFAULT_COIN_MAP
 
-    cmap = DEFAULT_COIN_MAP.copy()
-    if os.path.exists(FileConfig.ASSETS_FILE):
-        try:
-            with open(FileConfig.ASSETS_FILE, 'r', encoding='utf-8') as fh:
-                cmap = json.load(fh)
-        except Exception:
-            pass
+    # Varlık listesi artık belge deposundan okunur (spec 0004); kayıt yoksa
+    # yerleşik liste kullanılır.
+    from assets import load_assets
+
+    try:
+        cmap = load_assets() or DEFAULT_COIN_MAP.copy()
+    except Exception as exc:
+        print(f"Varlik listesi okunamadi, yerlesik liste kullanilacak: {exc}")
+        cmap = DEFAULT_COIN_MAP.copy()
 
     status = run_paper_update(cmap)
     print(f"paper update: {status['new_rows']} yeni kayıt, {status['assets']} varlık, hatalar: {status['errors'] or 'yok'}")

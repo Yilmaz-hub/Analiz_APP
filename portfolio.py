@@ -1,35 +1,54 @@
-import json
-import os
 import time
-from config import FileConfig, Constants, RiskConfig
+from config import Constants, RiskConfig
 from data_fetchers import get_market_data
 from logger import logger
 import pandas as pd
 
+import positions as positions_module
+import storage
+
+def empty_portfolio():
+    """Hiç kayıt yokken kullanılan başlangıç portföyü (depoya yazılmaz)."""
+    return {"positions": [], "history": [], "balance": Constants.DEFAULT_PORTFOLIO_BALANCE}
+
 def load_portfolio():
-    f = FileConfig.PORTFOLIO_FILE
-    if os.path.exists(f):
-        try:
-            with open(f, 'r') as file:
-                data = json.load(file)
-                if 'balance' not in data: data['balance'] = Constants.DEFAULT_PORTFOLIO_BALANCE
-                return data
-        except Exception as e:
-            logger.error(f"Portfolio load error, using defaults: {e}")
-            return {"positions": [], "balance": Constants.DEFAULT_PORTFOLIO_BALANCE}
-    else:
-        return {"positions": [], "history": [], "balance": Constants.DEFAULT_PORTFOLIO_BALANCE}
+    """Portföyü depodan okur.
+
+    Erişim hatasında `storage.StorageAccessError` yükselir ve **varsayılan
+    portföy döndürülmez** (spec 0004, R8.1): okunamayan portföyü boş ya da
+    sıfır bakiyeli göstermek, ardından gelen ilk yazmada gerçek kayıtların
+    üzerine yazılmasına yol açıyordu.
+    """
+    data = storage.read_doc(storage.PORTFOLIO_KEY)
+    if data is None:
+        return empty_portfolio()
+    if not isinstance(data, dict):
+        raise storage.StorageAccessError("Portföy kayıtları okunamadı.")
+    if 'balance' not in data:
+        data['balance'] = Constants.DEFAULT_PORTFOLIO_BALANCE
+    if not isinstance(data.get('positions'), list):
+        # Pozisyon listesi okunamıyorsa kayıt boşaltılmaz; erişim sorunu olarak
+        # bildirilir (R8.3).
+        raise storage.StorageAccessError("Portföy kayıtları okunamadı.")
+    return data
 
 def save_portfolio(data):
-    # Write to a temp file then atomically replace the target, so a crash or
-    # a concurrent writer (another tab, the scheduled task) can never leave
-    # portfolio.json half-written / corrupted. os.replace() is atomic on
-    # both POSIX and Windows.
-    target = FileConfig.PORTFOLIO_FILE
-    tmp = f"{target}.tmp"
-    with open(tmp, 'w') as f:
-        json.dump(data, f, indent=4)
-    os.replace(tmp, target)
+    """Portföyü depoya yazar (tek satırlık atomik upsert)."""
+    storage.write_doc(storage.PORTFOLIO_KEY, data)
+
+def reset_portfolio(portfolio_data, confirmed):
+    """Portföyü sıfırlar (spec 0004, AC11d). Döner: (başarılı_mı, mesaj, portföy).
+
+    Aktif pozisyon, bekleyen emir veya sorunlu kayıt varsa çalışmaz; her
+    durumda kullanıcının ayrıca onayı gerekir.
+    """
+    current = portfolio_data.get('positions', []) if isinstance(portfolio_data, dict) else []
+    reason = positions_module.reset_block_reason(current)
+    if reason:
+        return False, reason, portfolio_data
+    if not confirmed:
+        return False, "Sıfırlama için önce onay kutusunu işaretleyin.", portfolio_data
+    return True, "Portföy sıfırlandı.", empty_portfolio()
 
 def validate_portfolio_risk(new_investment, current_balance, open_positions):
     """

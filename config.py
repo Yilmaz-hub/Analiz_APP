@@ -2,6 +2,9 @@
 """
 ALL MAGIC NUMBERS AND TUNABLE PARAMETERS IN ONE PLACE FOR EASY MAINTENANCE AND TUNING
 """
+from pathlib import Path
+
+_PROJECT_DIR = Path(__file__).resolve().parent
 #====================
 #Data fetching and processing
 #====================       
@@ -337,11 +340,23 @@ class Constants:
 
 #FILES
 class FileConfig:
-    PORTFOLIO_FILE = 'portfolio.json'
-    ASSETS_FILE = 'varliklar.json'
-    PAPER_FILE = 'paper_trading.json'
-    WEIGHT_PROFILES_FILE = 'weight_profiles.json'
-    PREDICTIONS_LOG_FILE = 'predictions_log.json'
+    """Dosya yolları — hepsi mutlak (spec 0004, AC18).
+
+    Göreli adlar kayıt yerini süreci başlatan çalışma dizinine bağlıyordu;
+    uygulama başka bir klasörden açıldığında başka bir kayıt kümesi
+    görünüyordu. Kullanıcı kayıtları (varlık listesi ve portföy) artık dosyada
+    değil, `storage.py`'deki belge deposunda tutulur; aşağıdaki LEGACY_*
+    adları yalnız eski kayıtların bir kereliğine içeri alınmasında kullanılır.
+    """
+
+    # Eski kayıt dosyaları — yalnız storage.import_legacy_documents() okur.
+    LEGACY_PORTFOLIO_FILE = 'portfolio.json'
+    LEGACY_ASSETS_FILE = 'varliklar.json'
+
+    # Uygulamanın kendi ürettiği dosyalar: proje klasörüne göre mutlak.
+    PAPER_FILE = str(_PROJECT_DIR / 'paper_trading.json')
+    WEIGHT_PROFILES_FILE = str(_PROJECT_DIR / 'weight_profiles.json')
+    PREDICTIONS_LOG_FILE = str(_PROJECT_DIR / 'predictions_log.json')
 
 #telegram
 class TelegramConfig:
