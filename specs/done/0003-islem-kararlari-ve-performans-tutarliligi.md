@@ -2,7 +2,7 @@
 
 > Şablon: [TEMPLATE.md](TEMPLATE.md). Bitince → `specs/done/`.
 > Rol: Analist — INTENT · CLARIFY · SPEC.
-> Durum: Revizyon 20; QA düzeltmeleri (Q1–Q14) uygulandı, PR Takım Yöneticisi onayını bekliyor.
+> Durum: KAPANDI (Revizyon 22). QA düzeltmeleri (Q1–Q14, B1–B6, Y1–Y10) uygulandı; Takım Yöneticisi kararıyla `main`'e alındı.
 > Feature: Pozisyona göre açık işlem yönlendirmesi, ekran–geçmiş test–sanal işlem tutarlılığı ve güvenilir mum/işlem zamanlaması.
 
 ## Intent
@@ -257,11 +257,11 @@ Aynı kripto varlığının USD ve USDT fiyatlamaları V1 sinyal ve stop değerl
 - [ ] AK05 sayısal süre hedefleri onaylandı; tüm onaylı AK kararları ve bağımlı kriterler uygulandı.
 - [ ] Her kabul kriteri ayrı test/kanıtla karşılandı; [test yaklaşımı](../docs/testing.md) uygulandı.
 - [ ] Kullanıcıya görünen kriterler için ekran görüntüleri sağlandı.
-- [ ] Kritik akışın uçtan uca kanıtı sağlandı: pozisyon yok → AL → gerçek alım teyidi → BEKLE ile tutma → koruyucu çıkış veya SAT.
-- [ ] Pipeline kontrolleri ve PR gereklilikleri [git kurallarına](../docs/git.md) göre tamamlandı.
+- [x] Kritik akışın uçtan uca kanıtı sağlandı: pozisyon yok → AL → gerçek alım teyidi → BEKLE ile tutma → koruyucu çıkış veya SAT.
+- [x] Pipeline kontrolleri ve PR gereklilikleri [git kurallarına](../docs/git.md) göre tamamlandı.
 - [ ] Para/yüzde ve hata sunumu [konvansiyonlara](../docs/conventions.md) göre doğrulandı.
-- [ ] Bağımsız QA değerlendirmesi ve Takım Yöneticisi kararı alındı; Analist kendi üretimini QA denetimi olarak onaylamadı.
-- [ ] SCORECARD gerçek kanıtlarla güncellendi; kapanışta spec `specs/done/` altına taşındı.
+- [x] Bağımsız QA değerlendirmesi ve Takım Yöneticisi kararı alındı; Analist kendi üretimini QA denetimi olarak onaylamadı.
+- [x] SCORECARD gerçek kanıtlarla güncellendi; kapanışta spec `specs/done/` altına taşındı.
 
 ---
 
@@ -269,10 +269,10 @@ Aynı kripto varlığının USD ve USDT fiyatlamaları V1 sinyal ve stop değerl
 
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 21 — QA düzeltmeleri (Q1–Q14, B1–B6, Y1–Y10), kapsam kararı (döviz) ve yeni modül kararları işlendi |
-| Düzeltme turu sayısı | 3 — QA turu 1 (Q1–Q14), tur 2 (B1–B6), tur 3 (Y1–Y10); Takım Yöneticisi onayı bekleniyor |
-| Bulgu gerçek/gürültü oranı | 30/0 — Q1–Q14 (14), B1–B6 (6), Y1–Y10 (10); her bulgu repro ile doğrulandı. Y3 de düzeltildi |
-| Regresyon sayısı | 2 — Y1 ve Y2 (alış/satış formu anahtarları, `0f2d7f2`); düzeltildi. Tam paket yeşil (başlangıç 378, şimdi 491 test) |
+| Spec revizyon sayısı | 22 — QA düzeltmeleri (Q1–Q14, B1–B6, Y1–Y10), kapsam kararı (döviz), kapanış |
+| Düzeltme turu sayısı | 3 — QA turu 1 (Q1–Q14), tur 2 (B1–B6), tur 3 (Y1–Y10); Takım Yöneticisi talimatıyla kapandı |
+| Bulgu gerçek/gürültü oranı | 30/0 — Q1–Q14 (14), B1–B6 (6), Y1–Y10 (10); her bulgu repro ile doğrulandı. Y3 de düzeltildi (`fe8fc18`) |
+| Regresyon sayısı | 2 — Y1 ve Y2 (alış/satış formu anahtarları, `0f2d7f2`); düzeltildi. Tam paket yeşil (başlangıç 378, kapanışta 494 test) |
 | Kaçan hata | 30 — Q1–Q14 (aşağıda), B1–B6 ve Y1–Y10 (QA turları 2–3), Developer'ın kendi testlerinden kaçmıştı |
 
 ### Kaçan hatalar (QA Q1–Q14) ve karşılığı
@@ -308,3 +308,12 @@ Bu düzeltmelerle iki küçük modül eklendi; modül haritası koddur:
 
 - `trade_settings.py` — işlem varsayımlarının doğrulanması ve kalıcı saklanması (Q7).
 - `trade_confirmation.py` — gerçek işlem teyidi: doğrulama, kimlik, yazma sırası, tamamlama (Q3).
+
+### Kapanış notu (Takım Yöneticisi kararı)
+
+Spec, Takım Yöneticisinin açık talimatıyla kapatıldı. Kapanışta **işaretlenmeden bırakılan** Definition of Done maddeleri, gerçek durumu yansıtmak için bilerek açık bırakıldı:
+
+- AK05 sayısal süre hedeflerinin onayı ve tüm AC'lerin tek tek test eşlemesi bu kapanış turunda yeniden doğrulanmadı.
+- **Ekran görüntüsü kanıtı sağlanmadı**; arayüz davranışı `streamlit.testing.v1.AppTest` ile sınandı (`docs/testing.md` görsel kanıt istiyor — bilinen eksik).
+- Para/yüzde hesapları motor ve ayarlarda `Decimal`; mevcut portföy belgesinin float alanları değiştirilmedi.
+
