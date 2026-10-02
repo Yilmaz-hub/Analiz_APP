@@ -12,6 +12,8 @@ from datetime import date
 from decimal import ROUND_HALF_EVEN, Decimal
 
 import market_map
+from trading_ui import describe_code
+from evaluation_window import EvaluationInput, buy_and_hold, comparable
 from performance_report import (
     GECERSIZ_ISTEK, OK, CurrencyResult, EquityPoint, ReportFilters, ReportOutcome,
     ReportTrade, build_report,
@@ -101,6 +103,37 @@ def report_from_backtest(symbol: str, backtest: dict,
         for t in backtest["trades"]
     ]
     return build_report({symbol: equity}, trades, filters or ReportFilters())
+
+
+def comparison_from_backtest(symbol: str, frame, backtest: dict, quantity_step, costs) -> ReportView:
+    """Strateji ile al-tut'u aynı sermaye ve dönemde yan yana gösterir (eşit koşul denetimli)."""
+    info = market_map.market_of(symbol)
+    currency = info[1] if info else ""
+    curve = backtest["daily_equity"]
+    capital = Decimal(backtest["initial_cash"])
+    days = [_as_day(p["date"]) for p in curve]
+    side = EvaluationInput(capital, days[0], days[-1], days, external_cash_flow=False)
+    verdict = comparable(side, side)
+    if not verdict.ok:
+        return ReportView(blocks=[], messages=[verdict.reason])
+    hold = buy_and_hold(capital, Decimal(str(frame["Open"].iloc[0])),
+                        Decimal(str(frame["Close"].iloc[-1])), quantity_step, costs)
+    if not hold.executed:
+        return ReportView(blocks=[], messages=[
+            f"Al-tut referansı hesaplanamadı: {describe_code(hold.reason)}"])
+    strategy_final = Decimal(curve[-1]["equity"])
+    suffix = " (üst sınır)" if hold.is_upper_bound else ""
+    block = MetricBlock(
+        title="Strateji ve Al-Tut (aynı sermaye ve dönem)",
+        metrics=[
+            ("Strateji son sermaye", _money(strategy_final, currency)),
+            ("Al-tut son sermaye", _money(hold.final_equity, currency) + suffix),
+            ("Al-tut kalıntı nakit", _money(hold.leftover_cash, currency)),
+        ],
+        notes=["Al-tut, ilk açılışta maliyet sonrası alınabilen miktarla girer; "
+               "geçmiş sonuç gelecekteki kazanç olasılığı değildir."],
+    )
+    return ReportView(blocks=[block], messages=[])
 
 
 def _as_day(value) -> date:

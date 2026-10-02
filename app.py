@@ -604,6 +604,9 @@ if is_chart_renderable(df_view):
                             st.subheader("📑 Güvenilir Performans Raporu")
                             performance_ui.render_report_view(performance_ui.build_report_view(
                                 performance_ui.report_from_backtest(symbol, bt_results)))
+                            performance_ui.render_report_view(performance_ui.comparison_from_backtest(
+                                symbol, df_view, bt_results, trade_parsed.settings.quantity_step,
+                                trade_parsed.settings.costs))
 
     # --- KAĞIT TİCARET DOĞRULAMASI ---
     with st.expander("🧪 Kağıt Ticaret Doğrulaması (Canlı Sinyal Takibi)", expanded=False):

@@ -167,3 +167,41 @@ def test_smoke_backtest_screen_shows_reliable_performance_report(store, monkeypa
     assert "Güvenilir Performans Raporu" in " ".join(str(s.value) for s in at.subheader)
     assert "maliyet eksik" in texts(at).lower()
     assert {"Net getiri", "En büyük düşüş", "Kapanmış işlem"} <= {m.label for m in at.metric}
+    assert {"Strateji son sermaye", "Al-tut son sermaye"} <= {m.label for m in at.metric}
+
+
+def test_comparison_shows_strategy_and_buy_and_hold_on_same_capital():
+    """AC47 — Strateji ile al-tut aynı sermayede yan yana; al-tut maliyet sonrası miktarla girer."""
+    import pandas as pd
+    from technical_analysis import run_v1_strategy_backtest
+    from trade_execution import CostAssumptions
+
+    zero = Decimal("0")
+    index = pd.date_range("2026-09-01", periods=4, freq="D", tz="UTC")
+    frame = pd.DataFrame({
+        "Open": [100, 100, 110, 120], "High": [101, 200, 115, 125],
+        "Low": [98, 95, 105, 118], "Close": [100, 110, 112, 120], "ATR": [4, 5, 5, 5],
+    }, index=index)
+    costs = CostAssumptions(zero, zero, zero)
+    result = run_v1_strategy_backtest(
+        frame, {index[0]: "AL", index[1]: "BEKLE", index[2]: "SAT"}, initial_cash=Decimal("1000"),
+        trade_notional=Decimal("1000"), quantity_step=Decimal("1"), costs=costs)
+    view = performance_ui.comparison_from_backtest("ETH-USD", frame, result, Decimal("1"), costs)
+    metrics = dict(view.blocks[0].metrics)
+    assert metrics["Al-tut son sermaye"] == "1200.00 USD"   # 10 adet × 120
+    assert metrics["Al-tut kalıntı nakit"] == "0.00 USD"
+    assert "Strateji son sermaye" in metrics
+
+
+def test_comparison_without_known_step_explains_instead_of_guessing():
+    """AC47 — Miktar adımı bilinmiyorsa al-tut uydurulmaz, neden gösterilir."""
+    import pandas as pd
+    from trade_execution import CostAssumptions
+
+    index = pd.date_range("2026-09-01", periods=2, freq="D", tz="UTC")
+    frame = pd.DataFrame({"Open": [100, 100], "Close": [100, 110]}, index=index)
+    backtest = {"initial_cash": "1000", "daily_equity": [
+        {"date": index[0], "equity": Decimal("1000")}, {"date": index[1], "equity": Decimal("1000")}]}
+    view = performance_ui.comparison_from_backtest(
+        "ETH-USD", frame, backtest, None, CostAssumptions(Decimal("0"), Decimal("0"), Decimal("0")))
+    assert view.blocks == [] and "Miktar adımı bilinmiyor" in view.messages[0]
