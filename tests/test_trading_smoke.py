@@ -58,33 +58,39 @@ def test_portfolio_stop_touch_is_alert_only(monkeypatch):
     assert alerts[0]["type"] == "STOP_TEMASI_TEYIT_BEKLIYOR"
 
 
-def test_paper_v1_holds_until_stop_or_sell():
-    from paper_trading import advance_v1_book
-    from trade_execution import Bar
-
-    at = datetime(2026, 9, 10, tzinfo=timezone.utc)
-    book = {"cash": "9000", "position": {"quantity": "10", "entry": "100", "stop": "90"}, "trades": []}
-    rising = Bar(at, Decimal("105"), Decimal("130"), Decimal("100"), Decimal("125"))
-    held = advance_v1_book(book, "BEKLE", rising)
-    assert held["position"]["stop"] == "90" and held["trades"] == []
-
-    sold = advance_v1_book(held, "SAT", Bar(at + timedelta(days=1), Decimal("123"), Decimal("125"), Decimal("120"), Decimal("121")))
-    assert sold["position"] is None and sold["trades"][0]["reason"] == "SAT"
+def _paper_book(**changes):
+    book = {"balance": "9000", "initial_balance": "10000", "cooldown": 0, "trades": [],
+            "quantity_step": "1", "trade_notional": "1000", "pending": None,
+            "position": {"entry": "100", "entry_date": "2026-09-09", "qty": "10", "cost": "1000",
+                         "entry_fee": "0", "sl": "90", "tp": None}}
+    book.update(changes)
+    return book
 
 
-def test_existing_paper_update_keeps_stop_fixed_and_ignores_target():
-    from paper_trading import _step_book
+def test_paper_v1_holds_until_stop_or_sell_and_ignores_target():
+    from paper_trading import advance_pending_daily_decision
 
-    book = {"balance": 9000.0, "position": {
-        "entry": 100.0, "entry_date": "2026-09-01", "qty": 10.0,
-        "cost": 1000.0, "highest": 100.0, "sl": 90.0, "tp": 110.0,
-    }, "cooldown": 0, "trades": []}
+    book = _paper_book(pending={"verdict": "BEKLE", "atr": 4.0, "known_at": "2026-09-09"})
+    advance_pending_daily_decision(book, {"date": "2026-09-10", "open": 105.0, "high": 130.0,
+                                          "low": 100.0, "close": 125.0})
+    assert Decimal(book["position"]["sl"]) == Decimal("90") and book["trades"] == []
 
-    _step_book(book, "BEKLE", 125.0, 4.0, "2026-09-10")
-    assert book["position"]["sl"] == 90.0 and book["trades"] == []
-
-    _step_book(book, "SAT", 123.0, 4.0, "2026-09-11")
+    book["pending"] = {"verdict": "SAT", "atr": 4.0, "known_at": "2026-09-10"}
+    advance_pending_daily_decision(book, {"date": "2026-09-11", "open": 123.0, "high": 125.0,
+                                          "low": 120.0, "close": 121.0})
     assert book["position"] is None and book["trades"][0]["reason"] == "SAT"
+
+
+def test_paper_decision_is_applied_once_per_bar():
+    from paper_trading import advance_pending_daily_decision
+
+    book = _paper_book(position=None, balance="10000",
+                       pending={"verdict": "AL", "atr": 4.0, "known_at": "2026-09-09"})
+    bar = {"date": "2026-09-10", "open": 100.0, "high": 110.0, "low": 95.0, "close": 105.0}
+    assert advance_pending_daily_decision(book, bar) is True
+    snapshot = repr(book)
+    assert advance_pending_daily_decision(book, bar) is False        # AC69: tekrar işlem yok
+    assert repr(book) == snapshot
 
 
 def test_paper_signal_executes_at_next_open_and_uses_decision_atr():

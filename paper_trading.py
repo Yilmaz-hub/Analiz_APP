@@ -13,10 +13,12 @@ Design:
   the ML models (random_state=42) is deterministic — and marked
   "backfilled": true so forward-recorded and reconstructed rows stay
   distinguishable.
-- Each asset runs an independent paper book (PER_ASSET_BALANCE), mirroring
-  the per-asset backtests: entry on AL at the closed bar's close, ATR
-  SL/TP + breakeven/profit-lock trailing, exit on signal loss, fees per side,
-  loss cooldown — the same daily parameters as run_strategy_backtest.
+- Each asset runs an independent paper book (PER_ASSET_BALANCE). Execution
+  goes through the SAME engine as the V1 backtest
+  (trade_execution.advance_daily_bar): the closed bar's decision fills at the
+  next open, fixed 2.5 ATR initial stop (no target / trailing), user-supplied
+  costs (spread, slippage, commission; unknown != zero), quantity step and
+  the shared loss cooldown (trade_decisions.LOSS_COOLDOWN_BARS).
 
 State lives in FileConfig.PAPER_FILE. CLI: run this file directly to update
 and print the report (this is what the Windows scheduled task calls).
@@ -27,49 +29,15 @@ from copy import deepcopy
 from datetime import datetime
 from decimal import Decimal
 import pandas as pd
-from config import FileConfig, BacktestConfig, DecisionEngineConfig
+from config import FileConfig
 from logger import logger
-from trade_decisions import LOSS_COOLDOWN_BARS
 from trade_execution import (
     Bar, BookState, CostAssumptions, OpenPosition, TradeSettings, advance_daily_bar,
 )
 
 PER_ASSET_BALANCE = 10000.0
-# Daily-timeframe execution params — read from the same shared source as
-# run_strategy_backtest (BacktestConfig.TIMEFRAME_PARAMS) so this journal
-# can never silently drift from what the backtest actually validated.
-_DAILY_PARAMS = BacktestConfig.TIMEFRAME_PARAMS["1d"]
-SL_MULT = _DAILY_PARAMS["sl_mult"]
-TP_MULT = _DAILY_PARAMS["tp_mult"]
-TRAIL_BREAKEVEN = _DAILY_PARAMS["trail_breakeven"]
-TRAIL_LOCK_PCT = _DAILY_PARAMS["trail_lock_pct"]
-COOLDOWN_BARS = LOSS_COOLDOWN_BARS  # ortak kural: trade_decisions.LOSS_COOLDOWN_BARS
 BILESEN_YOK = "BILESEN_YOK"  # zorunlu bileşen hesaplanamadı: yeni AL/SAT yok
 MAX_BACKFILL = 10  # ML makes replay slow; cap catch-up bars per asset
-
-
-def advance_v1_book(book, verdict, bar):
-    """Advance a V1 paper position without targets or automatic trailing."""
-    from trade_execution import evaluate_stop
-
-    result = deepcopy(book)
-    position = result.get("position")
-    if position is None:
-        return result
-    stop_fill = evaluate_stop(bar, Decimal(position["stop"]), bar.at)
-    if stop_fill is not None:
-        exit_price, reason = stop_fill.base_price, "STOP"
-    elif "SAT" in verdict:
-        exit_price, reason = bar.open, "SAT"
-    else:
-        return result
-    quantity = Decimal(position["quantity"])
-    result["cash"] = str(Decimal(result.get("cash", "0")) + quantity * exit_price)
-    result.setdefault("trades", []).append({
-        "exit": str(exit_price), "at": bar.at.isoformat(), "reason": reason,
-    })
-    result["position"] = None
-    return result
 
 
 def _load_state():
@@ -175,41 +143,6 @@ def advance_pending_daily_decision(book, bar):
         book["last_block"] = None
     book["pending"] = None
     return bool(step.trades or step.opened)
-
-
-def _step_book(book, verdict, price, atr, date_str):
-    """Legacy storage adapter for the approved fixed-stop V1 behavior."""
-    fee = BacktestConfig.FEE_RATE
-    pos = book["position"]
-    if pos is not None:
-        reason = None
-        if price <= pos["sl"]:
-            reason = "STOP"
-        elif "SAT" in verdict:
-            reason = "SAT"
-        if reason:
-            proceeds = pos["qty"] * price * (1 - fee)
-            pnl = proceeds - pos["cost"]
-            book["balance"] += proceeds
-            book["trades"].append({
-                "entry": pos["entry"], "exit": price, "entry_date": pos["entry_date"],
-                "exit_date": date_str, "pnl": round(pnl, 2),
-                "pnl_pct": round(pnl / pos["cost"] * 100, 2), "reason": reason,
-            })
-            if pnl < 0:
-                book["cooldown"] = COOLDOWN_BARS
-            book["position"] = None
-    elif book["cooldown"] > 0:
-        book["cooldown"] -= 1
-    elif "AL" in verdict and book["balance"] > 0 and atr > 0:
-        qty = (book["balance"] * 0.95) / price
-        cost = qty * price * (1 + fee)
-        book["position"] = {
-            "entry": price, "entry_date": date_str, "qty": qty, "cost": cost,
-            "highest": price,
-            "sl": price - atr * 2.5, "tp": None,
-        }
-        book["balance"] -= cost
 
 
 def run_paper_update(coin_map, source_pref="Binance", progress_callback=None, paper_settings=None):

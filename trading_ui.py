@@ -276,14 +276,3 @@ def validate_delay(value):
 
 def paper_defaults(currency):
     return Decimal("10000"), Decimal("1000"), currency
-
-
-def aggregate_totals(values):
-    output = {}
-    usd = Decimal(values.get("USD", 0)) + Decimal(values.get("USDT", 0))
-    if "USD" in values or "USDT" in values:
-        output["USD/USDT"] = usd
-    for currency, amount in values.items():
-        if currency not in {"USD", "USDT"}:
-            output[currency] = Decimal(amount)
-    return output

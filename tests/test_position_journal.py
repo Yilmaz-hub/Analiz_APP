@@ -17,16 +17,6 @@ def _buy(journal, event_id="buy-1", fee=None):
     return journal.confirm_trade(event_id, "BUY", Decimal("2"), Decimal("100"), TRADE_AT, RECORDED_AT, fee=fee)
 
 
-def test_requirement_signal_does_not_open_real_position(tmp_path):
-    journal = _journal(tmp_path); journal.apply_signal("AL")
-    assert journal.position is None
-
-
-def test_ac40_signal_does_not_close_real_position(tmp_path):
-    journal = _journal(tmp_path); _buy(journal); journal.apply_signal("SAT")
-    assert journal.position.quantity == Decimal("2")
-
-
 def test_ac41_duplicate_confirmation(tmp_path):
     journal = _journal(tmp_path)
     assert _buy(journal) is True and _buy(journal) is False and len(journal.trades) == 1
@@ -40,11 +30,6 @@ def test_ac42_correction_keeps_execution(tmp_path):
 def test_ac43_paper_real_isolation(tmp_path):
     journal = _journal(tmp_path); journal.record_paper("BUY", Decimal("4"), Decimal("90"))
     assert journal.position is None
-
-
-def test_ac77_ignored_buy_no_real_trade(tmp_path):
-    journal = _journal(tmp_path); journal.ignore_signal("AL")
-    assert journal.trades == []
 
 
 def test_ac78_late_entry_preserves_trade_time(tmp_path):

@@ -64,9 +64,6 @@ class PositionJournal:
             except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
                 raise StorageAccessError("İşlem günlüğü okunamadı.") from exc
 
-    def apply_signal(self, signal):
-        return False
-
     def confirm_trade(self, event_id, side, quantity, price, executed_at, recorded_at, *, fee=None, symbol=""):
         quantity, price = Decimal(quantity), Decimal(price)
         if quantity <= 0 or price <= 0 or not event_id or any(t.event_id == event_id for t in self.trades):
@@ -101,9 +98,6 @@ class PositionJournal:
     def record_paper(self, side, quantity, price, *, spread_bps=None):
         selected = self._paper_spread if spread_bps is None else Decimal(spread_bps)
         self.paper_trades.append(PaperTrade(side, Decimal(quantity), Decimal(price), selected))
-
-    def ignore_signal(self, signal):
-        return False
 
     def add_fee(self, event_id, fee):
         return self.correct_trade(event_id, fee=fee)

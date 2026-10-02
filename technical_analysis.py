@@ -249,15 +249,6 @@ def calculate_trend_strength(df):
         logger.debug(f"Trend strength calculation error: {e}")
         return 0
 
-def calculate_trailing_stop(entry, current_price, atr, trailing_pct=0.05):
-    initial_stop = entry - (atr * 1.5)
-    
-    if current_price > entry * (1 + trailing_pct):
-        new_stop = current_price - (atr * 1.2)
-        return max(initial_stop, new_stop)
-    
-    return initial_stop
-
 def calculate_extended_trendlines(df, extend_candles=15):
     highs = df['High'].values
     lows = df['Low'].values
