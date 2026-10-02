@@ -1,6 +1,6 @@
 # Spec: 0005 — Performans, Strateji, Risk ve Sanal Doğrulama
 
-> Şablon: [TEMPLATE.md](TEMPLATE.md). Revizyon 1 — bağımsız QA denetimi sonrası boşluklar kapatıldı: referans ortam, zaman otoritesi, rejim sınıfları, miktar formülü, hata durumları ve sınır değerleri yazıldı. Q01–Q08 kararları hala onay bekliyor. Uygulama onayı değildir.
+> Şablon: [TEMPLATE.md](TEMPLATE.md). Revizyon 2 — **Adım 4** kararları işlendi (2026-10-02): Q01 kabul edildi, O1 (AC64/AC66 "400/404") sonuç durumu olarak çözüldü, R04 rejim boyutu Adım 5'e ertelendi. **Q02–Q08 ve O2–O4 (Adım 5–7) karar bekliyor**; bu revizyon yalnız Adım 4 uygulamasının onayıdır. (Revizyon 1: bağımsız QA denetimi sonrası boşluklar kapatıldı.)
 > Rol: Analist. Bu belge önceki yol haritasının 4–7. adımlarını kapsar; V1 uygulama planındaki aynı numaralı teknik adımları ifade etmez.
 
 ## Intent
@@ -15,7 +15,7 @@ Bu çalışma en dipte alış, en tepede satış veya her AL sinyalinde kazanç 
 - **R01:** Mevcut AL→SAT yaklaşımı, V1'in stop ve bekleme kurallarıyla ayrı bir referans olarak korunmalı; aday yaklaşımlar ve al-tut aynı varlık, dönem, başlangıç sermayesi ve açıklanmış maliyet koşullarında karşılaştırılmalıdır.
 - **R02:** Rapor net getiri, sermayenin zirveden en büyük düşüşü, kapanmış işlem sayısı ve kapanmış işlem başına ortalama net sonucu göstermelidir. Açık pozisyonlar dönem sonu sermaye değerine dahil edilmeli, gerçekleşmiş sonuçtan ayrılmalıdır.
 - **R03:** Getiri dışarıdan para giriş/çıkışıyla şişirilmemeli; doğrulanamayan maliyet veya değerleme eksikleri sonucun yanında görünmelidir. Eksik maliyet sıfır kabul edilmemelidir: maliyeti bilinmeyen işlem içeren metrik **üst sınır** olarak etiketlenir, eksik maliyetli işlem sayısı yanında görünür ve sonuç temiz net sonuç gibi sunulmaz. İlgili işlemler örneklemden sessizce dışlanmaz.
-- **R04:** Sonuçlar piyasa, varlık, para birimi, dönem, strateji sürümü ve yükselen/düşen/yatay piyasa koşuluna göre süzülebilmelidir. Filtrelenmiş örnek sayısı görünmelidir.
+- **R04:** Sonuçlar piyasa, varlık, para birimi, dönem, strateji sürümü ve yükselen/düşen/yatay piyasa koşuluna göre süzülebilmelidir. Filtrelenmiş örnek sayısı görünmelidir. *(Rev 2: yükselen/düşen/yatay boyutu rejim sınıflandırıcısına (Q02) bağlıdır ve Adım 5'te eklenir; Adım 4 raporu bu boyut olmadan teslim edilir.)*
 - **R05:** Ayar seçiminde kullanılan dönem ile seçimde kullanılmamış değerlendirme dönemi ayrı gösterilmeli; sonraki bilgiler geçmiş kararları etkilememelidir.
 ### Adım 5 — Çalkantıya uygun strateji denemeleri
 - **R06:** Mevcut filtrelerin etkisi, aynı koşullarda yalnız incelenen filtrenin değiştiği karşılaştırmalarla ölçülmelidir. Kırılım ve yükseliş içi geri çekilme girişleri ayrı adaylar olarak değerlendirilebilmelidir.
@@ -61,7 +61,7 @@ Bu çalışma en dipte alış, en tepede satış veya her AL sinyalinde kazanç 
 
 | Karar | Cevabı gereken soru | Öneri | Gerekçe |
 |---|---|---|---|
-| Q01 | Karşılaştırma dönemi, al-tut miktarı ve sermaye hareketleri nasıl ele alınsın? | Mevcut ortak tarihlerde son 3 yıl; ilk %60 ayar seçimi, son %40 dokunulmamış değerlendirme. Her iki tarafta aynı başlangıç sermayesi, al-tutta ilk uygun açılışta maliyet sonrası alınabilen miktar; dış nakit hareketi olan dönemler bu sürümde karşılaştırılamaz. Bölme tam olmadığında ayar dilimi **aşağı yuvarlanır**, kalan tarihler değerlendirmeye gider. Toplam uygun tarih **250'nin altındaysa** dönem “yetersiz geçmiş” sayılır ve karşılaştırma yeterli kanıt olarak sunulmaz. Al-tutta bölünmeyen sermaye kalıntısı nakit olarak tutulur ve dönem sonu sermayesine eklenir. | Başlangıç koşullarını eşitler; para yatırmayı strateji getirisi saymaz. Yuvarlama yönü yazılmazsa değerlendirme dilimi ayar seçimine sızar; kalıntı nakit yok sayılırsa al-tut referansı haksız düşük çıkar. |
+| Q01 **(KARAR: öneri olduğu gibi kabul, 2026-10-02)** | Karşılaştırma dönemi, al-tut miktarı ve sermaye hareketleri nasıl ele alınsın? | Mevcut ortak tarihlerde son 3 yıl; ilk %60 ayar seçimi, son %40 dokunulmamış değerlendirme. Her iki tarafta aynı başlangıç sermayesi, al-tutta ilk uygun açılışta maliyet sonrası alınabilen miktar; dış nakit hareketi olan dönemler bu sürümde karşılaştırılamaz. Bölme tam olmadığında ayar dilimi **aşağı yuvarlanır**, kalan tarihler değerlendirmeye gider. Toplam uygun tarih **250'nin altındaysa** dönem “yetersiz geçmiş” sayılır ve karşılaştırma yeterli kanıt olarak sunulmaz. Al-tutta bölünmeyen sermaye kalıntısı nakit olarak tutulur ve dönem sonu sermayesine eklenir. | Başlangıç koşullarını eşitler; para yatırmayı strateji getirisi saymaz. Yuvarlama yönü yazılmazsa değerlendirme dilimi ayar seçimine sızar; kalıntı nakit yok sayılırsa al-tut referansı haksız düşük çıkar. |
 | Q02 | Yükselen/düşen/yatay sınıfları ve giriş adaylarının kesin kuralları ne olsun? | Kodda üç sınıflı bir tanım **yoktur**: [config.py](../config.py) yalnız 0–100 rejim skoru (`RegimeConfig`) ve MA üstü/altı ikili filtresi (`REGIME_MA_PERIOD`) içerir. Bu nedenle üç sınıf, mevcut skor ve MA konumundan türeyen bir **rejim sınıflandırıcısı** olarak tanımlanır; eşikleri ve sınıflandırıcı sürümü sonuçlar görülmeden sabitlenir ve her gözleme sürümüyle yazılır. Kırılım ve geri çekilmenin giriş/çıkış eşikleri de aday bazında, sonuç görülmeden ayrı karar kaydında onaylanır. | Var olmayan bir tanıma atıf yapmayı önler; eşikler sonuçtan sonra seçilirse Constraints'in “sonuca göre tanım değiştirme” yasağı ihlal edilir ve AC41 ölçülemez. |
 | Q03 | Bir aday hangi koşulda tercih edilmeye uygun sayılsın? | Aynı değerlendirme kesitinde referanstan daha yüksek maliyet sonrası getiri, daha büyük olmayan maksimum düşüş ve pozitif işlem beklentisi birlikte aransın; en az 30 kapanmış işlem altı yetersiz sayılsın. Al-tut karşılaştırması ayrıca gösterilsin. Sınırlar: getiri **kesin büyük** olmalı (eşitlik yetmez), maksimum düşüş **büyük olmamalı** (eşitlik engel değil), beklenti **kesin pozitif** olmalı (tam 0 yetmez). | Tek başına yüksek getiriyle riski veya küçük örneklemi gizlemeyi önler; 30 işlem istatistiksel kesinlik garantisi değildir. Karşılaştırma yönü yazılmazsa her ölçütte iki farklı doğru cevap oluşur. |
 | Q04 | İşlem/portföy risk yüzdeleri, kayıp dönemi ve karma para birimi davranışı ne olsun? | Varsayılan risk profili tanımsız kalsın; kullanıcı açıkça oran seçsin. Oranlar 0'dan büyük, %100'den küçük olsun; toplam risk aynı para biriminde hesaplanabilsin. Oran, [conventions.md](../docs/conventions.md) yüzde ölçeğinde temsil edilebilir olmalı; ölçek altında kalıp sıfırlanan girdi reddedilir. Kayıp sınırı kullanıcının belirlediği başlangıçtan itibaren sürsün, otomatik sıfırlanmasın; sıfırlama yalnız kullanıcının açık ve kayda geçen eylemiyle olsun. Toplam risk ve kayıp sınırı farklı para birimlerini karıştırmak zorunda kalırsa doğrulanmış sonuç üretilmesin. | Kullanıcının sermayesi ve kayıp toleransı bilinmeden oran atamaz; zaman ve kur belirsizliğini görünür tutar. Sıfırlama yolu yazılmazsa sınır dolduktan sonra uygulamadan çıkış yolu kalmaz. |
@@ -141,9 +141,9 @@ Bu çalışma en dipte alış, en tepede satış veya her AL sinyalinde kazanç 
 - [ ] **AC61 — Son parça, S08:** Kademeli çıkışta son parça da kapandığında kapanmış işlem sayısı tam 1 artar.
 - [ ] **AC62 — Nakit kalıntısı, Q01:** Sıfır maliyet, 1.000 sermaye, ilk açılış 300 ve miktar adımı 1 olan al-tut örneğinde 3 birim alınır ve 100 nakit dönem sonu sermayesine dahil edilir.
 - [ ] **AC63 — Kesintili gün, S10:** İzlemenin çalışmadığı gün izlenen gün sayacına katılmaz.
-- [ ] **AC64 — Bilinmeyen filtre değeri, H01:** Tanımlı olmayan piyasa/kategori değeri ile rapor istendiğinde istek doğrulama hatasıyla (400) reddedilir ve teknik hata metni sızmaz.
+- [ ] **AC64 — Bilinmeyen filtre değeri, H01:** Tanımlı olmayan piyasa/kategori değeri ile rapor istendiğinde geçersiz istek olarak reddedilir, anlaşılır bir mesaj gösterilir ve teknik hata metni sızmaz.
 - [ ] **AC65 — Veri bulunmayan filtre, H01:** Tanımlı ama o dönemde verisi olmayan filtre için hata değil boş sonuç ve örnek sayısı 0 gösterilir.
-- [ ] **AC66 — Olmayan kayıt, H01:** Var olmayan bir değerlendirme kaydı istendiğinde bulunamadı (404) sonucu döner.
+- [ ] **AC66 — Olmayan kayıt, H01:** Var olmayan bir değerlendirme kaydı istendiğinde bulunamadı sonucu döner ve kullanıcıya anlaşılır bir mesaj gösterilir.
 - [ ] **AC67 — Ters stop, H02:** Girişten yüksek stop ile risk bazlı miktar istenirse hesap reddedilir ve nedeni gösterilir.
 - [ ] **AC68 — Sıfır/negatif stop, H02:** Stop 0 veya negatif verildiğinde hesap reddedilir ve nedeni gösterilir.
 - [ ] **AC69 — Ön kayıtsız aday, H03:** Ölçütleri ve değerlendirme dönemi önceden kaydedilmemiş aday için koşum başlatılmaz.
@@ -182,8 +182,8 @@ Bu çalışma en dipte alış, en tepede satış veya her AL sinyalinde kazanç 
 ## SCORECARD
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 1 — bağımsız QA denetimi sonrası boşluk kapatma |
-| Düzeltme turu sayısı | Uygulama başlamadı |
+| Spec revizyon sayısı | 2 — Rev 1: bağımsız QA denetimi sonrası boşluk kapatma; Rev 2: Adım 4 kararları (Q01, O1, R04 rejim ertelemesi) |
+| Düzeltme turu sayısı | Adım 4 uygulaması bitti (S1+S2), QA denetimi bekliyor; Adım 5–7 başlamadı |
 | Bulgu gerçek/gürültü oranı | Revizyon 1: 35 bulgu getirildi, 35'i gerçek kabul edildi, 0 gürültü (spec denetimi; kod denetimi yapılmadı) |
 | Regresyon sayısı | Ölçülmedi |
 | Kaçan hata | Ölçülmedi |
