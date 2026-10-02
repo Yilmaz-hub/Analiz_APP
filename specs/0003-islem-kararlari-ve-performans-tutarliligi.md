@@ -271,7 +271,7 @@ Aynı kripto varlığının USD ve USDT fiyatlamaları V1 sinyal ve stop değerl
 |--------|-------|
 | Spec revizyon sayısı | 21 — QA düzeltmeleri (Q1–Q14, B1–B6, Y1–Y10), kapsam kararı (döviz) ve yeni modül kararları işlendi |
 | Düzeltme turu sayısı | 3 — QA turu 1 (Q1–Q14), tur 2 (B1–B6), tur 3 (Y1–Y10); Takım Yöneticisi onayı bekleniyor |
-| Bulgu gerçek/gürültü oranı | 30/0 — Q1–Q14 (14), B1–B6 (6), Y1–Y10 (10); her bulgu repro ile doğrulandı. Y3 (ML açıkken karar üretimi paritesi) ayrı spec dilimine ertelendi |
+| Bulgu gerçek/gürültü oranı | 30/0 — Q1–Q14 (14), B1–B6 (6), Y1–Y10 (10); her bulgu repro ile doğrulandı. Y3 de düzeltildi |
 | Regresyon sayısı | 2 — Y1 ve Y2 (alış/satış formu anahtarları, `0f2d7f2`); düzeltildi. Tam paket yeşil (başlangıç 378, şimdi 491 test) |
 | Kaçan hata | 30 — Q1–Q14 (aşağıda), B1–B6 ve Y1–Y10 (QA turları 2–3), Developer'ın kendi testlerinden kaçmıştı |
 
@@ -300,7 +300,7 @@ Aynı kripto varlığının USD ve USDT fiyatlamaları V1 sinyal ve stop değerl
 - **Y1/Y2:** alış/satış formu alan anahtarları varlığa/pozisyona bağlandı (`tests/test_qa_round3.py`).
 - **Y4:** `strict_components`, açılışta `reconcile` ve maliyet aktarımı için düşen testler (mutasyonla doğrulandı).
 - **Y5:** satış miktarı 8 haneye yuvarlanarak karşılaştırılır. **Y6:** varsayımlar okunamazken geçmiş test ve sanal takip kapalı. **Y7:** sanal takip uyarısı Türkçe. **Y8:** ATR bilinmiyorsa başlangıç stopu yok. **Y10:** panel mesajları tekrarlanmaz.
-- **Y3 (ertelendi):** `build_v1_decisions` ML'i her barda, `generate_stable_signal` yalnız son barda hesaplıyor; ML açıkken karar üretimi ayrışıyor. Performans bütçesini etkileyen tasarım kararı olduğu için ayrı spec dilimi.
+- **Y3 (düzeltildi):** `build_v1_decisions` ML'i her barda ve sürekli bir makineyle hesaplıyor, ekran ise son 15 barda sıfırdan kurulan makineyle ML'i yalnız son barda hesaplıyordu. Artık ikisi de `signal_engine.replay_stable_state` üzerinden geçer; ML'siz önceki bar skorları bir kez hesaplanıp yeniden kullanılır (maliyet ~2 skor/bar, ekranda değişiklik yok). Test: `tests/test_q3b_decision_parity.py`.
 
 ### Yeni modül kararları (AGENTS.md Altın Kural 3)
 

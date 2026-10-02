@@ -831,6 +831,26 @@ def _cached_bar_score(df_slice, timeframe, include_ml, weights=None):
     return result
 
 
+def replay_stable_state(scored_bars, cfg=None):
+    """Karar makinesini son kapanmış barlar üzerinde sıfırdan yeniden kurar.
+
+    `scored_bars`: eskiden yeniye bar skorları (hesaplanamayan bar None). Ekran,
+    sanal takip ve geçmiş test kararı aynı bu işlevden geçer; bu yüzden aynı
+    veride aynı kararı verirler (spec 0003, R06 / QA Y3). Döner: (makine,
+    son bar skoru ya da None, ham yön).
+    """
+    machine = SignalStateMachine(cfg or DecisionEngineConfig)
+    bar, raw_dir = None, 0
+    last = len(scored_bars) - 1
+    for position, b in enumerate(scored_bars):
+        if b is None:
+            continue
+        _, raw_dir = machine.update(b["score"], b["confidence"], b["rsi"], b["adx"], b.get("regime", 0))
+        if position == last:
+            bar = b
+    return machine, bar, raw_dir
+
+
 def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, include_ml=True, weights=None,
                            data_is_closed=False, strict_components=False):
     """
@@ -882,20 +902,13 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
             # otherwise mutate a future caller's signal in place.
             return deepcopy(cached_signal)
 
-    machine = SignalStateMachine(cfg)
     lookback = min(cfg.STABILITY_LOOKBACK, len(work) - 50)
-    bar = None
-    raw_dir = 0
-
+    scored = []
     for k in range(lookback - 1, -1, -1):
         s = work.iloc[:len(work) - k]
         is_final = (k == 0)
-        b = _cached_bar_score(s, timeframe, include_ml=(include_ml and is_final), weights=weights)
-        if b is None:
-            continue
-        _, raw_dir = machine.update(b["score"], b["confidence"], b["rsi"], b["adx"], b.get("regime", 0))
-        if is_final:
-            bar = b
+        scored.append(_cached_bar_score(s, timeframe, include_ml=(include_ml and is_final), weights=weights))
+    machine, bar, raw_dir = replay_stable_state(scored, cfg)
 
     if bar is None:
         signal.verdict = "BEKLE"
