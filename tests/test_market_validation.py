@@ -3,7 +3,10 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import pytest
 
-from market_validation import MarketPolicy, combine_source_history, normalize_pair, policy_for_symbol, validate_market_data
+from market_validation import (
+    MarketPolicy, combine_source_history, component_gaps, normalize_pair, policy_for_symbol,
+    validate_market_data,
+)
 
 
 UTC = timezone.utc
@@ -158,3 +161,58 @@ def test_us_close_policy_respects_daylight_saving_time():
 
     assert summer.expected_close.hour == 20
     assert winter.expected_close.hour == 21
+
+
+# --- QA Q6: zorunlu bileşenlerin hazırlık denetimi -----------------------------
+def _with_indicators(frame):
+    for column in ("EMA_20", "EMA_50", "ADX", "RSI", "MACD", "MACD_Signal", "ATR"):
+        frame[column] = 1.0
+    return frame
+
+
+def test_q6_complete_frame_has_no_component_gaps():
+    assert component_gaps(_with_indicators(_bars())) == ()
+
+
+def test_q6_missing_indicator_column_names_the_component():
+    frame = _with_indicators(_bars()).drop(columns=["RSI"])
+    assert component_gaps(frame) == ("momentum",)
+
+
+def test_q6_nan_in_last_row_names_the_component():
+    frame = _with_indicators(_bars())
+    frame.iloc[-1, frame.columns.get_loc("ADX")] = float("nan")
+    assert component_gaps(frame) == ("trend",)
+
+
+def test_q6_all_zero_volume_makes_volume_component_unavailable():
+    frame = _with_indicators(_bars())
+    frame["Volume"] = 0.0
+    assert component_gaps(frame) == ("volume",)
+
+
+def test_q6_single_zero_volume_candle_is_kept_and_not_a_gap():
+    frame = _with_indicators(_bars(end="2026-09-10"))
+    frame.iloc[100, frame.columns.get_loc("Volume")] = 0.0
+    result = validate_market_data(frame, NOW, _crypto_policy(), require_components=True)
+    assert len(result.usable) == 200
+    assert result.is_valid and result.missing_components == ()
+
+
+def test_q6_regime_filter_needs_its_history():
+    assert component_gaps(_with_indicators(_bars(count=200)), regime_period=250) == ("regime",)
+    assert component_gaps(_with_indicators(_bars(count=200)), regime_period=100) == ()
+
+
+def test_q6_validation_reports_missing_components_by_name():
+    frame = _with_indicators(_bars()).drop(columns=["RSI", "ATR"])
+    result = validate_market_data(frame, NOW, _crypto_policy(), require_components=True)
+    assert (result.is_valid, result.status) == (False, "BILESEN_HAZIR_DEGIL")
+    assert result.missing_components == ("momentum", "volatility")
+
+
+def test_q6_extra_missing_components_from_scoring_are_merged():
+    frame = _with_indicators(_bars())
+    result = validate_market_data(frame, NOW, _crypto_policy(), missing_components=("ml",))
+    assert (result.is_valid, result.status, result.missing_components) == (
+        False, "BILESEN_HAZIR_DEGIL", ("ml",))
