@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timezone
 from data_fetchers import get_market_data
 from signal_engine import generate_stable_signal, generate_validated_signal
-from market_validation import policy_for_symbol, validate_market_data
+from market_validation import is_v1_scope, policy_for_symbol, validate_market_data
 from trading_ui import describe_code
 from weight_profiles import get_weights_for_symbol
 from technical_analysis import calculate_regime_score
@@ -82,6 +82,10 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
                     if isinstance(d_scan, pd.DataFrame) and not getattr(d_scan, 'empty', True) and len(d_scan) > 20:
                         # Stable (whipsaw-filtered) composite signal — same as dashboard
                         scan_weights = get_weights_for_symbol(sym) if tf == "1d" else None
+                        if tf == "1d" and not is_v1_scope(sym):
+                            comp_signal = generate_stable_signal(d_scan, tf, weights=scan_weights)
+                            row[signal_col] = f"⚪ {comp_signal.verdict} (V1 doğrulanmadı)"
+                            continue
                         if tf == "1d":
                             evaluation_time = datetime.now(timezone.utc)
                             policy = policy_for_symbol(sym, evaluation_time)

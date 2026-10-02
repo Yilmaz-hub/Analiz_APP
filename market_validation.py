@@ -45,6 +45,15 @@ def _previous_weekday(day):
     return candidate
 
 
+def is_v1_scope(symbol):
+    """V1 yalnız kripto, BIST, altın ve ABD hisselerini kapsar (spec 0003).
+
+    Döviz çiftleri (ör. EURUSD=X) kapsam dışıdır: hacmi olmadıkları için bileşen
+    denetimi uygulanmaz, ekranda "V1 doğrulanmadı" yazar.
+    """
+    return not str(symbol).upper().endswith("=X")
+
+
 def policy_for_symbol(symbol, now):
     """Return the approved daily close policy for a supported V1 symbol."""
     normalized = symbol.upper()

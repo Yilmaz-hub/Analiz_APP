@@ -27,7 +27,7 @@ from ui_components import (render_sidebar_settings, render_asset_management, ren
 from scanner import render_opportunity_scanner
 from data_fetchers import get_live_price_for_portfolio
 from signal_engine import generate_stable_signal, generate_validated_signal, CompositeSignal, invalid_data_signal
-from market_validation import policy_for_symbol, validate_market_data
+from market_validation import is_v1_scope, policy_for_symbol, validate_market_data
 from positions import (group_positions, build_active_rows, asset_name as position_asset_name,
                        AKTIF as POS_AKTIF, BEKLEYEN as POS_BEKLEYEN,
                        SORUNLU as POS_SORUNLU)
@@ -211,7 +211,11 @@ for tf, label in intervals.items():
         # only ever validates against daily data (see weight_profiles.py).
         sig_weights = get_weights_for_symbol(symbol) if tf == "1d" else None
         # Stable (whipsaw-filtered) composite signal — closed candles only
-        if tf == "1d":
+        if tf == "1d" and not is_v1_scope(symbol):
+            # V1 kapsamı dışı (ör. döviz): bileşen denetimi uygulanmaz, ekranda belirtilir.
+            validation_statuses[tf] = "V1_DOGRULANMADI"
+            comp_sig = generate_stable_signal(df, tf, weights=sig_weights)
+        elif tf == "1d":
             evaluation_time = datetime.now(timezone.utc)
             policy = policy_for_symbol(symbol, evaluation_time)
             validation = validate_market_data(
@@ -389,7 +393,7 @@ if is_chart_renderable(df_view):
         decision_at=st.session_state.get("last_valid_decision", {}).get(symbol),
         suggested_stop=Decimal(str(active_signal.stop_loss)) if active_signal.stop_loss else None,
         asset_kind=symbol if symbol in {"XAU_GOLD", "GRAM_TRY"} else None,
-        in_scope=view_tf == "1d" and symbol != "GRAM_TRY",
+        in_scope=view_tf == "1d" and symbol != "GRAM_TRY" and is_v1_scope(symbol),
         current_price=Decimal(str(curr)),
         bars_since_loss_exit=bars_since_loss_exit(
             st.session_state['portfolio_data'].get('positions', []), sel_c,

@@ -150,7 +150,8 @@ def run_paper_update(coin_map, source_pref="Binance", progress_callback=None, pa
     short status dict: {"new_rows": int, "assets": int, "errors": [names]}."""
     from data_fetchers import get_market_data
     from signal_engine import generate_stable_signal
-    from market_validation import policy_for_symbol, validate_market_data
+    from market_validation import is_v1_scope, policy_for_symbol, validate_market_data
+    from trading_ui import describe_code
     from weight_profiles import get_weights_for_symbol
 
     state = _load_state()
@@ -167,6 +168,9 @@ def run_paper_update(coin_map, source_pref="Binance", progress_callback=None, pa
             if df is None:
                 errors.append(name); continue
 
+            if not is_v1_scope(sym):
+                errors.append(f"{name}: {describe_code('V1_DOGRULANMADI')}")
+                continue
             evaluation_time = pd.Timestamp.now(tz="UTC").to_pydatetime()
             policy = policy_for_symbol(sym, evaluation_time)
             validation = validate_market_data(

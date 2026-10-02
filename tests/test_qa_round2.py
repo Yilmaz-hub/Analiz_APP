@@ -63,3 +63,28 @@ def test_b6_reason_lines_show_turkish_component_names_not_codes(store, monkeypat
     at = _gunluk(make_app(monkeypatch, _taze(processed_df)).run())
     metin = texts(at)
     assert "Zorunlu karar bileşeni hesaplanamadı" not in metin and "BILESEN_HAZIR_DEGIL" not in metin
+
+
+# ---- B4 kararı: kapsam dışı varlıkta bileşen denetimi yok, "V1 doğrulanmadı" ----
+def test_b4_forex_with_zero_volume_still_gets_a_signal_and_says_v1_not_validated(store, monkeypatch, processed_df):
+    frame = _taze(processed_df)
+    frame["Volume"] = 0.0
+    store.write_doc(store.ASSETS_KEY, {"EUR/USD": "EURUSD=X"})
+    at = _gunluk(make_app(monkeypatch, frame).run())
+    metin = texts(at)
+    assert not at.exception
+    assert "Karar bileşeni hazır değil" not in metin
+    assert "Bu varlık/periyot için karar kuralları doğrulanmadı" in metin
+
+
+def test_b4_crypto_with_zero_volume_is_still_blocked(store, monkeypatch, processed_df):
+    frame = _taze(processed_df)
+    frame["Volume"] = 0.0
+    store.write_doc(store.ASSETS_KEY, {"Bitcoin (BTC)": "BTC-USD"})
+    assert "Karar bileşeni hazır değil: hacim" in texts(_gunluk(make_app(monkeypatch, frame).run()))
+
+
+def test_b4_scope_helper():
+    from market_validation import is_v1_scope
+    assert not is_v1_scope("EURUSD=X")
+    assert all(is_v1_scope(s) for s in ("BTC-USD", "THYAO.IS", "XAU_GOLD", "AAPL"))
