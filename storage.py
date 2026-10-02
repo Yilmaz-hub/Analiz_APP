@@ -41,6 +41,8 @@ from logger import logger
 # Belge anahtarları — dosya adlarının yerini alır.
 ASSETS_KEY = "assets"
 PORTFOLIO_KEY = "portfolio"
+JOURNAL_KEY = "position_journal"
+TRADE_SETTINGS_KEY = "trade_settings"
 
 DATA_DIR_ENV = "ANALIZ_APP_DATA_DIR"
 DB_URL_ENV = "ANALIZ_APP_DB_URL"
@@ -259,6 +261,7 @@ def protection_level() -> str:
 LEGACY_FILES = {
     ASSETS_KEY: FileConfig.LEGACY_ASSETS_FILE,
     PORTFOLIO_KEY: FileConfig.LEGACY_PORTFOLIO_FILE,
+    JOURNAL_KEY: FileConfig.LEGACY_JOURNAL_FILE,
 }
 
 

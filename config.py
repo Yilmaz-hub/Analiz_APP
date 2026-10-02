@@ -352,14 +352,12 @@ class FileConfig:
     # Eski kayıt dosyaları — yalnız storage.import_legacy_documents() okur.
     LEGACY_PORTFOLIO_FILE = 'portfolio.json'
     LEGACY_ASSETS_FILE = 'varliklar.json'
+    LEGACY_JOURNAL_FILE = 'position_journal.json'
 
     # Uygulamanın kendi ürettiği dosyalar: proje klasörüne göre mutlak.
     PAPER_FILE = str(_PROJECT_DIR / 'paper_trading.json')
     WEIGHT_PROFILES_FILE = str(_PROJECT_DIR / 'weight_profiles.json')
     PREDICTIONS_LOG_FILE = str(_PROJECT_DIR / 'predictions_log.json')
-    # Spec 0003'ten gelir; aynı gerekçeyle (AC18) mutlak yola çevrildi.
-    TRADING_JOURNAL_FILE = str(_PROJECT_DIR / 'position_journal.json')
-
 
 class TradingV1Config:
     REQUIRED_DAILY_BARS = 200

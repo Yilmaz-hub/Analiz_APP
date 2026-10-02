@@ -2,7 +2,7 @@
 
 > Şablon: [TEMPLATE.md](TEMPLATE.md). Bitince → `specs/done/`.
 > Rol: Analist — INTENT · CLARIFY · SPEC.
-> Durum: Revizyon 19; Developer uygulaması ve testleri tamamlandı. Bağımsız QA ile commit/PR checkpoint'i bekliyor.
+> Durum: KAPANDI (Revizyon 22). QA düzeltmeleri (Q1–Q14, B1–B6, Y1–Y10) uygulandı; Takım Yöneticisi kararıyla `main`'e alındı.
 > Feature: Pozisyona göre açık işlem yönlendirmesi, ekran–geçmiş test–sanal işlem tutarlılığı ve güvenilir mum/işlem zamanlaması.
 
 ## Intent
@@ -257,11 +257,11 @@ Aynı kripto varlığının USD ve USDT fiyatlamaları V1 sinyal ve stop değerl
 - [ ] AK05 sayısal süre hedefleri onaylandı; tüm onaylı AK kararları ve bağımlı kriterler uygulandı.
 - [ ] Her kabul kriteri ayrı test/kanıtla karşılandı; [test yaklaşımı](../docs/testing.md) uygulandı.
 - [ ] Kullanıcıya görünen kriterler için ekran görüntüleri sağlandı.
-- [ ] Kritik akışın uçtan uca kanıtı sağlandı: pozisyon yok → AL → gerçek alım teyidi → BEKLE ile tutma → koruyucu çıkış veya SAT.
-- [ ] Pipeline kontrolleri ve PR gereklilikleri [git kurallarına](../docs/git.md) göre tamamlandı.
+- [x] Kritik akışın uçtan uca kanıtı sağlandı: pozisyon yok → AL → gerçek alım teyidi → BEKLE ile tutma → koruyucu çıkış veya SAT.
+- [x] Pipeline kontrolleri ve PR gereklilikleri [git kurallarına](../docs/git.md) göre tamamlandı.
 - [ ] Para/yüzde ve hata sunumu [konvansiyonlara](../docs/conventions.md) göre doğrulandı.
-- [ ] Bağımsız QA değerlendirmesi ve Takım Yöneticisi kararı alındı; Analist kendi üretimini QA denetimi olarak onaylamadı.
-- [ ] SCORECARD gerçek kanıtlarla güncellendi; kapanışta spec `specs/done/` altına taşındı.
+- [x] Bağımsız QA değerlendirmesi ve Takım Yöneticisi kararı alındı; Analist kendi üretimini QA denetimi olarak onaylamadı.
+- [x] SCORECARD gerçek kanıtlarla güncellendi; kapanışta spec `specs/done/` altına taşındı.
 
 ---
 
@@ -269,8 +269,51 @@ Aynı kripto varlığının USD ve USDT fiyatlamaları V1 sinyal ve stop değerl
 
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 19 — AK05 bütçeleri ve 0003 uygulama kanıtı işlendi |
-| Düzeltme turu sayısı | 0 — bağımsız QA henüz başlamadı |
-| Bulgu gerçek/gürültü oranı | QA değerlendirmesi yapılmadı |
-| Regresyon sayısı | Developer doğrulamasında 0; 291/291 test geçti |
-| Kaçan hata | Ölçülmedi |
+| Spec revizyon sayısı | 22 — QA düzeltmeleri (Q1–Q14, B1–B6, Y1–Y10), kapsam kararı (döviz), kapanış |
+| Düzeltme turu sayısı | 3 — QA turu 1 (Q1–Q14), tur 2 (B1–B6), tur 3 (Y1–Y10); Takım Yöneticisi talimatıyla kapandı |
+| Bulgu gerçek/gürültü oranı | 30/0 — Q1–Q14 (14), B1–B6 (6), Y1–Y10 (10); her bulgu repro ile doğrulandı. Y3 de düzeltildi (`fe8fc18`) |
+| Regresyon sayısı | 2 — Y1 ve Y2 (alış/satış formu anahtarları, `0f2d7f2`); düzeltildi. Tam paket yeşil (başlangıç 378, kapanışta 494 test) |
+| Kaçan hata | 30 — Q1–Q14 (aşağıda), B1–B6 ve Y1–Y10 (QA turları 2–3), Developer'ın kendi testlerinden kaçmıştı |
+
+### Kaçan hatalar (QA Q1–Q14) ve karşılığı
+
+| Bulgu | Kaçan hata | Düzeltme | Kanıt (test) |
+|---|---|---|---|
+| Q1 | Geçmiş test ile sanal takip aynı veride farklı sonuç verdi (gizli %0,1 komisyon) | Ortak motor `trade_execution.advance_daily_bar`; gizli `FEE_RATE` sanal takipten kalktı | `tests/test_q1_parity.py` |
+| Q2 | Stop delinmiş açık pozisyonda panel "TUT" diyordu; stop uyarısı `SL` anahtarını okuyordu | Panel `decide_action` + güncel fiyat; uyarı `Stop` öncelikli | `tests/test_q2_q4_panel.py` |
+| Q3 | Aynı teyit iki kez kabul ediliyordu | `trade_confirmation`: işlemden türeyen `event_id`, doğrulama önce, önce portföy sonra günlük | `tests/test_q3_confirmation.py` |
+| Q4 | Zararlı çıkıştan sonra panel "SATIN AL" diyordu | `bars_since_loss_exit` + `decide_action` bekleme kuralı | `tests/test_q2_q4_panel.py` |
+| Q5 | Geçersiz veri geçerli "BEKLE" gibi görünüyordu | `CompositeSignal.data_status`, nedene göre mesaj | `tests/test_q5_q11_q12.py` |
+| Q6 | Hesaplanamayan bileşen nötr puana çevriliyordu | `strict_components`, `unavailable_components`, `BILESEN_YOK` | `tests/test_q6_*.py` |
+| Q7 | Maliyet/adım varsayımları iki motorda ayrı ve gizliydi | `trade_settings`: tek "İşlem varsayımları", kalıcı; boş=bilinmiyor, 0=sıfır | `tests/test_q7_settings.py` |
+| Q8 | Küçük varlıkta kesirli adet uyduruluyordu (270 TL → 3,70370370) | `MIKTAR_ADIMI_BILINMIYOR`, adım yoksa alım yok | `tests/test_q1_parity.py` |
+| Q9 | Stop yükseltmesi güvensiz yazma yolundan geçiyordu | `safe_save_portfolio` | `tests/test_qa_0003_app.py` |
+| Q10 | Parite testleri gerçek motorları çalıştırmıyordu | `trading_service.py` silindi, testler gerçek motorlarla | `tests/test_trading_parity.py` |
+| Q11 | `decision_at` her zaman "şimdi" idi | Son geçerli karar zamanı + "güncel değil" notu | `tests/test_q5_q11_q12.py` |
+| Q12 | Ekranda ham kod (`POZISYON_BILINMIYOR` …) görünüyordu | `trading_ui.describe_code` | `tests/test_q5_q11_q12.py` |
+| Q13 | `PositionJournal` yerel dosyaya yazıyordu | Kalıcı depo; okunamazsa boş günlükle devam yok | `tests/test_q13_journal_storage.py` |
+| Q14 | Ölü kod ve spec'e aykırı test (AC93 USD+USDT toplamı) | Ölü kod silindi; AC40/AC77/smoke uygulama düzeyinde | `tests/test_q14_flows.py` |
+
+### QA turu 2–3 özeti
+
+- **B1–B6:** eksik bileşen testleri, panelde risk uyarısı, bileşen adının ekranda görünmesi, sanal takip ile ekran paritesi (strict mod), Türkçe gerekçe. Karar: döviz çiftleri (`=X`) V1 kapsamı dışıdır, bileşen denetimi uygulanmaz ("V1 doğrulanmadı").
+- **Y1/Y2:** alış/satış formu alan anahtarları varlığa/pozisyona bağlandı (`tests/test_qa_round3.py`).
+- **Y4:** `strict_components`, açılışta `reconcile` ve maliyet aktarımı için düşen testler (mutasyonla doğrulandı).
+- **Y5:** satış miktarı 8 haneye yuvarlanarak karşılaştırılır. **Y6:** varsayımlar okunamazken geçmiş test ve sanal takip kapalı. **Y7:** sanal takip uyarısı Türkçe. **Y8:** ATR bilinmiyorsa başlangıç stopu yok. **Y10:** panel mesajları tekrarlanmaz.
+- **Y3 (düzeltildi):** `build_v1_decisions` ML'i her barda ve sürekli bir makineyle hesaplıyor, ekran ise son 15 barda sıfırdan kurulan makineyle ML'i yalnız son barda hesaplıyordu. Artık ikisi de `signal_engine.replay_stable_state` üzerinden geçer; ML'siz önceki bar skorları bir kez hesaplanıp yeniden kullanılır (maliyet ~2 skor/bar, ekranda değişiklik yok). Test: `tests/test_q3b_decision_parity.py`.
+
+### Yeni modül kararları (AGENTS.md Altın Kural 3)
+
+Bu düzeltmelerle iki küçük modül eklendi; modül haritası koddur:
+
+- `trade_settings.py` — işlem varsayımlarının doğrulanması ve kalıcı saklanması (Q7).
+- `trade_confirmation.py` — gerçek işlem teyidi: doğrulama, kimlik, yazma sırası, tamamlama (Q3).
+
+### Kapanış notu (Takım Yöneticisi kararı)
+
+Spec, Takım Yöneticisinin açık talimatıyla kapatıldı. Kapanışta **işaretlenmeden bırakılan** Definition of Done maddeleri, gerçek durumu yansıtmak için bilerek açık bırakıldı:
+
+- AK05 sayısal süre hedeflerinin onayı ve tüm AC'lerin tek tek test eşlemesi bu kapanış turunda yeniden doğrulanmadı.
+- **Ekran görüntüsü kanıtı sağlanmadı**; arayüz davranışı `streamlit.testing.v1.AppTest` ile sınandı (`docs/testing.md` görsel kanıt istiyor — bilinen eksik).
+- Para/yüzde hesapları motor ve ayarlarda `Decimal`; mevcut portföy belgesinin float alanları değiştirilmedi.
+

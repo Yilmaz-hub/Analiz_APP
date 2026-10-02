@@ -4,7 +4,8 @@ import time
 from datetime import datetime, timezone
 from data_fetchers import get_market_data
 from signal_engine import generate_stable_signal, generate_validated_signal
-from market_validation import policy_for_symbol, validate_market_data
+from market_validation import is_v1_scope, policy_for_symbol, validate_market_data
+from trading_ui import describe_code
 from weight_profiles import get_weights_for_symbol
 from technical_analysis import calculate_regime_score
 from config import RegimeConfig, SizingConfig
@@ -81,28 +82,30 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
                     if isinstance(d_scan, pd.DataFrame) and not getattr(d_scan, 'empty', True) and len(d_scan) > 20:
                         # Stable (whipsaw-filtered) composite signal — same as dashboard
                         scan_weights = get_weights_for_symbol(sym) if tf == "1d" else None
+                        if tf == "1d" and not is_v1_scope(sym):
+                            comp_signal = generate_stable_signal(d_scan, tf, weights=scan_weights)
+                            row[signal_col] = f"⚪ {comp_signal.verdict} (V1 doğrulanmadı)"
+                            continue
                         if tf == "1d":
                             evaluation_time = datetime.now(timezone.utc)
                             policy = policy_for_symbol(sym, evaluation_time)
-                            required = ("RSI", "EMA_20", "EMA_50", "MACD", "MACD_Signal", "ATR", "ADX")
-                            components_ready = all(
-                                column in d_scan.columns and pd.notna(d_scan[column].iloc[-1])
-                                for column in required
-                            )
                             validation = validate_market_data(
                                 d_scan, evaluation_time, policy,
                                 provider_open=d_scan.attrs.get("provider_open", set()),
-                                components_ready=components_ready,
+                                require_components=True,
                             )
                             comp_signal = generate_validated_signal(
                                 d_scan, evaluation_time, policy,
                                 provider_open=d_scan.attrs.get("provider_open", set()),
-                                components_ready=components_ready,
                                 timeframe=tf, weights=scan_weights,
                             )
-                            if comp_signal is None:
-                                row[signal_col] = f"⚪ BEKLE ({validation.reason})"
-                                all_reasons.append(validation.reason)
+                            if comp_signal is None or comp_signal.unavailable_components:
+                                missing = (validation.missing_components if comp_signal is None
+                                           else comp_signal.unavailable_components)
+                                detail = describe_code(
+                                    validation.status if comp_signal is None else "BILESEN_HAZIR_DEGIL", missing)
+                                row[signal_col] = f"⚪ BEKLE ({detail})"
+                                all_reasons.append(detail)
                                 continue
                         else:
                             comp_signal = generate_stable_signal(d_scan, tf, weights=scan_weights)

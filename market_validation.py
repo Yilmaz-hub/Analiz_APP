@@ -5,6 +5,17 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from config import DecisionEngineConfig, IndicatorConfig
+
+#: AK03'ün saydığı zorunlu karar bileşenlerinin veri tarafı gereksinimi: her
+#: bileşenin dayandığı gösterge sütunları. Hesaplanamayan bileşen nötr puana
+#: çevrilmez; adıyla raporlanır (spec 0003, AK03 / AC62 / AC120).
+COMPONENT_COLUMNS = {
+    "trend": ("EMA_20", "EMA_50", "ADX"),
+    "momentum": ("RSI", "MACD", "MACD_Signal"),
+    "volatility": ("ATR",),
+}
+
 
 @dataclass(frozen=True)
 class MarketPolicy:
@@ -23,6 +34,8 @@ class MarketValidation:
     status: str = ""
     allow_new_action: bool = False
     fallback_used: bool = False
+    #: Hazır olmayan karar bileşenlerinin adları (BILESEN_HAZIR_DEGIL durumunda).
+    missing_components: tuple = ()
 
 
 def _previous_weekday(day):
@@ -30,6 +43,15 @@ def _previous_weekday(day):
     while candidate.weekday() >= 5:
         candidate -= timedelta(days=1)
     return candidate
+
+
+def is_v1_scope(symbol):
+    """V1 yalnız kripto, BIST, altın ve ABD hisselerini kapsar (spec 0003).
+
+    Döviz çiftleri (ör. EURUSD=X) kapsam dışıdır: hacmi olmadıkları için bileşen
+    denetimi uygulanmaz, ekranda "V1 doğrulanmadı" yazar.
+    """
+    return not str(symbol).upper().endswith("=X")
 
 
 def policy_for_symbol(symbol, now):
@@ -67,6 +89,37 @@ def policy_for_symbol(symbol, now):
     )
 
 
+def component_gaps(frame, *, regime_period=None):
+    """Son tamamlanmış satırda hazır olmayan karar bileşenlerinin adları.
+
+    Yalnız veri tarafı denetlenir: gösterge sütunları, hacim göstergesinin
+    üretilebilirliği ve rejim filtresinin geçmiş gereksinimi. ML, formasyon ve
+    ileri analiz ancak hesaplama sırasında anlaşılır; onları sinyal motoru
+    `CompositeSignal.unavailable_components` ile bildirir.
+    """
+    if frame is None or frame.empty:
+        return ()
+    last = frame.iloc[-1]
+    gaps = []
+    for name, columns in COMPONENT_COLUMNS.items():
+        if any(column not in frame.columns or pd.isna(last[column]) for column in columns):
+            gaps.append(name)
+
+    # Sıfır hacimli gerçek mum silinmez; ama hacim göstergesi üretilemiyorsa
+    # (hiç hacim yok ya da ortalama hesaplanamıyor) bileşen hazır sayılmaz.
+    volume_ok = "Volume" in frame.columns and frame["Volume"].sum() > 0
+    if volume_ok:
+        average = frame["Volume"].rolling(IndicatorConfig.VOLUME_SMA_LENGTH).mean().iloc[-1]
+        volume_ok = pd.notna(average) and average > 0
+    if not volume_ok:
+        gaps.append("volume")
+
+    period = DecisionEngineConfig.REGIME_MA_PERIOD if regime_period is None else regime_period
+    if period and len(frame) < period:
+        gaps.append("regime")
+    return tuple(gaps)
+
+
 def validate_market_data(frame, now, policy, **kwargs):
     provider_open = {pd.Timestamp(value) for value in kwargs.get("provider_open", set())}
     components_ready = kwargs.get("components_ready", True)
@@ -101,8 +154,12 @@ def validate_market_data(frame, now, policy, **kwargs):
         return MarketValidation(data, reason="GECERSIZ_OHLC", status="GECERSIZ_VERI")
     if len(data) < policy.required_bars:
         return MarketValidation(data, reason="YETERSIZ_GECMIS", status="YETERSIZ_GECMIS")
-    if not components_ready:
-        return MarketValidation(data, reason="BILESEN_HAZIR_DEGIL", status="BILESEN_HAZIR_DEGIL")
+    gaps = tuple(kwargs.get("missing_components", ()))
+    if kwargs.get("require_components"):
+        gaps = tuple(dict.fromkeys(gaps + component_gaps(data)))
+    if not components_ready or gaps:
+        return MarketValidation(data, reason="BILESEN_HAZIR_DEGIL", status="BILESEN_HAZIR_DEGIL",
+                                missing_components=gaps)
 
     expected_day = policy.expected_bar_date or pd.Timestamp(policy.expected_close).date()
     latest_day = data.index[-1].date()

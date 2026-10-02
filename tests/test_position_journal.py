@@ -10,21 +10,11 @@ RECORDED_AT = datetime(2026, 9, 10, 8, tzinfo=UTC)
 
 
 def _journal(tmp_path):
-    return PositionJournal(tmp_path / "journal.json")
+    return PositionJournal()
 
 
 def _buy(journal, event_id="buy-1", fee=None):
     return journal.confirm_trade(event_id, "BUY", Decimal("2"), Decimal("100"), TRADE_AT, RECORDED_AT, fee=fee)
-
-
-def test_requirement_signal_does_not_open_real_position(tmp_path):
-    journal = _journal(tmp_path); journal.apply_signal("AL")
-    assert journal.position is None
-
-
-def test_ac40_signal_does_not_close_real_position(tmp_path):
-    journal = _journal(tmp_path); _buy(journal); journal.apply_signal("SAT")
-    assert journal.position.quantity == Decimal("2")
 
 
 def test_ac41_duplicate_confirmation(tmp_path):
@@ -40,11 +30,6 @@ def test_ac42_correction_keeps_execution(tmp_path):
 def test_ac43_paper_real_isolation(tmp_path):
     journal = _journal(tmp_path); journal.record_paper("BUY", Decimal("4"), Decimal("90"))
     assert journal.position is None
-
-
-def test_ac77_ignored_buy_no_real_trade(tmp_path):
-    journal = _journal(tmp_path); journal.ignore_signal("AL")
-    assert journal.trades == []
 
 
 def test_ac78_late_entry_preserves_trade_time(tmp_path):
@@ -92,8 +77,8 @@ def test_invalid_confirmation_is_rejected(tmp_path):
 
 
 def test_journal_survives_restart(tmp_path):
-    path = tmp_path / "journal.json"; first = PositionJournal(path); _buy(first)
-    second = PositionJournal(path)
+    first = PositionJournal(); _buy(first)
+    second = PositionJournal()
     assert second.position.quantity == Decimal("2") and second.trades[0].executed_at == TRADE_AT
 
 
@@ -103,7 +88,7 @@ def test_real_positions_are_kept_separate_by_asset(tmp_path):
     journal.confirm_trade("xau-buy", "BUY", Decimal("1"), Decimal("2000"), TRADE_AT, RECORDED_AT, symbol="XAU_GOLD")
     journal.confirm_trade("eth-sell", "SELL", Decimal("2"), Decimal("110"), TRADE_AT, RECORDED_AT, symbol="ETH/USD")
 
-    restarted = PositionJournal(journal.path)
+    restarted = PositionJournal()
 
     assert "ETH/USD" not in restarted.positions
     assert restarted.positions["XAU_GOLD"].entry_price == Decimal("2000")

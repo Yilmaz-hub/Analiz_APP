@@ -24,6 +24,7 @@ from technical_analysis import (
 )
 from advanced_analysis import calculate_advanced_score
 from logger import logger
+from market_validation import component_gaps
 
 
 class _BoundedCache:
@@ -51,6 +52,10 @@ class _BoundedCache:
             self._data.move_to_end(key)
             while len(self._data) > self._maxsize:
                 self._data.popitem(last=False)
+
+    def clear(self):
+        with self._lock:
+            self._data.clear()
 
 
 def _weights_fingerprint(weights):
@@ -99,6 +104,13 @@ class CompositeSignal:
     timeframe: str = ""
     raw_verdict: str = "BEKLE"       # Unfiltered verdict of the last closed bar (informational)
     bars_held: int = 0               # How many closed bars the confirmed verdict has been stable
+    # Zorunlu karar bileşenlerinden hesaplanamayanlar (spec 0003 AK03 / AC120). Doluysa
+    # sinyal geçerli bir BEKLE değildir: yeni AL/SAT üretilmez ve ad görünür.
+    unavailable_components: tuple = ()
+    # Veri/bileşen doğrulama durumu (spec 0003 AK03/AK17): "GECERLI" ya da
+    # market_validation durum kodu (VERI_YOK, GECERSIZ_VERI, BILESEN_HAZIR_DEGIL, ...).
+    # GECERLI değilse sinyal geçerli bir BEKLE değil, "karar üretilemedi"dir.
+    data_status: str = "GECERLI"
 
 
 # =============================================
@@ -288,12 +300,17 @@ def _score_volume(df):
 # DIMENSION 4: PATTERN SCORE (-100 to +100)
 # =============================================
 def _score_patterns(df):
-    """Active chart patterns — W/M, candles, advanced formations"""
+    """Active chart patterns — W/M, candles, advanced formations.
+
+    Döner: (puan, gerekçeler, hazır_mı). Bir tespit işlevi hata verirse bileşen
+    hesaplanamamış sayılır; sessizce nötr puana çevrilmez.
+    """
     if df is None or len(df) < 20:
-        return 0, []
+        return 0, [], False
 
     score = 0
     reasons = []
+    ready = True
 
     try:
         basic_patterns = detect_patterns(df)
@@ -307,8 +324,9 @@ def _score_patterns(df):
                 reasons.append(f"📊 {name} formasyonu (düşüş)")
             elif name == 'Doji':
                 reasons.append("⚠️ Doji — kararsızlık mumu")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Pattern scoring error (basic): {e}")
+        ready = False
 
     try:
         advanced = detect_advanced_patterns(df)
@@ -331,38 +349,45 @@ def _score_patterns(df):
                     trend_dir = 1 if df['Close'].iloc[-1] > df['Close'].iloc[-20] else -1
                     score -= trend_dir * weight  # Reversal opposes current trend
                     reasons.append(f"📐 {name} (Dönüş, güven: %{confidence})")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Pattern scoring error (advanced): {e}")
+        ready = False
 
-    return max(-100, min(100, score)), reasons
+    return max(-100, min(100, score)), reasons, ready
 
 
 # =============================================
 # DIMENSION 6: ADVANCED SCORE (-100 to +100)
 # =============================================
 def _score_advanced(df, timeframe="1d"):
-    """Elliott Wave, Ichimoku Cloud, Wyckoff Phase, Market Structure"""
+    """Elliott Wave, Ichimoku Cloud, Wyckoff Phase, Market Structure.
+
+    Döner: (puan, gerekçeler, hazır_mı)."""
     try:
-        return calculate_advanced_score(df, timeframe)
+        score, reasons = calculate_advanced_score(df, timeframe)
+        return score, reasons, True
     except Exception as e:
         logger.debug(f"Advanced scoring error: {e}")
-        return 0, ["Gelişmiş analiz hesaplanamadı"]
+        return 0, ["Gelişmiş analiz hesaplanamadı"], False
 
 
 # =============================================
 # DIMENSION 5: ML SCORE (-100 to +100)
 # =============================================
 def _score_ml(df):
-    """ML model direction prediction"""
+    """ML model direction prediction.
+
+    Döner: (puan, gerekçeler, hazır_mı). Yetersiz veri, model sonucunun None
+    olması ve istisna "hazır değil"dir; geçerli ama nötr bir sonuç hazırdır."""
     if df is None or len(df) < 150:
-        return 0, ["ML: Yetersiz veri"]
+        return 0, ["ML: Yetersiz veri"], False
 
     try:
         from ml_models import calculate_ml_direction_signal
         ml_result = calculate_ml_direction_signal(df)
 
         if ml_result is None:
-            return 0, ["ML: Model hesaplanamadı"]
+            return 0, ["ML: Model hesaplanamadı"], False
 
         direction = ml_result['direction']
         confidence = ml_result['confidence']
@@ -379,11 +404,11 @@ def _score_ml(df):
             score = 0
             reasons = [f"🤖 AI: Yön belirsiz (%{confidence:.0f} güven)"]
 
-        return score, reasons
+        return score, reasons, True
 
     except Exception as e:
         logger.debug(f"ML scoring error: {e}")
-        return 0, ["ML: Hesaplama hatası"]
+        return 0, ["ML: Hesaplama hatası"], False
 
 
 # =============================================
@@ -417,12 +442,22 @@ def _compute_bar_score(df, timeframe="1d", include_ml=True, weights=None):
     trend_score, trend_reasons = _score_trend(df)
     momentum_score, momentum_reasons = _score_momentum(df)
     volume_score, volume_reasons = _score_volume(df)
-    pattern_score, pattern_reasons = _score_patterns(df)
+    pattern_score, pattern_reasons, pattern_ready = _score_patterns(df)
     if include_ml:
-        ml_score, ml_reasons = _score_ml(df)
+        ml_score, ml_reasons, ml_ready = _score_ml(df)
     else:
-        ml_score, ml_reasons = 0, ["ML: Devre dışı"]
-    advanced_score, advanced_reasons = _score_advanced(df, timeframe)
+        ml_score, ml_reasons, ml_ready = 0, ["ML: Devre dışı"], True
+    advanced_score, advanced_reasons, advanced_ready = _score_advanced(df, timeframe)
+
+    # Hesaplanamayan zorunlu bileşenler (AK03). ML bilinçli olarak kapalıysa
+    # (include_ml=False: yalnız geçmiş tarama/araştırma yolları) eksik sayılmaz.
+    unavailable = list(component_gaps(df))
+    if not pattern_ready:
+        unavailable.append("pattern")
+    if not advanced_ready:
+        unavailable.append("advanced")
+    if include_ml and not ml_ready:
+        unavailable.append("ml")
 
     dimension_scores = {
         "trend": trend_score,
@@ -516,6 +551,7 @@ def _compute_bar_score(df, timeframe="1d", include_ml=True, weights=None):
         "regime": regime,
         "dimension_scores": dimension_scores,
         "reasons": all_reasons,
+        "unavailable": tuple(dict.fromkeys(unavailable)),
     }
 
 
@@ -795,8 +831,28 @@ def _cached_bar_score(df_slice, timeframe, include_ml, weights=None):
     return result
 
 
+def replay_stable_state(scored_bars, cfg=None):
+    """Karar makinesini son kapanmış barlar üzerinde sıfırdan yeniden kurar.
+
+    `scored_bars`: eskiden yeniye bar skorları (hesaplanamayan bar None). Ekran,
+    sanal takip ve geçmiş test kararı aynı bu işlevden geçer; bu yüzden aynı
+    veride aynı kararı verirler (spec 0003, R06 / QA Y3). Döner: (makine,
+    son bar skoru ya da None, ham yön).
+    """
+    machine = SignalStateMachine(cfg or DecisionEngineConfig)
+    bar, raw_dir = None, 0
+    last = len(scored_bars) - 1
+    for position, b in enumerate(scored_bars):
+        if b is None:
+            continue
+        _, raw_dir = machine.update(b["score"], b["confidence"], b["rsi"], b["adx"], b.get("regime", 0))
+        if position == last:
+            bar = b
+    return machine, bar, raw_dir
+
+
 def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, include_ml=True, weights=None,
-                           data_is_closed=False):
+                           data_is_closed=False, strict_components=False):
     """
     Whipsaw-resistant signal — this is what the UI should display and what
     run_strategy_backtest() trades, so backtest numbers match live behavior.
@@ -815,6 +871,10 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
 
     weights: optional per-asset-class dimension weights (see
     _compute_bar_score). None uses DecisionEngineConfig defaults.
+
+    strict_components: V1 kuralı (AK03). Hesaplanamayan zorunlu bileşen varsa
+    ağırlık başkalarına dağıtılıp devam edilmez; sinyal `unavailable_components`
+    ile döner ve yeni AL/SAT üretmez.
     """
     cfg = DecisionEngineConfig
     signal = CompositeSignal(timeframe=timeframe)
@@ -832,7 +892,7 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
     try:
         cache_key = (timeframe, str(work.index[-1]),
                      round(float(work['Close'].iloc[-1]), 8), len(work), include_ml,
-                     _weights_fingerprint(weights), _frame_fingerprint(work))
+                     _weights_fingerprint(weights), _frame_fingerprint(work), strict_components)
     except Exception:
         cache_key = None
     if cache_key is not None:
@@ -842,24 +902,28 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
             # otherwise mutate a future caller's signal in place.
             return deepcopy(cached_signal)
 
-    machine = SignalStateMachine(cfg)
     lookback = min(cfg.STABILITY_LOOKBACK, len(work) - 50)
-    bar = None
-    raw_dir = 0
-
+    scored = []
     for k in range(lookback - 1, -1, -1):
         s = work.iloc[:len(work) - k]
         is_final = (k == 0)
-        b = _cached_bar_score(s, timeframe, include_ml=(include_ml and is_final), weights=weights)
-        if b is None:
-            continue
-        _, raw_dir = machine.update(b["score"], b["confidence"], b["rsi"], b["adx"], b.get("regime", 0))
-        if is_final:
-            bar = b
+        scored.append(_cached_bar_score(s, timeframe, include_ml=(include_ml and is_final), weights=weights))
+    machine, bar, raw_dir = replay_stable_state(scored, cfg)
 
     if bar is None:
         signal.verdict = "BEKLE"
         signal.reasons = ["Yetersiz veri"]
+        return signal
+
+    if strict_components and bar.get("unavailable"):
+        # Hesaplanamayan bileşen nötr puana çevrilmez; karar üretilmez.
+        signal.verdict = "BEKLE"
+        signal.unavailable_components = tuple(bar["unavailable"])
+        signal.data_status = "BILESEN_HAZIR_DEGIL"
+        from trading_ui import describe_code
+        signal.reasons = [describe_code("BILESEN_HAZIR_DEGIL", signal.unavailable_components)]
+        if cache_key is not None:
+            _stable_cache.set(cache_key, deepcopy(signal))
         return signal
 
     signal.final_score = bar["score"]
@@ -916,6 +980,19 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
     return signal
 
 
+def invalid_data_signal(status, timeframe="1d", components=()):
+    """Doğrulanamayan veri için "karar üretilemedi" sinyali: geçerli BEKLE değildir.
+
+    Gerekçe ham makine kodu değil, Türkçe metindir (spec 0003 AK17)."""
+    from trading_ui import describe_code
+
+    signal = CompositeSignal(timeframe=timeframe, verdict="BEKLE")
+    signal.data_status = status or "VERI_YOK"
+    signal.unavailable_components = tuple(components)
+    signal.reasons = [describe_code(signal.data_status, signal.unavailable_components)]
+    return signal
+
+
 def generate_validated_signal(df, now, policy, *, provider_open=None, signal_factory=None, **kwargs):
     """Validate closed daily data before producing a V1 signal."""
     from market_validation import validate_market_data
@@ -923,6 +1000,7 @@ def generate_validated_signal(df, now, policy, *, provider_open=None, signal_fac
     validation = validate_market_data(
         df, now, policy, provider_open=provider_open or set(),
         components_ready=kwargs.pop("components_ready", True),
+        require_components=kwargs.pop("require_components", signal_factory is None),
     )
     if not validation.is_valid:
         return None
@@ -930,4 +1008,6 @@ def generate_validated_signal(df, now, policy, *, provider_open=None, signal_fac
     if signal_factory is None:
         # The validator has already removed provider-open candles.
         kwargs.setdefault("data_is_closed", True)
+        # V1: hesaplanamayan zorunlu bileşen nötr puana çevrilmez (AK03).
+        kwargs.setdefault("strict_components", True)
     return factory(validation.usable, **kwargs)

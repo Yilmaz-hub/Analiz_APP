@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from trade_decisions import Position, PositionState, Signal
-from trading_ui import PanelInput, aggregate_totals, build_decision_panel, paper_defaults, validate_delay, validate_fee
+from trading_ui import PanelInput, build_decision_panel, paper_defaults, validate_delay, validate_fee
 
 
 UTC = timezone.utc
@@ -125,9 +125,28 @@ def test_ac90_paper_defaults():
     assert paper_defaults("USD") == (Decimal("10000"), Decimal("1000"), "USD")
 
 
-def test_ac93_no_mixed_currency_total():
-    result = aggregate_totals({"USD": Decimal("2"), "USDT": Decimal("3"), "TRY": Decimal("4")})
-    assert result == {"USD/USDT": Decimal("5"), "TRY": Decimal("4")}
+def test_ac93_no_mixed_currency_total(monkeypatch):
+    """Gerçek rapor: TRY ve USD/USDT bakiyeleri ayrı satırlarda kalır, tek toplam yoktur."""
+    import paper_trading
+
+    state = {
+        "created": "2026-09-10", "journal": [
+            {"asset": "THYAO", "price": 300}, {"asset": "ETH", "price": 2000},
+            {"asset": "BTC", "price": 60000},
+        ],
+        "assets": {
+            "THYAO": {**paper_trading._blank_book(10000), "currency": "TRY", "first_price": 300},
+            "ETH": {**paper_trading._blank_book(10000), "currency": "USD", "first_price": 2000},
+            "BTC": {**paper_trading._blank_book(10000), "currency": "USDT", "first_price": 60000},
+        },
+    }
+    monkeypatch.setattr(paper_trading, "_load_state", lambda: state)
+
+    report, totals = paper_trading.paper_report()
+
+    assert dict(zip(report["Varlık"], report["Para Birimi"])) == {
+        "THYAO": "TRY", "ETH": "USD", "BTC": "USDT"}
+    assert not any("bakiye" in key.lower() for key in totals)
 
 
 def test_ac96_unknown_fee_cash_unverified():

@@ -21,14 +21,17 @@ Kriter eşlemesi:
   AC16c -> test_broken_record_is_shown_and_kept
   R8.2  -> test_unknown_asset_does_not_show_another_assets_data
 """
-import os
-
 import pytest
-from streamlit.testing.v1 import AppTest
 
 import data_fetchers
-
-APP_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app.py")
+from app_helpers import (
+    break_storage as _break_storage,
+    break_writes_only as _break_writes_only,
+    click as _click,
+    instrument_options as _instrument_options,
+    make_app as _make_app,
+    texts as _texts,
+)
 
 VARLIKLAR = {"Bitcoin (BTC)": "BTC-USD", "Ethereum (ETH)": "ETH-USD"}
 AKTIF_POZISYON = {
@@ -36,35 +39,6 @@ AKTIF_POZISYON = {
     "Realized": 0.0, "Status": "ACTIVE", "Tarih": "2025-12-01",
 }
 PORTFOY = {"balance": 2500.0, "positions": [AKTIF_POZISYON]}
-
-
-def _make_app(monkeypatch, processed_df):
-    """Ağ kaynakları taklit edilmiş bir AppTest üretir.
-
-    app.py `from data_fetchers import ...` ile bağladığı için kaynak modülün
-    özniteliklerini değiştirmek yeterlidir.
-    """
-    monkeypatch.setattr(data_fetchers, "get_market_data",
-                        lambda *a, **k: (processed_df, "Binance"))
-    monkeypatch.setattr(data_fetchers, "get_fear_greed_index", lambda: (50, "Neutral"))
-    monkeypatch.setattr(data_fetchers, "get_live_price_for_portfolio",
-                        lambda *a, **k: 45000.0)
-    return AppTest.from_file(APP_PATH, default_timeout=180)
-
-
-def _texts(at):
-    """Ekrandaki tüm bilgi/uyarı/hata metinleri."""
-    parts = []
-    for kind in (at.info, at.warning, at.error, at.success, at.caption, at.markdown):
-        parts.extend(str(getattr(e, "value", "")) for e in kind)
-    return " ".join(parts)
-
-
-def _instrument_options(at):
-    for sb in at.selectbox:
-        if sb.label == "Enstrüman:":
-            return list(sb.options)
-    return []
 
 
 def _stored(store):
@@ -133,15 +107,6 @@ def test_added_asset_is_found_after_reopen(store, monkeypatch, processed_df):
     store.reset_engine()
     at2 = _make_app(monkeypatch, processed_df).run()
     assert "Pound" in _instrument_options(at2)
-
-
-def _click(at, label):
-    """Etiketine göre bir butona basar ve uygulamayı yeniden çalıştırır."""
-    for button in at.button:
-        if button.label == label:
-            button.click().run()
-            return at
-    raise AssertionError(f"'{label}' butonu bulunamadı")
 
 
 # AC15b — Kayıtlı adla ekleme reddedilir, mevcut kayıt değişmez.
@@ -236,32 +201,6 @@ def test_unknown_asset_does_not_show_another_assets_data(store, monkeypatch, pro
     assert "bulunamadı" in metin or "Ethereum" in str(_instrument_options(at))
 
 
-#: Depoya erişimin geçtiği tüm giriş noktaları — biri açık bırakılırsa
-#: "erişim koptu" senaryosu eksik taklit edilir.
-_DEPO_GIRISLERI = ("read_doc", "write_doc", "ping", "get_engine")
-
-
-def _break_storage(store):
-    """Depoyu erişilemez yapar; geri alma işlevini döndürür.
-
-    monkeypatch yerine elle geri alınır: fixture'ın kendi yamaları (veri
-    klasörü) testin ortasında geri alınmamalıdır.
-    """
-    gercek = {ad: getattr(store, ad) for ad in _DEPO_GIRISLERI}
-
-    def kirik(*a, **k):
-        raise store.StorageAccessError("test")
-
-    for ad in _DEPO_GIRISLERI:
-        setattr(store, ad, kirik)
-
-    def geri_al():
-        for ad, fn in gercek.items():
-            setattr(store, ad, fn)
-
-    return geri_al
-
-
 # AC16 — Erişim sorunu kullanıcıya gösterilir; kayıtlar boşaltılmaz.
 def test_access_problem_is_shown_to_user(store, monkeypatch, processed_df):
     store.write_doc(store.ASSETS_KEY, VARLIKLAR)
@@ -315,25 +254,6 @@ BEKLEYEN_EMIR = {
     "Realized": 0.0, "Status": "PENDING", "Tarih": "2025-12-01",
 }
 EMIRLI_PORTFOY = {"balance": 110.0, "positions": [BEKLEYEN_EMIR]}
-
-
-def _break_writes_only(store):
-    """Yalnız yazmayı bozar; okuma çalışmaya devam eder.
-
-    Erişim oturumun ortasında kopan, kontrollerin hâlâ çizildiği durumu
-    taklit eder (QA F1'in reprosu).
-    """
-    gercek_write = store.write_doc
-
-    def kirik(*a, **k):
-        raise store.StorageAccessError("test")
-
-    store.write_doc = kirik
-
-    def geri_al():
-        store.write_doc = gercek_write
-
-    return geri_al
 
 
 # AC16b / QA F1 — Yazma koptuğunda bellekteki değişiklik geri alınır.

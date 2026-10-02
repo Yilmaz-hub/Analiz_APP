@@ -5,6 +5,23 @@ from decimal import Decimal
 from trading_contracts import Action, Decision, ExitClassification, Position, PositionState, Signal
 
 
+#: Zararlı çıkıştan sonra yeni girişin beklediği kapanmış bar sayısı (AC85-AC89).
+#: Çıkış barı sayılmaz; iki bar kapanır, karar üçüncü açılışta uygulanır.
+LOSS_COOLDOWN_BARS = 2
+
+
+def signal_from_verdict(verdict):
+    """Metin karardan ("GÜÇLÜ AL", "SAT", "BILESEN_YOK", ...) sinyal üretir.
+
+    Tanınmayan metin BEKLE'dir: yeni AL/SAT sayılmaz."""
+    words = str(verdict).upper().split()
+    if "SAT" in words:
+        return Signal.SELL
+    if "AL" in words:
+        return Signal.BUY
+    return Signal.WAIT
+
+
 @dataclass(frozen=True)
 class Validation:
     is_valid: bool
@@ -79,9 +96,12 @@ def classify_exit(gross: Decimal, *, fee_known: bool, fees: Decimal = Decimal("0
 
 def initial_stop(entry_price, atr, *, later_atr=None):
     """Freeze the entry-decision ATR; a later ATR never moves the first stop."""
+    if atr is None:
+        return None
     value = Decimal(entry_price) - Decimal("2.5") * Decimal(atr)
     return value if value > 0 else None
 
 
-__all__ = ["Action", "Position", "PositionState", "Protection", "Signal",
-           "classify_exit", "decide_action", "initial_stop", "validate_position"]
+__all__ = ["Action", "LOSS_COOLDOWN_BARS", "Position", "PositionState", "Protection", "Signal",
+           "classify_exit", "decide_action", "initial_stop", "signal_from_verdict",
+           "validate_position"]

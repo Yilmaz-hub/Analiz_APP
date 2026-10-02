@@ -16,7 +16,8 @@ yazılıyordu. Bunun iki sonucu vardı:
 
 ## Şimdi nasıl
 
-Varlık listesi ve portföy, `app_records` tablosunda birer **belge** olarak
+Varlık listesi, portföy ve gerçek işlem günlüğü (`position_journal`, spec 0003 Q13),
+`app_records` tablosunda birer **belge** olarak
 tutulur (`doc_key`, `payload`, `updated_at`). Belge içeriği eskiden dosyaya
 yazılan JSON'un aynısıdır; alan alan şemaya çevrilmez, böylece mevcut
 para/yüzde gösterimi olduğu gibi korunur.
@@ -67,3 +68,11 @@ Okuma başarısız olursa `StorageAccessError` yükselir. Uygulama **varsayılan
 listeye düşmez**: kullanıcıya erişim sorunu bildirilir ve kayıt değiştiren
 tüm kontroller gizlenir. Sessizce varsayılana düşmek, bir sonraki yazmada
 gerçek kayıtların üzerine yazılmasına yol açıyordu — kaybın kendisi buydu.
+
+## İşlem günlüğü
+
+`PositionJournal` kalıcı depoya yazar; yerel `position_journal.json` yalnız bir kereliğine içeri alınır (depoda belge yoksa). Okuma ya da çözümleme başarısız olursa `StorageAccessError` yükselir ve **boş günlükle devam edilmez**; arayüz işlem teyidini kapatır, kayıt silinmez. Yazma başarısızsa bellekteki değişiklik geri alınır.
+
+## İşlem varsayımları
+
+Sermaye, işlem tutarı, miktar adımı, makas, kayma ve komisyon `trade_settings` belgesinde varlık başına tutulur (`trade_settings.py`). Geçmiş test ve sanal takip aynı kaydı okur. Boş alan *bilinmiyor*, `0` *açıkça sıfır* demektir; negatif değer kaydedilmez ve değerlendirme başlamaz.
