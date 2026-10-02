@@ -2,7 +2,7 @@
 
 > Şablon: [TEMPLATE.md](TEMPLATE.md). Bitince → `specs/done/`.
 > Rol: Analist — INTENT · CLARIFY · SPEC.
-> Durum: Revizyon 19; Developer uygulaması ve testleri tamamlandı. Bağımsız QA ile commit/PR checkpoint'i bekliyor.
+> Durum: Revizyon 20; QA düzeltmeleri (Q1–Q14) uygulandı, PR Takım Yöneticisi onayını bekliyor.
 > Feature: Pozisyona göre açık işlem yönlendirmesi, ekran–geçmiş test–sanal işlem tutarlılığı ve güvenilir mum/işlem zamanlaması.
 
 ## Intent
@@ -269,8 +269,34 @@ Aynı kripto varlığının USD ve USDT fiyatlamaları V1 sinyal ve stop değerl
 
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 19 — AK05 bütçeleri ve 0003 uygulama kanıtı işlendi |
-| Düzeltme turu sayısı | 0 — bağımsız QA henüz başlamadı |
-| Bulgu gerçek/gürültü oranı | QA değerlendirmesi yapılmadı |
-| Regresyon sayısı | Developer doğrulamasında 0; 291/291 test geçti |
-| Kaçan hata | Ölçülmedi |
+| Spec revizyon sayısı | 20 — QA düzeltmeleri (Q1–Q14) ve yeni modül kararları işlendi |
+| Düzeltme turu sayısı | 1 — bağımsız QA turu (Q1–Q14) düzeltildi; Takım Yöneticisi onayı bekleniyor |
+| Bulgu gerçek/gürültü oranı | 14/0 — her bulgu `main`'de koddan çalıştırılarak doğrulandı |
+| Regresyon sayısı | Düzeltme sürecinde 0; tam paket yeşil (başlangıç 378, şimdi 476 test) |
+| Kaçan hata | 14 — Q1–Q14 (aşağıda), Developer'ın kendi testlerinden kaçmıştı |
+
+### Kaçan hatalar (QA Q1–Q14) ve karşılığı
+
+| Bulgu | Kaçan hata | Düzeltme | Kanıt (test) |
+|---|---|---|---|
+| Q1 | Geçmiş test ile sanal takip aynı veride farklı sonuç verdi (gizli %0,1 komisyon) | Ortak motor `trade_execution.advance_daily_bar`; gizli `FEE_RATE` sanal takipten kalktı | `tests/test_q1_parity.py` |
+| Q2 | Stop delinmiş açık pozisyonda panel "TUT" diyordu; stop uyarısı `SL` anahtarını okuyordu | Panel `decide_action` + güncel fiyat; uyarı `Stop` öncelikli | `tests/test_q2_q4_panel.py` |
+| Q3 | Aynı teyit iki kez kabul ediliyordu | `trade_confirmation`: işlemden türeyen `event_id`, doğrulama önce, önce portföy sonra günlük | `tests/test_q3_confirmation.py` |
+| Q4 | Zararlı çıkıştan sonra panel "SATIN AL" diyordu | `bars_since_loss_exit` + `decide_action` bekleme kuralı | `tests/test_q2_q4_panel.py` |
+| Q5 | Geçersiz veri geçerli "BEKLE" gibi görünüyordu | `CompositeSignal.data_status`, nedene göre mesaj | `tests/test_q5_q11_q12.py` |
+| Q6 | Hesaplanamayan bileşen nötr puana çevriliyordu | `strict_components`, `unavailable_components`, `BILESEN_YOK` | `tests/test_q6_*.py` |
+| Q7 | Maliyet/adım varsayımları iki motorda ayrı ve gizliydi | `trade_settings`: tek "İşlem varsayımları", kalıcı; boş=bilinmiyor, 0=sıfır | `tests/test_q7_settings.py` |
+| Q8 | Küçük varlıkta kesirli adet uyduruluyordu (270 TL → 3,70370370) | `MIKTAR_ADIMI_BILINMIYOR`, adım yoksa alım yok | `tests/test_q1_parity.py` |
+| Q9 | Stop yükseltmesi güvensiz yazma yolundan geçiyordu | `safe_save_portfolio` | `tests/test_qa_0003_app.py` |
+| Q10 | Parite testleri gerçek motorları çalıştırmıyordu | `trading_service.py` silindi, testler gerçek motorlarla | `tests/test_trading_parity.py` |
+| Q11 | `decision_at` her zaman "şimdi" idi | Son geçerli karar zamanı + "güncel değil" notu | `tests/test_q5_q11_q12.py` |
+| Q12 | Ekranda ham kod (`POZISYON_BILINMIYOR` …) görünüyordu | `trading_ui.describe_code` | `tests/test_q5_q11_q12.py` |
+| Q13 | `PositionJournal` yerel dosyaya yazıyordu | Kalıcı depo; okunamazsa boş günlükle devam yok | `tests/test_q13_journal_storage.py` |
+| Q14 | Ölü kod ve spec'e aykırı test (AC93 USD+USDT toplamı) | Ölü kod silindi; AC40/AC77/smoke uygulama düzeyinde | `tests/test_q14_flows.py` |
+
+### Yeni modül kararları (AGENTS.md Altın Kural 3)
+
+Bu düzeltmelerle iki küçük modül eklendi; modül haritası koddur:
+
+- `trade_settings.py` — işlem varsayımlarının doğrulanması ve kalıcı saklanması (Q7).
+- `trade_confirmation.py` — gerçek işlem teyidi: doğrulama, kimlik, yazma sırası, tamamlama (Q3).
