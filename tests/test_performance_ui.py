@@ -206,3 +206,47 @@ def test_comparison_without_known_step_explains_instead_of_guessing():
     view = performance_ui.comparison_from_backtest(
         "ETH-USD", frame, backtest, None, CostAssumptions(Decimal("0"), Decimal("0"), Decimal("0")))
     assert view.blocks == [] and "Miktar adımı bilinmiyor" in view.messages[0]
+
+
+def _backtest_screen(store, monkeypatch, processed_df):
+    import technical_analysis
+    from app_helpers import click, make_app
+
+    monkeypatch.setattr(technical_analysis, "build_v1_decisions",
+                        lambda df, **k: {df.index[199]: "AL", df.index[210]: "SAT"})
+    store.write_doc(store.ASSETS_KEY, {"Bitcoin (BTC)": "BTC-USD"})
+    at = make_app(monkeypatch, processed_df).run()
+    for box in at.selectbox:
+        if box.label == "Periyot:":
+            at = box.set_value("1d").run()
+            break
+    at.text_input(key="ts:BTC-USD:quantity_step").set_value("0.001")
+    at = at.run()
+    return click(at, "🚀 Backtest Başlat")
+
+
+def _perf_widget(at, collection, label):
+    return next(w for w in collection if w.label == label)
+
+
+def test_ac09_screen_inverted_period_shows_explanation(store, monkeypatch, processed_df):
+    """AC09 — Arayüzde başlangıç bitişten sonra seçilirse açıklama görünür, rapor çizilmez."""
+    at = _backtest_screen(store, monkeypatch, processed_df)
+    start = _perf_widget(at, at.date_input, "Başlangıç")
+    end = _perf_widget(at, at.date_input, "Bitiş")
+    start.set_value(end.max)
+    end.set_value(end.min)
+    at = at.run()
+    assert not at.exception
+    shown = " ".join(str(w.value) for w in at.warning)
+    assert "Başlangıç tarihi bitiş tarihinden sonra olamaz" in shown
+
+
+def test_ac65_screen_market_without_data_shows_empty_not_error(store, monkeypatch, processed_df):
+    """AC65 — Arayüzde veri bulunmayan piyasa seçilince hata değil "örnek sayısı: 0" görünür."""
+    at = _backtest_screen(store, monkeypatch, processed_df)
+    _perf_widget(at, at.selectbox, "Piyasa").set_value("BIST")
+    at = at.run()
+    assert not at.exception
+    captions = " ".join(str(c.value) for c in at.caption)
+    assert "Örnek sayısı: 0" in captions

@@ -14,6 +14,7 @@ from decimal import ROUND_HALF_EVEN, Decimal
 import market_map
 from trading_ui import describe_code
 from evaluation_window import EvaluationInput, buy_and_hold, comparable
+from config import PerformanceConfig
 from performance_report import (
     GECERSIZ_ISTEK, OK, CurrencyResult, EquityPoint, ReportFilters, ReportOutcome,
     ReportTrade, build_report,
@@ -155,3 +156,22 @@ def render_report_view(view: ReportView) -> None:
             pair = block.metrics[start:start + 2]
             for column, (label, value) in zip(st.columns(2), pair):
                 column.metric(label, value)
+
+
+def render_report_panel(source: dict) -> None:
+    """Filtre kutuları + rapor + al-tut karşılaştırması. `source` backtest sonucunu taşır."""
+    import streamlit as st
+
+    symbol, backtest = source["symbol"], source["backtest"]
+    days = [_as_day(p["date"]) for p in backtest["daily_equity"]]
+    scope = f"{symbol}:{days[0].isoformat()}:{days[-1].isoformat()}"
+    first, second, third = st.columns(3)
+    start = first.date_input("Başlangıç", value=days[0], min_value=days[0], max_value=days[-1],
+                             key=f"perf_start:{scope}")
+    end = second.date_input("Bitiş", value=days[-1], min_value=days[0], max_value=days[-1],
+                            key=f"perf_end:{scope}")
+    market = third.selectbox("Piyasa", ["Tümü", *PerformanceConfig.MARKETS], key=f"perf_market:{scope}")
+    filters = ReportFilters(market=None if market == "Tümü" else market, start=start, end=end)
+    render_report_view(build_report_view(report_from_backtest(symbol, backtest, filters)))
+    render_report_view(comparison_from_backtest(
+        symbol, source["frame"], backtest, source["quantity_step"], source["costs"]))

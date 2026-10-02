@@ -132,8 +132,8 @@ Her PR öncesi **bağımsız QA (B) oturumu**; ben kendi işimi denetlemem. Yeş
 
 ## Açık noktalar — yönetici kararı gerekir
 - **O1 (AP-10):** AC64/AC66 "400/404" HTTP kodu söylüyor, uygulamada API yok. Öneri: domain istisnası + arayüz mesajı olarak okunsun; spec metni buna göre düzeltilsin (**AP-08**, onayınızla).
-- **O2:** Spec "kripto için sabitlenmiş UTC kesim saati" diyor ama değeri yazmıyor; ayrıca rejim eşikleri (Q02) ve kâr koruma parametreleri (Q05) sayısal değil. Öneri: kesim 00:00 UTC (günlük mum kapanışıyla aynı); eşik/parametre değerleri S3/S5 başında ayrı karar kaydı olarak gelsin, onaysız kod yazılmaz.
-- **O3:** Varlık-başı miktar adımı/asgari işlem tutarı kaynağı belirsiz. Öneri: varlık kaydında (`assets`) opsiyonel alan; boşsa AC31 gereği miktar önerilmez.
+- **O2 (KARAR 2026-10-02: kesim 00:00 UTC kabul; rejim eşikleri ve Q05 parametreleri hâlâ bekliyor):** Spec "kripto için sabitlenmiş UTC kesim saati" diyor ama değeri yazmıyor; ayrıca rejim eşikleri (Q02) ve kâr koruma parametreleri (Q05) sayısal değil. Öneri: kesim 00:00 UTC (günlük mum kapanışıyla aynı); eşik/parametre değerleri S3/S5 başında ayrı karar kaydı olarak gelsin, onaysız kod yazılmaz.
+- **O3 (KARAR 2026-10-02: öneri kabul):** Varlık-başı miktar adımı/asgari işlem tutarı kaynağı belirsiz. Öneri: varlık kaydında (`assets`) opsiyonel alan; boşsa AC31 gereği miktar önerilmez.
 - **O4:** Q06a — başsız koşucunun çalışacağı yer (yerel makine Windows Görev Zamanlayıcısı mı, barındırma ortamı zamanlayıcısı mı?). Yerel SQLite ile yayın veritabanı farklı olduğundan koşucu ile uygulama **aynı** veritabanını görmeli. Spec: kurulum/işletim maliyeti plan aşamasında onaylanır → bu madde onay bekliyor; S6 buna kadar başlamaz.
 - **O5:** 0003'ün kapanış durumu (dosya `specs/` kökünde, merge edilmiş görünüyor). Bağımlılık gereği QA doğrulaması gerekir.
 
