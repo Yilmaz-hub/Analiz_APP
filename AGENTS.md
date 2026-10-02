@@ -42,9 +42,9 @@ checkpoint'leri atlanamaz. Rol ayrıntıları: `docs/roles/`.
 
 | Konu | Dosya |
 |------|-------|
-| Modül haritası | kök dizindeki Python modülleri; yasaklar/kapsam dışı → ilgili spec'in Constraints bölümü |
+| Modül haritası | `docs/conventions.md` → Modül Yapısı; yasaklar/kapsam dışı → ilgili spec'in Constraints bölümü |
 | Alan terimleri + iş kuralları | ilgili spec'in **Context → Terimler** bölümü |
-| Adlandırma, katmanlar, hata yönetimi, para=decimal | `docs/conventions.md` |
+| Adlandırma, modül yapısı, hata yönetimi, para=decimal | `docs/conventions.md` |
 | Branch/commit/PR/merge kuralları | `docs/git.md` |
 | Test yaklaşımı (pytest + arayüz görsel kanıt) | `docs/testing.md` |
 | Kayıtların saklanması (varlık/portföy deposu) | `docs/storage.md` |
@@ -54,10 +54,9 @@ checkpoint'leri atlanamaz. Rol ayrıntıları: `docs/roles/`.
 | **Roller** — oturum açılışında rolünü üstlen | `docs/roles/` |
 | **Sorun protokolleri** — AP kodlarının çözümü | `docs/ap.md` |
 
-> **Belge temizliği (2026-09-10).** `docs/domain.md` ve `docs/architecture.md`, alakasız bir
-> projeye ait oldukları için depodan kaldırıldı; `docs/conventions.md`, `docs/frontend.md`,
-> `docs/testing.md` ve `docs/git.md` bu uygulamanın gerçek koduna göre yeniden yazıldı
-> (karar: Takım Yöneticisi; `specs/0004` P3). Kalan tüm kurallar bağlayıcıdır.
+> **Belge temizliği.** Alakasız bir projeye ait `docs/domain.md` ve `docs/architecture.md`
+> kaldırılmıştır (karar: Takım Yöneticisi; `specs/done/0004` P3). `docs/` altındaki tüm
+> belgeler bu uygulamanın gerçek koduna göre yazılmıştır ve bağlayıcıdır.
 
 ## Çalışma Disiplini
 

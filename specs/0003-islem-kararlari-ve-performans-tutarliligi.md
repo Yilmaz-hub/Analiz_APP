@@ -77,8 +77,8 @@ Başarı, V1'de aynı koşullarda çelişmeyen yönlendirmeler ve maliyetleri a�
 - İncelenen mevcut parçalar: `app.py`, `signal_engine.py`, `technical_analysis.py`, `paper_trading.py`, `data_fetchers.py`, `config.py`; bunlar bağlam referansıdır, uygulama planı değildir.
 - İş terimleri: AL = pozisyona göre giriş/tutma; BEKLE = yeni alım yok, tek başına çıkış yok; SAT = mevcut pozisyonun tamamından çıkış; koruyucu çıkış = yön sinyalinden bağımsız onaylı zarar/kâr koruma koşuluna bağlı çıkış.
 - Önceki inceleme: BEKLE'nin geçmiş testte çıkış yaratması, ekran/test hedeflerinin ayrışması, sanal takibin mum içi stop temasını kaçırması ve son mumun koşulsuz dışlanması bu işin gerekçesidir; kullanıcı zararının miktarı bu incelemeyle ölçülmemiştir.
-- Referanslar: [Rol](../docs/roles/analist.md), [alan belgesi](../docs/domain.md), [mimari](../docs/architecture.md), [test yaklaşımı](../docs/testing.md), [AP-10](../docs/ap.md).
-- İlgili mevcut spec: [0001](0001-mobil-grafik-sadelestirme.md), yalnız doküman/yığın çelişkisi açısından bağlam; işlevsel bağımlılık yoktur.
+- Referanslar: [Rol](../docs/roles/analist.md), [konvansiyonlar ve modül yapısı](../docs/conventions.md), [test yaklaşımı](../docs/testing.md), [AP-10](../docs/ap.md).
+- İlgili mevcut spec: [0001](done/0001-mobil-grafik-sadelestirme.md), yalnız doküman/yığın çelişkisi açısından bağlam; işlevsel bağımlılık yoktur.
 
 ### CLARIFY karar durumu
 

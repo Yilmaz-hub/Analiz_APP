@@ -1,6 +1,6 @@
 # Kayıtların Saklanması
 
-> Kaynak spec: [specs/0004-varlik-ve-pozisyon-kayitlarini-koruma.md](../specs/0004-varlik-ve-pozisyon-kayitlarini-koruma.md).
+> Kaynak spec: [specs/0004-varlik-ve-pozisyon-kayitlarini-koruma.md](../specs/done/0004-varlik-ve-pozisyon-kayitlarini-koruma.md).
 > Kod: [`storage.py`](../storage.py).
 
 ## Neden değişti

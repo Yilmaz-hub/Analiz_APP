@@ -1,6 +1,6 @@
 # Spec: 0004 — Varlık ve Pozisyon Kayıtlarını Koruma
 
-> Şablon: [TEMPLATE.md](TEMPLATE.md). Durum: Taslak; INTENT ve CLARIFY kararları onaylı.
+> Şablon: [TEMPLATE.md](../TEMPLATE.md). Durum: Taslak; INTENT ve CLARIFY kararları onaylı.
 > Rol: Analist — INTENT · CLARIFY · SPEC. Uygulama planı veya teknik çözüm içermez.
 > **İşleme notu (rev. 1):** Bu revizyondaki G01–G17 maddeleri QA oturumunun kanıtlı bulgu
 > listesinden gelir ve Takım Yöneticisi tarafından tümü onaylanmıştır. Metni, Takım
@@ -79,7 +79,7 @@ Geçmişte kaybolmuş kayıtları geri getirmek ve alım-satım ya da analiz kur
 - Koruma, başarıyla eklenmiş kayıtları kapsar; henüz tamamlanmamış form girişleri kayıt sayılmaz.
 - Kayıtlı miktar ve alış bilgileri korunur; canlı piyasa fiyatının veya hesaplanan kâr/zararın aynı kalması beklenmez.
 - **Yasaklar:** Otomatik varlık silme; aktif pozisyonlu veya bekleyen emirli varlığı silme; erişilemeyen kayıtları boş kayıtlarla değiştirme; bilinmeyen varlık yerine başka bir varlığın bilgilerini gösterme; mevcut alım-satım ve analiz kurallarını değiştirme.
-- Geliştirme ve onay disiplini için [AGENTS.md](../AGENTS.md) geçerlidir. Para/yüzde kuralının bu iş için kapsamı: bkz. Definition of Done (G16).
+- Geliştirme ve onay disiplini için [AGENTS.md](../../AGENTS.md) geçerlidir. Para/yüzde kuralının bu iş için kapsamı: bkz. Definition of Done (G16).
 - **Performans hedefi (P1, onaylandı — rev.8):** Uygulama kullanıma hazır olduktan sonra, 100 varlık ve toplam 100 aktif pozisyon içeren örnekte kayıtların görünmesi 5 saniyeyi aşmasın; aynı koşullardaki 10 ölçümün her biri bu sınırı sağlasın. Streamlit'in uyanma süresi bu ölçüme dahil edilmesin. Ölçüm sınırları için bkz. AC17 (G09). Bu hedef yalnız kayıtların okunup gösterilmesini ölçer; uygulamanın toplam açılış hızını garanti etmez, canlı fiyat bekleme süresi ayrı değerlendirilir.
 - **KAPSAM DIŞI (V1):**
   - Geçmişte kaybolmuş kayıtların geri getirilmesi.
@@ -124,7 +124,7 @@ Geçmişte kaybolmuş kayıtları geri getirmek ve alım-satım ya da analiz kur
 - **İş terimleri (G01):** *Varlık*, kullanıcının takip etmek üzere eklediği kayıttır. *Aktif pozisyon*, kalan miktarı sıfırdan büyük olan pozisyondur. Kalan miktarı sıfıra inen pozisyon *tamamen kapatılmış* sayılır; kapanış hangi yolla (kullanıcı satışı ya da mevcut otomatik kural) olursa olsun aynı kabul edilir. *Bekleyen emir*, henüz başlamamış ancak tutarı kilitlenmiş kayıttır ve aktif pozisyondan ayrı bir durumdur.
 - Kullanıcı, alakasız olan `docs/domain.md` dosyasını kaldırdığını bildirdi; bu spec o dosyaya dayanmaz.
 - İlgili mevcut spec'ler: 0001 ve 0002 mobil grafik konusundadır; bu iş için davranış bağımlılığı tanımlanmadı.
-- **P3 — doküman uyumu (KARAR: ilgisiz belgeler bağlayıcı değil):** Takım Yöneticisi, söz konusu belgelerin alakasız bir projeye ait olarak oluşturulduğunu bildirdi. `docs/architecture.md` bu arada depodan kaldırılmıştır. [testing.md](../docs/testing.md)'nin teknolojiye özgü bölümleri (xUnit çatısı, `Metot_Durum_BeklenenSonuc` adlandırması, .NET test projesi ayrımı, sipariş/sepet akışı örnekleri) bu iş için **bağlayıcı değildir**; teknolojiden bağımsız "Genel" bölümü (yeşil pipeline olmadan merge yok, önce hatayı gösteren test, kaçan hatanın SCORECARD'a işlenmesi) geçerliliğini korur.
+- **P3 — doküman uyumu (KARAR: ilgisiz belgeler bağlayıcı değil):** Takım Yöneticisi, söz konusu belgelerin alakasız bir projeye ait olarak oluşturulduğunu bildirdi. `docs/architecture.md` bu arada depodan kaldırılmıştır. [testing.md](../../docs/testing.md)'nin teknolojiye özgü bölümleri (xUnit çatısı, `Metot_Durum_BeklenenSonuc` adlandırması, .NET test projesi ayrımı, sipariş/sepet akışı örnekleri) bu iş için **bağlayıcı değildir**; teknolojiden bağımsız "Genel" bölümü (yeşil pipeline olmadan merge yok, önce hatayı gösteren test, kaçan hatanın SCORECARD'a işlenmesi) geçerliliğini korur.
   **Bu iş için geçerli test düzeni (kod üzerinde doğrulandı):** çatı **pytest** (`requirements-dev.txt`: pytest 9.0.3); testler `tests/` altında (16 dosya); sürekli tümleştirme `.github/workflows/tests.yml` ile `python -m pytest tests/ -v` çalıştırır. Kural değişmez: **her kabul kriteri en az bir testle** karşılanır; arayüz kriterleri için ekran görüntüsü kanıtı verilir.
   **Kapsam notu:** `AGENTS.md`'nin "Neyi Nerede Bulursun" tablosu hâlâ kaldırılmış `docs/architecture.md`'yi ve testing.md'yi "backend xUnit" olarak işaret etmektedir. Bunun düzeltilmesi bu spec'in kapsamı dışındadır ve ayrıca ele alınmalıdır (QA bulgusu; karar Takım Yöneticisinindir).
 - **P4 — kayıt yeri başlatma biçimine bağlı (QA kanıtı; KARAR: onaylandı):** Kullanıcı, kayıt dosyalarının programı kullanırken masaüstünde oluştuğunu bildirdi ve bu doğrulandı: `portfolio.json` masaüstünde bulunuyor (2025-12-01 tarihli, iki bekleyen emir ve kilitli tutar içeriyor), proje klasöründe ise yok. `varliklar.json` ise **hiçbir yerde bulunamadı** — varlık listesi her açılışta varsayılana düşüyor. Ayrıca masaüstünde, güncel sürümün hiçbir yerinden okunmayan eski bir `trade_history.json` duruyor.
@@ -222,7 +222,7 @@ Geçmişte kaybolmuş kayıtları geri getirmek ve alım-satım ya da analiz kur
 - [x] Geçerli pipeline kontrolleri geçti (CI `pytest` yeşil, 366 test) ve kullanıcıya teknik hata sızmadı.
 - [x] **Para/yüzde kapsamı (G16):** Bu iş kayıtları koruma işidir; mevcut para/yüzde gösterimi olduğu gibi korunur, sayı türü dönüşümü yapılmaz. Genel para kuralının bu uygulamaya uyarlanması ayrı bir spec konusudur.
 - [x] Ayrı QA oturumunda iki tur bağımsız doğrulama yapıldı (11 kanıtlı bulgu); Takım Yöneticisi sonucu değerlendirdi ve düzeltmeler uygulandı.
-- [x] PR ve squash-merge işlemleri [git.md](../docs/git.md) kurallarına göre tamamlandı (PR #10 uygulama, PR #11 SCORECARD, PR kapanış).
+- [x] PR ve squash-merge işlemleri [git.md](../../docs/git.md) kurallarına göre tamamlandı (PR #10 uygulama, PR #11 SCORECARD, PR kapanış).
 
 ---
 

@@ -7,7 +7,8 @@
 **3) Okuması gerekenler.**
 - `AGENTS.md` (açılışta)
 - İlgili onaylı spec (`../../specs/<NNNN>-<ad>.md`)
-- `../architecture.md`, `../conventions.md` — mimari, katman, para=decimal, minimal API
+- `../conventions.md` — modül yapısı, adlandırma, hata yönetimi, para=decimal
+  (mimari kaynağı koddur — `AGENTS.md` Altın Kural 3)
 - `../testing.md`, `../frontend.md`, `../git.md` — test, arayüz, branch/commit/PR
 
 **4) Yetkiler ve YASAKLAR.**
