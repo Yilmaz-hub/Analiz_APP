@@ -52,8 +52,9 @@ def test_every_portfolio_write_goes_through_safe_wrapper():
     }
     bypasses = [
         node.lineno for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-        and node.func.id == "save_portfolio" and id(node) not in wrapper_calls
+        if isinstance(node, ast.Call) and id(node) not in wrapper_calls
+        and ((isinstance(node.func, ast.Name) and node.func.id == "save_portfolio")
+             or (isinstance(node.func, ast.Attribute) and node.func.attr == "save_portfolio"))
     ]
 
     assert bypasses == [], f"save_portfolio güvenli sarmalayıcıyı atlıyor: satır {bypasses}"
