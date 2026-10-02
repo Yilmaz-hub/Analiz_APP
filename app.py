@@ -598,6 +598,12 @@ if is_chart_renderable(df_view):
                         with st.expander("📋 Tüm İşlemler"):
                             trades_df = pd.DataFrame(bt_results['trades'])
                             st.dataframe(trades_df, width="stretch")
+                        if view_tf == "1d":
+                            import performance_ui
+                            st.divider()
+                            st.subheader("📑 Güvenilir Performans Raporu")
+                            performance_ui.render_report_view(performance_ui.build_report_view(
+                                performance_ui.report_from_backtest(symbol, bt_results)))
 
     # --- KAĞIT TİCARET DOĞRULAMASI ---
     with st.expander("🧪 Kağıt Ticaret Doğrulaması (Canlı Sinyal Takibi)", expanded=False):
