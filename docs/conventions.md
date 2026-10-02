@@ -13,14 +13,16 @@
 
 İşlem tutarlılığı feature'ı için onaylı istisna: mevcut gösterge/ML kütüphanelerinin yalnız analitik ara hesaplarında kayan nokta kullanılabilir. Analitik fiyat/ATR çıktısı finansal hesaba geçerken ondalık gösterimi üzerinden decimal'e dönüştürülür; fiyat adımı yuvarlaması bundan sonra uygulanır. Dönüşüm hassasiyet kazandırmış sayılmaz. İşlem fiyatı, stop, miktar, tutar, komisyon, bakiye ve getiri/yüzde hesapları decimal kalır; finansal defter bu istisnaya dahil değildir. Sunum yuvarlaması hesap girdisi olamaz.
 
-## Adlandırma
+## Adlandırma (Python)
 
-- **C#**: tip/metot/`public` üye → `PascalCase`; yerel/parametre → `camelCase`;
-  `private` alan → `_camelCase`; sabit → `PascalCase`; arayüz → `IAd`.
-- Dosya adı = içindeki ana tip adı.
-- **Alan terimleri EN kod adıyla** yazılır; terim ve karşılığı ilgili spec'in **Context → Terimler** bölümündedir.
-- Boolean adları soru gibi yazılır.
-- DTO'lar `...Request` / `...Response` son ekiyle.
+- Modül ve dosya adları `snake_case` (`trade_execution.py`); fonksiyon/değişken `snake_case`;
+  sınıf `PascalCase`; sabit `UPPER_SNAKE_CASE`. Test dosyası `tests/test_<modül>.py` (bkz. `testing.md`).
+- Değer nesneleri `@dataclass(frozen=True)` ile tanımlanır.
+- Alan terimleri kodda İngilizce adla yazılır; terim ve karşılığı ilgili spec'in
+  **Context → Terimler** bölümündedir. Kullanıcıya görünen metin Türkçedir.
+- Boolean adları soru gibi yazılır (`net_verified`).
+- Ayarlanabilir sayılar ve eşikler (`250`, `0.60`, …) `config.py` içindeki bir sınıfta
+  durur; hesap kodunda sihirli sayı bırakılmaz.
 
 ## Katmanlar
 
@@ -30,11 +32,14 @@
 
 ## Hata Yönetimi
 
-- Beklenen iş hataları için anlamlı sonuç (ör. `Result`/`ProblemDetails`), exception'la akış kontrol edilmez.
-- Beklenmeyen hatalar merkezi bir hata middleware'inde yakalanır ve loglanır.
-- **Kullanıcıya teknik hata metni / stack trace sızmaz** (frontend tarafı için de geçerli, bkz. `frontend.md`).
-- HTTP durum kodları anlamlı: doğrulama `400`, yetki `401/403`, bulunamadı `404`, çakışma `409`.
-- Loglar yapılandırılmış (structured) olur; log'a sır/PII yazılmaz.
+- Beklenen iş hataları (geçersiz girdi, kayıt yok, yetersiz nakit) istisna değil **sonuç nesnesi**
+  ile döner: durum + neden kodu (`Purchase(False, "YETERSIZ_NAKIT")`,
+  `Entry(False, "GECERSIZ_MALIYET")`). Exception'la akış kontrol edilmez.
+- Bu uygulamada HTTP API yoktur: "400/404" gibi kodlar spec'lerde kullanılmaz; karşılığı
+  "geçersiz istek" ve "bulunamadı" durumlarıdır.
+- Beklenmeyen hatalar `logger.py` üzerinden loglanır; log'a sır/PII yazılmaz.
+- **Kullanıcıya teknik hata metni / stack trace / makine kodu sızmaz.** Neden kodları
+  `trading_ui.describe_code` gibi tek bir yerden Türkçe metne çevrilir (bkz. `frontend.md`).
 
 ## Genel
 

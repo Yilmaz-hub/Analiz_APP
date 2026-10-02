@@ -1,41 +1,36 @@
-# Frontend Konvansiyonları (İSKELET)
+# Frontend Konvansiyonları (Streamlit)
 
-> Yığın: **React + Vite + TypeScript.** Bu dosya iskelettir. İlk dilimde (**1.8**)
-> profesyonel standarda genişletilecek: tasarım token'ları, bileşen envanteri, kalite kapıları.
+> Yığın: **Python 3 + Streamlit** (`app.py`). Eski React/Vite iskeleti bu depoya ait değildi ve
+> kaldırıldı. Test ve ekran kanıtı kuralları `testing.md`'dedir; bu dosya yalnız arayüz yapısını anlatır.
 
 ## Temel Kurallar
 
-- **Tek API client.** Tüm API çağrıları tek bir client dosyasından geçer (ör.
-  `src/api/client.ts`); bileşenler doğrudan `fetch`/`axios` çağırmaz.
-- **Her ekranda üç durum zorunlu:** **yükleme**, **boş**, **hata**. Üçü de tasarlanır ve
-  test edilir.
-- **Kullanıcıya teknik hata metni sızmaz.** Stack trace / ham hata mesajı gösterilmez;
-  kullanıcıya anlaşılır mesaj verilir (bkz. `docs/conventions.md`).
+- **`app.py` akışı kurar, iş kuralı yazmaz.** Hesap Streamlit'siz, saf modüllerdedir; ekran metni
+  ve düzeni `*_ui.py` modüllerinde (ör. `trading_ui.py`).
+- **Görünüm modeli + ince çizim.** `*_ui.py` önce testlenebilir bir görünüm modeli üretir
+  (ör. `build_decision_panel`), ardından yalnız onu `st.*` ile çizen küçük bir fonksiyon çağrılır.
+- **Her ekranda üç durum tasarlanır ve test edilir:** yükleme, boş, hata.
+- **Ölçülemeyen değer sıfır değil "hesaplanamıyor" görünür**; eksik maliyet gibi güveni azaltan
+  durumlar sonucun yanında, ek tıklama gerektirmeden durur.
+- **Kullanıcıya teknik hata metni sızmaz.** Stack trace, makine kodu ve ham istisna gösterilmez;
+  anlaşılır Türkçe mesaj verilir (bkz. `conventions.md` → Hata Yönetimi).
 - **Dilimler mini-spec'le koşar.** Her ekran/özellik `specs/` altındaki bir spec'e bağlıdır.
 
-## Yapı (öneri)
+## Streamlit'e özgü
 
-```
-frontend/
-  src/
-    api/        tek client + tip tanımları
-    components/ paylaşılan bileşenler
-    features/   modül bazlı ekranlar (catalog, ordering, ...)
-    lib/        yardımcılar
-```
+- Düğmeyle üretilen sonuç `st.session_state` içinde tutulur; yoksa sonuç içindeki bir filtre
+  veya `date_input` yeniden çalıştırmada sonucu siler. Widget anahtarları kapsamı içerir
+  (ör. `ts:BTC-USD:quantity_step`: varlık + alan).
+- Dar ekranda uzun metin kesilebilir: metrikler en çok iki sütun, açıklayıcı etiket değerde
+  değil etikette durur. Mobil/masaüstü görünümü spec 0001'deki görünüm modu kontrolünden gelir.
 
 ## Para / Yüzde
 
-- Para ve yüzde değerleri backend'den geldiği gibi (string/decimal-uyumlu) taşınır; kayan
-  noktada hesap yapılmaz. Biçimleme tek bir yardımcı üzerinden yapılır.
+- Para ve yüzde `Decimal` taşınır; sunum yuvarlaması yalnız çizim katmanında yapılır ve hesap girdisi
+  olamaz (bkz. `conventions.md`). Para birimleri birbirine eklenmez, ayrı gösterilir.
 
 ## Kalite Kapıları (CI)
 
-- **lint + build** yeşil olmadan PR merge edilmez (bkz. `docs/git.md`, `docs/testing.md`).
-- Kritik akışa smoke test + her kritere ekran görüntüsü kanıtı (bkz. `docs/testing.md`).
-
-## 1.8'de Genişletilecek (yer tutucu)
-
-- [ ] Tasarım token'ları (renk, tipografi, boşluk, yarıçap).
-- [ ] Bileşen envanteri (buton, input, tablo, boş/hata/yükleme durumları).
-- [ ] Erişilebilirlik ve kalite kapıları eşiği.
+- Testler yeşil olmadan PR merge edilmez (bkz. `git.md`, `testing.md`).
+- Arayüz davranışı `streamlit.testing.v1.AppTest` ile gerçek `app.py` üzerinde sürülür; her arayüz
+  kriterine ekran görüntüsü kanıtı eklenir.
