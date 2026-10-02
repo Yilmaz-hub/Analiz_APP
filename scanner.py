@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from data_fetchers import get_market_data
 from signal_engine import generate_stable_signal, generate_validated_signal
 from market_validation import policy_for_symbol, validate_market_data
+from trading_ui import describe_code
 from weight_profiles import get_weights_for_symbol
 from technical_analysis import calculate_regime_score
 from config import RegimeConfig, SizingConfig
@@ -97,8 +98,8 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
                             if comp_signal is None or comp_signal.unavailable_components:
                                 missing = (validation.missing_components if comp_signal is None
                                            else comp_signal.unavailable_components)
-                                code = validation.reason or "BILESEN_HAZIR_DEGIL"
-                                detail = f"{code}: {', '.join(missing)}" if missing else code
+                                detail = describe_code(
+                                    validation.status if comp_signal is None else "BILESEN_HAZIR_DEGIL", missing)
                                 row[signal_col] = f"⚪ BEKLE ({detail})"
                                 all_reasons.append(detail)
                                 continue

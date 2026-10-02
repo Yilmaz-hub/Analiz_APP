@@ -86,6 +86,7 @@ CODE_TEXT = {
     "ZORUNLU_ALAN_EKSIK": "Zorunlu alan eksik",
     "TURETILMIS_OHLC": "Fiyat serisi türetilmiş; stop simülasyonu doğrulanmadı",
     "BILESEN_YOK": "Karar bileşeni hesaplanamadı; yeni işlem sinyali yok",
+    "GC=F VADELI ALTIN REFERANSI": "Altın fiyatı GC=F vadeli kontrat referansıdır",
 }
 
 COMPONENT_TEXT = {
@@ -104,6 +105,24 @@ def describe_code(code, components=()):
         names = ", ".join(COMPONENT_TEXT.get(c, str(c)) for c in components)
         text = f"{text}: {names}"
     return text
+
+
+def resolve_decision_time(store, key, data_status, evaluated_at):
+    """Karar zamanı yalnız veri geçerliyken ilerler (spec 0003, Q11).
+
+    Veri geçerliyse `evaluated_at` kaydedilir ve döner. Değilse ekrana "şimdi"
+    basılmaz: son geçerli kararın zamanı (yoksa None) döner.
+    """
+    if data_status == "GECERLI":
+        store[key] = evaluated_at
+        return evaluated_at
+    return store.get(key)
+
+
+def format_decision_time(moment):
+    """Karar zamanını Türkiye saatinde gösterir."""
+    from zoneinfo import ZoneInfo
+    return moment.astimezone(ZoneInfo("Europe/Istanbul")).strftime("%d.%m.%Y %H:%M")
 
 
 def _display_decimal(value):

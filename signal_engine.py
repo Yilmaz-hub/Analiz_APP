@@ -907,7 +907,8 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
         signal.verdict = "BEKLE"
         signal.unavailable_components = tuple(bar["unavailable"])
         signal.data_status = "BILESEN_HAZIR_DEGIL"
-        signal.reasons = ["Zorunlu karar bileşeni hesaplanamadı: " + ", ".join(bar["unavailable"])]
+        from trading_ui import describe_code
+        signal.reasons = [describe_code("BILESEN_HAZIR_DEGIL", signal.unavailable_components)]
         if cache_key is not None:
             _stable_cache.set(cache_key, deepcopy(signal))
         return signal
@@ -966,12 +967,16 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
     return signal
 
 
-def invalid_data_signal(status, timeframe="1d", components=(), reason=""):
-    """Doğrulanamayan veri için "karar üretilemedi" sinyali: geçerli BEKLE değildir."""
+def invalid_data_signal(status, timeframe="1d", components=()):
+    """Doğrulanamayan veri için "karar üretilemedi" sinyali: geçerli BEKLE değildir.
+
+    Gerekçe ham makine kodu değil, Türkçe metindir (spec 0003 AK17)."""
+    from trading_ui import describe_code
+
     signal = CompositeSignal(timeframe=timeframe, verdict="BEKLE")
     signal.data_status = status or "VERI_YOK"
     signal.unavailable_components = tuple(components)
-    signal.reasons = [reason or signal.data_status]
+    signal.reasons = [describe_code(signal.data_status, signal.unavailable_components)]
     return signal
 
 

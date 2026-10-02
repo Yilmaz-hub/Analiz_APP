@@ -36,7 +36,8 @@ from prediction_tracker import record_prediction, evaluate_predictions, get_trac
 from advanced_analysis import detect_elliott_wave, analyze_ichimoku, detect_wyckoff_phase, analyze_market_structure
 from position_journal import PositionJournal
 from trade_decisions import Position, PositionState, Signal
-from trading_ui import PanelInput, build_decision_panel
+from trading_ui import (PanelInput, build_decision_panel, describe_code,
+                        format_decision_time, resolve_decision_time)
 import theme
 
 st.set_page_config(layout="wide", page_title="Pro Trader V48 (Modular Edition)")
@@ -204,10 +205,14 @@ for tf, label in intervals.items():
             )
             if comp_sig is None:
                 comp_sig = invalid_data_signal(
-                    validation.status, tf, validation.missing_components,
-                    validation.reason or "Günlük veri doğrulanamadı")
+                    validation.status, tf, validation.missing_components)
             elif comp_sig.unavailable_components:
                 validation_statuses[tf] = comp_sig.data_status
+            # Karar zamanı yalnız veri geçerliyken ilerler; geçersizken son geçerli
+            # karar saklı kalır ve "güncel değil" notuyla gösterilir (Q11).
+            resolve_decision_time(
+                st.session_state.setdefault("last_valid_decision", {}), symbol,
+                validation_statuses[tf], evaluation_time)
         else:
             validation_statuses[tf] = "V1_DOGRULANMADI"
             comp_sig = generate_stable_signal(df, tf, weights=sig_weights)
@@ -359,7 +364,7 @@ if is_chart_renderable(df_view):
         data_status=validation_statuses.get(view_tf, "V1_DOGRULANMADI"),
         fee=None, spread_bps=None, slippage_bps=None,
         confidence=Decimal(str(active_signal.confidence)),
-        decision_at=datetime.now(timezone.utc),
+        decision_at=st.session_state.get("last_valid_decision", {}).get(symbol),
         suggested_stop=Decimal(str(active_signal.stop_loss)) if active_signal.stop_loss else None,
         asset_kind=symbol if symbol in {"XAU_GOLD", "GRAM_TRY"} else None,
         in_scope=view_tf == "1d" and symbol != "GRAM_TRY",
@@ -372,21 +377,30 @@ if is_chart_renderable(df_view):
         st.session_state[f'flat_confirmed:{sel_c}'] = True
         st.rerun()
     st.caption("Uyum puanı kazanma olasılığı değildir. Gerçek işlem yalnız kullanıcı teyidiyle değişir.")
+    if decision_panel.old_decision_at is not None:
+        st.caption(f"🕒 Son geçerli karar: {format_decision_time(decision_panel.old_decision_at)} "
+                   "— güncel değil")
+    elif active_signal.data_status != "GECERLI" or decision_panel.messages.count("ESKI_KARAR"):
+        st.caption("🕒 Henüz geçerli bir karar üretilmedi — güncel değil")
     for warning in decision_panel.messages:
-        st.caption(f"• {warning}")
+        st.caption(f"• {describe_code(warning)}")
 
     dash_col1, dash_col2, dash_col3 = st.columns([1.5, 1, 1.5])
     
     with dash_col1:
-        st.markdown(theme.verdict_card(active_signal), unsafe_allow_html=True)
-        
-        if "AL" in active_signal.verdict:
-            st.markdown(theme.trade_plan_card(active_signal), unsafe_allow_html=True)
-        elif "SAT" in active_signal.verdict:
-            # Short trades are backtest-falsified; SAT = exit/stay out only
-            st.markdown(theme.exit_warning_card(active_signal), unsafe_allow_html=True)
+        if active_signal.data_status != "GECERLI":
+            # Doğrulanamayan veri geçerli bir "BEKLE" gibi gösterilmez (Q5).
+            st.warning("⚠️ Karar üretilemedi: " + describe_code(
+                active_signal.data_status, active_signal.unavailable_components))
         else:
-            st.info("ℹ️ İşlem sinyali yok. Piyasa izleniyor...")
+            st.markdown(theme.verdict_card(active_signal), unsafe_allow_html=True)
+            if "AL" in active_signal.verdict:
+                st.markdown(theme.trade_plan_card(active_signal), unsafe_allow_html=True)
+            elif "SAT" in active_signal.verdict:
+                # Short trades are backtest-falsified; SAT = exit/stay out only
+                st.markdown(theme.exit_warning_card(active_signal), unsafe_allow_html=True)
+            else:
+                st.info("ℹ️ İşlem sinyali yok. Piyasa izleniyor...")
     
     with dash_col2:
         st.markdown("**📊 Boyut Skorları**")
