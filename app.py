@@ -701,7 +701,7 @@ if is_chart_renderable(df_view):
                         "Geçerlilik saati", value=istanbul_now.time().replace(microsecond=0),
                         key="stop_effective_time",
                     )
-                    if st.button("Stop Yükseltmesini Teyit Et"):
+                    if st.button("Stop Yükseltmesini Teyit Et", disabled=not records_writable):
                         if raised_stop <= current_stop:
                             st.error("Yeni stop mevcut stop seviyesinden yüksek olmalıdır.")
                         else:
@@ -713,9 +713,11 @@ if is_chart_renderable(df_view):
                                 "Geçerlilik Zamanı": effective_at.isoformat(),
                             })
                             stop_position['Stop'] = raised_stop
-                            save_portfolio(st.session_state['portfolio_data'])
-                            st.success("Stop yükseltmesi kaydedildi.")
-                            st.rerun()
+                            # Portföyü yazan her yol safe_save_portfolio'dan geçer: yazma
+                            # koparsa bellekteki değişiklik geri alınır (spec 0004, F1/F10).
+                            if safe_save_portfolio():
+                                st.success("Stop yükseltmesi kaydedildi.")
+                                st.rerun()
                 st.markdown("##### ✅ Aktif Pozisyonlar")
                 with st.expander("💸 Kar Al / Satış Yap"):
                     p_coins = list(set([p['Coin'] for p in active_pos]))
