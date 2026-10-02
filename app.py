@@ -26,7 +26,7 @@ from ui_components import (render_sidebar_settings, render_asset_management, ren
                            render_records_status, render_no_records_state)
 from scanner import render_opportunity_scanner
 from data_fetchers import get_live_price_for_portfolio
-from signal_engine import generate_stable_signal, generate_validated_signal, CompositeSignal
+from signal_engine import generate_stable_signal, generate_validated_signal, CompositeSignal, invalid_data_signal
 from market_validation import policy_for_symbol, validate_market_data
 from positions import (group_positions, build_active_rows, asset_name as position_asset_name,
                        AKTIF as POS_AKTIF, BEKLEYEN as POS_BEKLEYEN,
@@ -191,26 +191,23 @@ for tf, label in intervals.items():
         if tf == "1d":
             evaluation_time = datetime.now(timezone.utc)
             policy = policy_for_symbol(symbol, evaluation_time)
-            required_components = ("RSI", "EMA_20", "EMA_50", "MACD", "MACD_Signal", "ATR", "ADX")
-            components_ready = all(
-                column in df.columns and pd.notna(df[column].iloc[-1])
-                for column in required_components
-            )
             validation = validate_market_data(
                 df, evaluation_time, policy,
                 provider_open=df.attrs.get("provider_open", set()),
-                components_ready=components_ready,
+                require_components=True,
             )
             validation_statuses[tf] = validation.status
             comp_sig = generate_validated_signal(
                 df, evaluation_time, policy,
                 provider_open=df.attrs.get("provider_open", set()),
-                components_ready=components_ready,
                 timeframe=tf, weights=sig_weights,
             )
             if comp_sig is None:
-                comp_sig = CompositeSignal(timeframe=tf, verdict="BEKLE")
-                comp_sig.reasons = [validation.reason or "Günlük veri doğrulanamadı"]
+                comp_sig = invalid_data_signal(
+                    validation.status, tf, validation.missing_components,
+                    validation.reason or "Günlük veri doğrulanamadı")
+            elif comp_sig.unavailable_components:
+                validation_statuses[tf] = comp_sig.data_status
         else:
             validation_statuses[tf] = "V1_DOGRULANMADI"
             comp_sig = generate_stable_signal(df, tf, weights=sig_weights)

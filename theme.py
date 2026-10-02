@@ -7,6 +7,7 @@ for display type, IBM Plex Sans for body, IBM Plex Mono for every number.
 All UI colors live HERE (as CSS custom properties + the PALETTE dict) —
 don't inline new hex values in app.py / ui_components.py.
 """
+import html
 import streamlit as st
 
 # Python-side palette (for Plotly traces, which can't read CSS variables)
@@ -552,6 +553,16 @@ def reason_line(text: str) -> str:
     return f'<div class="at-reason">{text}</div>'
 
 def sidebar_signal(tf_label: str, sig) -> str:
+    status = getattr(sig, "data_status", "GECERLI")
+    if status != "GECERLI":
+        # Doğrulanamayan veri geçerli bir "BEKLE" olarak gösterilmez (spec 0003, Q5).
+        from trading_ui import describe_code
+        text = html.escape(describe_code(status, getattr(sig, "unavailable_components", ())))
+        return f"""
+<div class="at-sig">
+  <div class="tf">{tf_label}</div>
+  <div class="vd" style="color:{PALETTE['muted']}">⚠️ {text}</div>
+</div>"""
     color = verdict_color(sig.verdict)
     return f"""
 <div class="at-sig">

@@ -1088,7 +1088,10 @@ def run_v1_strategy_backtest(df, decisions, *, initial_cash, trade_notional,
 
 
 def build_v1_decisions(df, *, weights=None, include_ml=True):
-    """Produce point-in-time daily decisions with every required component."""
+    """Produce point-in-time daily decisions with every required component.
+
+    Hesaplanamayan zorunlu bileşeni olan bar nötr puanla doldurulmaz: karar
+    "BILESEN_YOK" olur ve yeni AL/SAT üretmez (spec 0003 AK03 / AC120)."""
     from signal_engine import SignalStateMachine, _compute_bar_score
     from config import DecisionEngineConfig as cfg
 
@@ -1098,6 +1101,9 @@ def build_v1_decisions(df, *, weights=None, include_ml=True):
         historical = df.iloc[:index + 1]
         scored = _compute_bar_score(historical, "1d", include_ml=include_ml, weights=weights)
         if scored is None:
+            continue
+        if scored.get("unavailable"):
+            decisions[df.index[index]] = "BILESEN_YOK"
             continue
         regime = scored.get("regime", 0)
         machine.update(scored["score"], scored["confidence"], scored["rsi"], scored["adx"], regime)

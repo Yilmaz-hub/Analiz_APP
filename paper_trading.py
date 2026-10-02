@@ -39,6 +39,7 @@ TP_MULT = _DAILY_PARAMS["tp_mult"]
 TRAIL_BREAKEVEN = _DAILY_PARAMS["trail_breakeven"]
 TRAIL_LOCK_PCT = _DAILY_PARAMS["trail_lock_pct"]
 COOLDOWN_BARS = _DAILY_PARAMS["cooldown_bars"]
+BILESEN_YOK = "BILESEN_YOK"  # zorunlu bileşen hesaplanamadı: yeni AL/SAT yok
 MAX_BACKFILL = 10  # ML makes replay slow; cap catch-up bars per asset
 
 
@@ -225,17 +226,14 @@ def run_paper_update(coin_map, source_pref="Binance", progress_callback=None, pa
 
             evaluation_time = pd.Timestamp.now(tz="UTC").to_pydatetime()
             policy = policy_for_symbol(sym, evaluation_time)
-            required_components = ("RSI", "EMA_20", "EMA_50", "MACD", "MACD_Signal", "ATR", "ADX")
             validation = validate_market_data(
                 df, evaluation_time, policy,
                 provider_open=df.attrs.get("provider_open", set()),
-                components_ready=all(
-                    column in df.columns and pd.notna(df[column].iloc[-1])
-                    for column in required_components
-                ),
+                require_components=True,
             )
             if not validation.is_valid:
-                errors.append(f"{name}: {validation.reason}")
+                detail = ", ".join(validation.missing_components)
+                errors.append(f"{name}: {validation.reason}" + (f" ({detail})" if detail else ""))
                 continue
 
             asset_settings = (paper_settings or {}).get(name, {})
@@ -261,7 +259,10 @@ def run_paper_update(coin_map, source_pref="Binance", progress_callback=None, pa
                 slice_df = closed.iloc[:k + 1]
                 sig = generate_stable_signal(
                     slice_df, "1d", weights=get_weights_for_symbol(sym), data_is_closed=True,
+                    strict_components=True,
                 )
+                # Hesaplanamayan bileşen: yeni AL/SAT yazılmaz (spec 0003 AC120).
+                verdict = BILESEN_YOK if sig.unavailable_components else sig.verdict
                 price = float(closed['Close'].iloc[k])
                 atr = float(closed['ATR'].iloc[k]) if 'ATR' in closed.columns else price * 0.02
                 date_str = str(closed.index[k].date())
@@ -275,12 +276,13 @@ def run_paper_update(coin_map, source_pref="Binance", progress_callback=None, pa
                     "close": price,
                 })
                 book["pending"] = {
-                    "verdict": sig.verdict, "atr": atr, "known_at": date_str,
+                    "verdict": verdict, "atr": atr, "known_at": date_str,
                 }
                 if book["first_price"] is None:
                     book["first_price"] = price
                 state["journal"].append({
-                    "date": date_str, "asset": name, "verdict": sig.verdict,
+                    "date": date_str, "asset": name, "verdict": verdict,
+                    "unavailable_components": list(sig.unavailable_components),
                     "raw_verdict": sig.raw_verdict, "score": round(sig.final_score, 1),
                     "confidence": round(sig.confidence, 0), "bars_held": sig.bars_held,
                     "price": price, "backfilled": is_backfill,

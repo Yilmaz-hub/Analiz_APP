@@ -53,6 +53,10 @@ class _BoundedCache:
             while len(self._data) > self._maxsize:
                 self._data.popitem(last=False)
 
+    def clear(self):
+        with self._lock:
+            self._data.clear()
+
 
 def _weights_fingerprint(weights):
     """Turn a weights dict into a hashable tuple for cache keys, or None
@@ -103,6 +107,10 @@ class CompositeSignal:
     # Zorunlu karar bileşenlerinden hesaplanamayanlar (spec 0003 AK03 / AC120). Doluysa
     # sinyal geçerli bir BEKLE değildir: yeni AL/SAT üretilmez ve ad görünür.
     unavailable_components: tuple = ()
+    # Veri/bileşen doğrulama durumu (spec 0003 AK03/AK17): "GECERLI" ya da
+    # market_validation durum kodu (VERI_YOK, GECERSIZ_VERI, BILESEN_HAZIR_DEGIL, ...).
+    # GECERLI değilse sinyal geçerli bir BEKLE değil, "karar üretilemedi"dir.
+    data_status: str = "GECERLI"
 
 
 # =============================================
@@ -898,6 +906,7 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
         # Hesaplanamayan bileşen nötr puana çevrilmez; karar üretilmez.
         signal.verdict = "BEKLE"
         signal.unavailable_components = tuple(bar["unavailable"])
+        signal.data_status = "BILESEN_HAZIR_DEGIL"
         signal.reasons = ["Zorunlu karar bileşeni hesaplanamadı: " + ", ".join(bar["unavailable"])]
         if cache_key is not None:
             _stable_cache.set(cache_key, deepcopy(signal))
@@ -954,6 +963,15 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
 
     if cache_key is not None:
         _stable_cache.set(cache_key, deepcopy(signal))
+    return signal
+
+
+def invalid_data_signal(status, timeframe="1d", components=(), reason=""):
+    """Doğrulanamayan veri için "karar üretilemedi" sinyali: geçerli BEKLE değildir."""
+    signal = CompositeSignal(timeframe=timeframe, verdict="BEKLE")
+    signal.data_status = status or "VERI_YOK"
+    signal.unavailable_components = tuple(components)
+    signal.reasons = [reason or signal.data_status]
     return signal
 
 

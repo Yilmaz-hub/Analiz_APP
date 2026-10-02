@@ -125,3 +125,28 @@ def test_stop_raise_button_is_disabled_when_storage_is_unwritable(store, monkeyp
         assert button(at, "Stop Yükseltmesini Teyit Et").disabled is True
     finally:
         geri_al()
+
+
+# Q6 — Hesaplanamayan karar bileşeni nötr sayılmaz; ekranda adıyla görünür.
+def test_q6_sidebar_names_the_unavailable_component(store, monkeypatch, processed_df):
+    import ml_models
+    monkeypatch.setattr(ml_models, "calculate_ml_direction_signal", lambda _df: None)
+    store.write_doc(store.ASSETS_KEY, VARLIKLAR)
+
+    at = make_app(monkeypatch, _taze_gunluk(processed_df)).run()
+
+    assert not at.exception
+    metin = texts(at)
+    assert "Karar bileşeni hazır değil" in metin and "yapay zekâ" in metin
+    assert "BILESEN_HAZIR_DEGIL" not in metin
+
+
+def _taze_gunluk(frame):
+    """Son kapanmış gün dünkü olacak biçimde kaydırılmış (geçerli) günlük veri."""
+    import pandas as pd
+    from datetime import datetime, timedelta, timezone
+    frame = frame.copy()
+    frame["Open"] = frame["Open"].clip(lower=frame["Low"], upper=frame["High"])  # geçerli OHLC
+    dun = datetime.now(timezone.utc).date() - timedelta(days=1)
+    frame.index = pd.date_range(end=pd.Timestamp(dun), periods=len(frame), freq="D", tz="UTC")
+    return frame

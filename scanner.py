@@ -84,25 +84,23 @@ def render_opportunity_scanner(coin_map, source_pref, intervals):
                         if tf == "1d":
                             evaluation_time = datetime.now(timezone.utc)
                             policy = policy_for_symbol(sym, evaluation_time)
-                            required = ("RSI", "EMA_20", "EMA_50", "MACD", "MACD_Signal", "ATR", "ADX")
-                            components_ready = all(
-                                column in d_scan.columns and pd.notna(d_scan[column].iloc[-1])
-                                for column in required
-                            )
                             validation = validate_market_data(
                                 d_scan, evaluation_time, policy,
                                 provider_open=d_scan.attrs.get("provider_open", set()),
-                                components_ready=components_ready,
+                                require_components=True,
                             )
                             comp_signal = generate_validated_signal(
                                 d_scan, evaluation_time, policy,
                                 provider_open=d_scan.attrs.get("provider_open", set()),
-                                components_ready=components_ready,
                                 timeframe=tf, weights=scan_weights,
                             )
-                            if comp_signal is None:
-                                row[signal_col] = f"⚪ BEKLE ({validation.reason})"
-                                all_reasons.append(validation.reason)
+                            if comp_signal is None or comp_signal.unavailable_components:
+                                missing = (validation.missing_components if comp_signal is None
+                                           else comp_signal.unavailable_components)
+                                code = validation.reason or "BILESEN_HAZIR_DEGIL"
+                                detail = f"{code}: {', '.join(missing)}" if missing else code
+                                row[signal_col] = f"⚪ BEKLE ({detail})"
+                                all_reasons.append(detail)
                                 continue
                         else:
                             comp_signal = generate_stable_signal(d_scan, tf, weights=scan_weights)

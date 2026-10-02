@@ -46,6 +46,66 @@ class DecisionPanel:
     stop_simulation_verified: bool
 
 
+#: Ekranda ham makine kodu görünmesin (spec 0003, AK17 / Q12). Her kod için
+#: Türkçe, eyleme dönük bir metin; bilinmeyen kod için güvenli genel metin.
+CODE_TEXT = {
+    "GECERLI": "Veri geçerli",
+    "VERI_YOK": "Veri alınamadı",
+    "GECERSIZ_VERI": "Veri geçersiz",
+    "GECERSIZ_OHLC": "Fiyat verisi tutarsız (açılış/yüksek/düşük/kapanış)",
+    "CELISKILI_TEKRAR": "Aynı mum için çelişkili kayıtlar var",
+    "KARISIK_KAYNAK": "Fiyat geçmişi farklı kaynaklardan karışmış",
+    "YETERSIZ_GECMIS": "Karar için yeterli fiyat geçmişi yok",
+    "BILESEN_HAZIR_DEGIL": "Karar bileşeni hazır değil",
+    "YENI_VERI_BEKLENIYOR": "Yeni günlük mumun yayımlanması bekleniyor",
+    "ESKI_VERI": "Veri güncel değil",
+    "ESKI_KARAR": "Gösterilen karar güncel değil",
+    "ESKI_TEYITSIZ": "Teyitsiz eski karar",
+    "V1_DOGRULANMADI": "Bu varlık/periyot için karar kuralları doğrulanmadı",
+    "POZISYON_BILINMIYOR": "Pozisyon durumu bilinmiyor",
+    "GECERSIZ_POZISYON": "Pozisyon kaydı geçersiz",
+    "GUNCEL_RISK_DEGERLENDIRILEMIYOR": "Güncel risk değerlendirilemiyor",
+    "SONRAKI_MUM_BEKLENIYOR": "İşlem, sonraki mumun açılışında yapılır; bekleniyor",
+    "SIRA_BILINMIYOR": "Aynı mumda stop ile hedefin sırası bilinmiyor",
+    "SABIT_STOP_SAT": "Stop sabit; önerilen seviye yalnız bilgidir",
+    "KOMISYON_BILINMIYOR": "Komisyon bilinmiyor; sonuç brüt, net doğrulanmadı",
+    "NAKIT_YETERLILIGI_DOGRULANMADI": "Nakit yeterliliği doğrulanmadı",
+    "MAKAS_BILINMIYOR": "Alış-satış farkı (makas) bilinmiyor",
+    "KAYMA_BILINMIYOR": "Kayma bilinmiyor",
+    "MALIYET_BILINMIYOR": "İşlem maliyeti bilinmiyor",
+    "GECERSIZ_MALIYET": "İşlem maliyeti geçersiz",
+    "SONLU_OLMAYAN_MALIYET": "İşlem maliyeti sayı değil",
+    "GECERSIZ_KOMISYON": "Komisyon geçersiz",
+    "GECERSIZ_TEPKI_SURESI": "Tepki süresi geçersiz",
+    "GECERSIZ_STOP": "Stop seviyesi geçersiz",
+    "GECERSIZ_GERCEKLESME_FIYATI": "Gerçekleşme fiyatı geçersiz",
+    "MIKTAR_ADIMI_BILINMIYOR": "Miktar adımı bilinmiyor; alım yapılmadı",
+    "ASGARI_MIKTAR": "Miktar asgari işlem miktarının altında",
+    "ASGARI_TUTAR": "Tutar asgari işlem tutarının altında",
+    "YETERSIZ_NAKIT": "Nakit yetersiz",
+    "ZORUNLU_ALAN_EKSIK": "Zorunlu alan eksik",
+    "TURETILMIS_OHLC": "Fiyat serisi türetilmiş; stop simülasyonu doğrulanmadı",
+    "BILESEN_YOK": "Karar bileşeni hesaplanamadı; yeni işlem sinyali yok",
+}
+
+COMPONENT_TEXT = {
+    "trend": "trend", "momentum": "momentum", "volatility": "volatilite",
+    "volume": "hacim", "regime": "rejim filtresi", "pattern": "formasyon",
+    "ml": "yapay zekâ (ML)", "advanced": "gelişmiş analiz",
+}
+
+GENERIC_CODE_TEXT = "Durum doğrulanamadı"
+
+
+def describe_code(code, components=()):
+    """Makine kodunu Türkçe metne çevirir; bileşen adları varsa sona eklenir."""
+    text = CODE_TEXT.get(str(code), GENERIC_CODE_TEXT)
+    if components:
+        names = ", ".join(COMPONENT_TEXT.get(c, str(c)) for c in components)
+        text = f"{text}: {names}"
+    return text
+
+
 def _display_decimal(value):
     return format(Decimal(value), "f")
 
