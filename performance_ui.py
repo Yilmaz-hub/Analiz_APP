@@ -43,20 +43,22 @@ def _pct(value: Decimal | None) -> str:
     return NOT_COMPUTABLE if value is None else f"%{value.quantize(_CENT, ROUND_HALF_EVEN)}"
 
 
+def _amount(value: Decimal | None) -> str:
+    return NOT_COMPUTABLE if value is None else str(value.quantize(_CENT, ROUND_HALF_EVEN))
+
+
 def _money(value: Decimal | None, currency: str) -> str:
-    if value is None:
-        return NOT_COMPUTABLE
-    return f"{value.quantize(_CENT, ROUND_HALF_EVEN)} {currency}"
+    return NOT_COMPUTABLE if value is None else f"{_amount(value)} {currency}"
 
 
-def _bounded(text: str, upper_bound: bool) -> str:
-    return text + " (üst sınır)" if upper_bound and text != NOT_COMPUTABLE else text
+def _label(text: str, upper_bound: bool) -> str:
+    return text + " (üst sınır)" if upper_bound else text
 
 
 def _block(result: CurrencyResult) -> MetricBlock:
     bound = result.is_upper_bound
     notes, warnings = [], []
-    if result.is_upper_bound:
+    if bound:
         text = (f"Maliyet eksik: {result.cost_missing_count} işlemin maliyeti bilinmiyor; "
                 "sonuçlar üst sınırdır, temiz net sonuç değildir.")
         warnings.append(text)
@@ -64,11 +66,10 @@ def _block(result: CurrencyResult) -> MetricBlock:
     return MetricBlock(
         title=result.currency,
         metrics=[
-            ("Net getiri", _bounded(_pct(result.net_return_pct), bound)),
+            (_label("Net getiri", bound), _pct(result.net_return_pct)),
             ("En büyük düşüş", _pct(result.max_drawdown_pct)),
             ("Kapanmış işlem", str(result.closed_count)),
-            ("İşlem başına beklenti",
-             _bounded(_money(result.expectancy, result.currency), bound)),
+            (_label(f"İşlem başına beklenti ({result.currency})", bound), _amount(result.expectancy)),
         ],
         notes=notes,
         warnings=warnings,
@@ -149,6 +150,8 @@ def render_report_view(view: ReportView) -> None:
         st.markdown(f"**{block.title}**")
         for warning in block.warnings:
             st.warning(warning)
-        columns = st.columns(len(block.metrics))
-        for column, (label, value) in zip(columns, block.metrics):
-            column.metric(label, value)
+        # İki sütun: "hesaplanamıyor" gibi uzun metin dar ekranda kesilmesin.
+        for start in range(0, len(block.metrics), 2):
+            pair = block.metrics[start:start + 2]
+            for column, (label, value) in zip(st.columns(2), pair):
+                column.metric(label, value)

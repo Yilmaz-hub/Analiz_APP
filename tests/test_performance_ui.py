@@ -80,7 +80,7 @@ def test_ac78_unmeasurable_metrics_render_as_not_computable():
     view = _view(_equity([0, 500]), [])
     metrics = dict(view.blocks[0].metrics)
     assert metrics["Net getiri"] == "hesaplanamıyor"
-    assert metrics["İşlem başına beklenti"] == "hesaplanamıyor"
+    assert metrics["İşlem başına beklenti (USD)"] == "hesaplanamıyor"
     assert metrics["Kapanmış işlem"] == "0"
 
 
@@ -116,7 +116,8 @@ def test_ac07_rendered_screen_shows_missing_cost_without_click():
     shown = " ".join(str(w.value) for w in at.warning) + " ".join(str(m.value) for m in at.caption)
     assert "maliyet eksik" in shown.lower()
     assert [m.label for m in at.metric] == [
-        "Net getiri", "En büyük düşüş", "Kapanmış işlem", "İşlem başına beklenti"]
+        "Net getiri (üst sınır)", "En büyük düşüş", "Kapanmış işlem",
+        "İşlem başına beklenti (USD) (üst sınır)"]
 
 
 def test_report_from_backtest_uses_daily_equity_and_flags_unknown_costs():
@@ -166,7 +167,7 @@ def test_smoke_backtest_screen_shows_reliable_performance_report(store, monkeypa
     assert not at.exception
     assert "Güvenilir Performans Raporu" in " ".join(str(s.value) for s in at.subheader)
     assert "maliyet eksik" in texts(at).lower()
-    assert {"Net getiri", "En büyük düşüş", "Kapanmış işlem"} <= {m.label for m in at.metric}
+    assert {"Net getiri (üst sınır)", "En büyük düşüş", "Kapanmış işlem"} <= {m.label for m in at.metric}
     assert {"Strateji son sermaye", "Al-tut son sermaye"} <= {m.label for m in at.metric}
 
 
