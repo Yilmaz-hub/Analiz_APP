@@ -6,7 +6,7 @@
 
 **3) Okuması gerekenler.**
 - `AGENTS.md` (açılışta)
-- `../domain.md` — ortak dil / iş kuralları
+- İlgili spec'in **Context → Terimler** bölümü — ortak dil / iş kuralları
 - `../../specs/TEMPLATE.md` — spec şablonu
 - İlgili mevcut spec'ler (`../../specs/`, `../../specs/done/`)
 

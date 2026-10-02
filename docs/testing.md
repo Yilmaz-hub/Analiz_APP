@@ -31,18 +31,11 @@
 
 ## Bu depodaki uygulama (Python / Streamlit)
 
-> Karar: spec 0004, **P3**. Yukarıdaki teknolojiye özgü bölümler (xUnit,
-> `Metot_Durum_BeklenenSonuc`, .NET test projesi ayrımı) ilgisiz bir projeye
-> aittir ve bu depo için **bağlayıcı değildir**.
-
-- Çatı: **pytest** (`requirements-dev.txt`), testler `tests/` altında.
 - Sürekli tümleştirme: `.github/workflows/tests.yml` → `python -m pytest tests/ -v`.
 - Arayüz davranışı gerçek `app.py` üzerinde **`streamlit.testing.v1.AppTest`**
   ile sürülür; ağ kaynakları `monkeypatch` ile taklit edilir.
 - Kayıt deposu testlerde izoledir: `tests/conftest.py` içindeki `store`
   fixture'ı `autouse`'dur, hiçbir test gerçek kullanıcı kayıtlarına dokunamaz.
-- Değişmeyen kurallar: **her kabul kriteri en az bir test**; her arayüz
-  kriterine ekran görüntüsü; kritik akışa smoke test.
 
 ## Genel
 
