@@ -72,3 +72,7 @@ gerçek kayıtların üzerine yazılmasına yol açıyordu — kaybın kendisi b
 ## İşlem günlüğü
 
 `PositionJournal` kalıcı depoya yazar; yerel `position_journal.json` yalnız bir kereliğine içeri alınır (depoda belge yoksa). Okuma ya da çözümleme başarısız olursa `StorageAccessError` yükselir ve **boş günlükle devam edilmez**; arayüz işlem teyidini kapatır, kayıt silinmez. Yazma başarısızsa bellekteki değişiklik geri alınır.
+
+## İşlem varsayımları
+
+Sermaye, işlem tutarı, miktar adımı, makas, kayma ve komisyon `trade_settings` belgesinde varlık başına tutulur (`trade_settings.py`). Geçmiş test ve sanal takip aynı kaydı okur. Boş alan *bilinmiyor*, `0` *açıkça sıfır* demektir; negatif değer kaydedilmez ve değerlendirme başlamaz.

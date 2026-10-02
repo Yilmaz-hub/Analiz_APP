@@ -42,6 +42,7 @@ from logger import logger
 ASSETS_KEY = "assets"
 PORTFOLIO_KEY = "portfolio"
 JOURNAL_KEY = "position_journal"
+TRADE_SETTINGS_KEY = "trade_settings"
 
 DATA_DIR_ENV = "ANALIZ_APP_DATA_DIR"
 DB_URL_ENV = "ANALIZ_APP_DB_URL"

@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 from config import PATTERN_INFO, UIConfig
 import assets
 import storage
+import trade_settings
 from technical_analysis import calculate_sr_advanced, detect_advanced_patterns, calculate_oracle_signal_v2, calculate_trade_setup, get_pattern_status
 from logger import logger
 import theme
@@ -165,6 +166,58 @@ def render_asset_management(coin_map, portfolio_data, storage_ok=True):
                 st.success(msg)
                 time.sleep(0.5)
                 st.rerun()
+
+def render_trade_settings(asset_name, symbol, currency, writable=True):
+    """Tek "İşlem varsayımları" paneli (spec 0003, Q7).
+
+    Geçmiş test ve sanal takip aynı değeri kullanır; kalıcı depoda saklanır.
+    Boş alan = bilinmiyor, 0 = açıkça sıfır. Geçersiz değerde değerlendirme
+    başlamaz. Döner: `trade_settings.ParsedSettings`.
+    """
+    try:
+        saved = trade_settings.load_raw(asset_name)
+        load_ok = True
+    except storage.StorageAccessError:
+        saved, load_ok = {}, False
+
+    fields = (
+        ("capital", f"Başlangıç sermayesi ({currency})", trade_settings.DEFAULT_CAPITAL),
+        ("notional", f"İşlem tutarı ({currency})", trade_settings.DEFAULT_NOTIONAL),
+        ("quantity_step", "Adet/lot adımı (boş = bilinmiyor)", ""),
+        ("spread_bps", "Makas, baz puan (boş = bilinmiyor, 0 = sıfır)", ""),
+        ("slippage_bps", "Kayma, baz puan (boş = bilinmiyor, 0 = sıfır)", ""),
+        ("commission_pct", "Komisyon, % (boş = bilinmiyor, 0 = sıfır)", ""),
+    )
+    with st.expander("⚙️ İşlem varsayımları (geçmiş test ve sanal takip ortak)", expanded=False):
+        st.caption("Aynı varsayımlar hem geçmiş testte hem sanal takipte kullanılır. "
+                   "Boş bırakılan maliyet *bilinmiyor* sayılır ve sıfır maliyet gibi gösterilmez.")
+        if not load_ok:
+            st.warning("Kayıtlı varsayımlar okunamadı; varsayılanlar gösteriliyor, kaydetme kapalı.")
+        values = {}
+        for name, label, default in fields:
+            values[name] = st.text_input(
+                label, value=str(saved.get(name, default)), key=f"ts:{symbol}:{name}")
+        parsed = trade_settings.parse_settings(values)
+        for message in parsed.errors:
+            st.error(message)
+        if parsed.ok:
+            costs = parsed.settings.costs
+            unknown = [text for text, value in (
+                ("makas", costs.spread_bps), ("kayma", costs.slippage_bps),
+                ("komisyon", costs.commission_pct)) if value is None]
+            if unknown:
+                st.caption("Bilinmeyen: " + ", ".join(unknown) + " — ilgili etki hesaplanmadı.")
+            if parsed.settings.quantity_step is None:
+                st.caption("Adet/lot adımı bilinmediği için alım yapılmaz; bilgiyi girince işlem açılır.")
+        if st.button("💾 Varsayımları Kaydet", key=f"ts:{symbol}:save",
+                     disabled=not (parsed.ok and writable and load_ok)):
+            try:
+                trade_settings.save_raw(asset_name, values)
+                st.success("İşlem varsayımları kaydedildi.")
+            except storage.StorageAccessError:
+                st.error("Kayıtlara şu anda erişilemiyor; varsayımlar kaydedilmedi.")
+    return parsed
+
 
 def render_main_chart(df_view, view_tf, curr, f_dates, f_prices, ai_score, show_cloud, show_pred, show_ai, show_all_pats, f_wm, f_candle, f_advanced, items_raw, lines, mobile=False):
     fig = go.Figure()

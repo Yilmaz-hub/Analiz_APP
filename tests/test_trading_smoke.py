@@ -99,8 +99,8 @@ def test_paper_signal_executes_at_next_open_and_uses_decision_atr():
 
     advance_pending_daily_decision(book, bar)
 
-    assert book["position"]["entry"] == 100.0
-    assert book["position"]["sl"] == 90.0
+    assert Decimal(book["position"]["entry"]) == Decimal("100")
+    assert Decimal(book["position"]["sl"]) == Decimal("90")
     assert book["position"]["entry_date"] == "2026-09-10"
 
 
@@ -153,7 +153,9 @@ def test_v1_backtest_uses_next_open_fixed_stop_and_ignores_target():
     }, index=index)
     decisions = {index[0]: "AL", index[1]: "BEKLE", index[2]: "SAT"}
 
-    result = run_v1_strategy_backtest(frame, decisions, initial_cash=Decimal("1000"), trade_notional=Decimal("1000"))
+    result = run_v1_strategy_backtest(
+        frame, decisions, initial_cash=Decimal("1000"), trade_notional=Decimal("1000"),
+        quantity_step=Decimal("0.00000001"))
 
     assert result["trades"] == [{
         "entry_at": index[1], "entry": "100", "exit_at": index[3], "exit": "120",
@@ -175,7 +177,8 @@ def test_v1_backtest_waits_two_completed_bars_after_loss():
     decisions = {index[0]: "AL", index[2]: "AL", index[3]: "AL", index[4]: "AL"}
 
     result = run_v1_strategy_backtest(
-        frame, decisions, initial_cash=Decimal("2000"), trade_notional=Decimal("1000")
+        frame, decisions, initial_cash=Decimal("2000"), trade_notional=Decimal("1000"),
+        quantity_step=Decimal("0.00000001"),
     )
 
     assert result["trades"][0]["reason"] == "STOP"

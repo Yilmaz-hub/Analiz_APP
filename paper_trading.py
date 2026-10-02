@@ -24,10 +24,15 @@ and print the report (this is what the Windows scheduled task calls).
 import json
 import os
 from copy import deepcopy
-from decimal import Decimal, ROUND_FLOOR
+from datetime import datetime
+from decimal import Decimal
 import pandas as pd
 from config import FileConfig, BacktestConfig, DecisionEngineConfig
 from logger import logger
+from trade_decisions import LOSS_COOLDOWN_BARS
+from trade_execution import (
+    Bar, BookState, CostAssumptions, OpenPosition, TradeSettings, advance_daily_bar,
+)
 
 PER_ASSET_BALANCE = 10000.0
 # Daily-timeframe execution params — read from the same shared source as
@@ -38,7 +43,7 @@ SL_MULT = _DAILY_PARAMS["sl_mult"]
 TP_MULT = _DAILY_PARAMS["tp_mult"]
 TRAIL_BREAKEVEN = _DAILY_PARAMS["trail_breakeven"]
 TRAIL_LOCK_PCT = _DAILY_PARAMS["trail_lock_pct"]
-COOLDOWN_BARS = _DAILY_PARAMS["cooldown_bars"]
+COOLDOWN_BARS = LOSS_COOLDOWN_BARS  # ortak kural: trade_decisions.LOSS_COOLDOWN_BARS
 BILESEN_YOK = "BILESEN_YOK"  # zorunlu bileşen hesaplanamadı: yeni AL/SAT yok
 MAX_BACKFILL = 10  # ML makes replay slow; cap catch-up bars per asset
 
@@ -90,81 +95,86 @@ def _save_state(state):
 
 
 def _blank_book(capital=PER_ASSET_BALANCE):
-    return {"balance": float(capital), "initial_balance": float(capital),
+    return {"balance": str(Decimal(str(capital))), "initial_balance": str(Decimal(str(capital))),
             "position": None, "cooldown": 0,
             "trades": [], "last_date": None, "first_price": None,
             "pending": None, "quantity_step": None,
-            "trade_notional": 1000.0, "currency": "USD/USDT"}
+            "trade_notional": 1000.0, "currency": "USD/USDT",
+            "costs": {"spread_bps": None, "slippage_bps": None, "commission_pct": None},
+            "last_block": None}
+
+
+def _book_settings(book):
+    """Sanal defterin işlem varsayımları; eksik/bilinmeyen alan None kalır."""
+    def optional(value):
+        return None if value in (None, "") else Decimal(str(value))
+
+    costs = book.get("costs") or {}
+    return TradeSettings(
+        Decimal(str(book.get("trade_notional", 1000.0))),
+        optional(book.get("quantity_step")),
+        CostAssumptions(optional(costs.get("spread_bps")), optional(costs.get("slippage_bps")),
+                        optional(costs.get("commission_pct"))),
+    )
+
+
+def _bar_time(day):
+    return datetime.fromisoformat(str(day))
 
 
 def advance_pending_daily_decision(book, bar):
-    """Execute a prior closed-bar decision at this bar's open, then check its stop."""
+    """Önceki kapanmış mumun kararını bu mumun açılışında uygular, stopunu sınar.
+
+    Geçmiş testle aynı ortak motoru kullanır (`trade_execution.advance_daily_bar`);
+    komisyon, makas, kayma, miktar adımı ve zarar sonrası bekleme kullanıcı
+    varsayımlarından gelir, gizli bir oran yoktur (Q1/Q7).
+    """
     pending = book.get("pending")
     if not pending or str(bar["date"]) <= str(pending["known_at"]):
         return False
 
-    verdict = str(pending["verdict"])
-    opening = Decimal(str(bar["open"]))
-    low = Decimal(str(bar["low"]))
-    fee_rate = Decimal(str(BacktestConfig.FEE_RATE))
-    position = book.get("position")
-    changed = False
+    settings = _book_settings(book)
+    raw = book.get("position")
+    position = None
+    if raw is not None:
+        position = OpenPosition(
+            _bar_time(raw["entry_date"]), Decimal(str(raw["entry"])), Decimal(str(raw["qty"])),
+            Decimal(str(raw["cost"])), Decimal(str(raw.get("entry_fee", "0"))),
+            Decimal(str(raw["sl"])),
+        )
+    state = BookState(Decimal(str(book["balance"])), position, int(book.get("cooldown", 0)))
+    at = _bar_time(bar["date"])
+    trade_bar = Bar(at, Decimal(str(bar["open"])), Decimal(str(bar["high"])),
+                    Decimal(str(bar["low"])), Decimal(str(bar["close"])))
+    atr = Decimal(str(pending["atr"]))
+    step = advance_daily_bar(state, trade_bar, str(pending["verdict"]),
+                             atr if atr.is_finite() else None, settings)
 
-    def close(price, reason):
-        nonlocal changed
-        pos = book["position"]
-        exit_price = Decimal(str(price))
-        quantity = Decimal(str(pos["qty"]))
-        proceeds = quantity * exit_price * (Decimal("1") - fee_rate)
-        cost = Decimal(str(pos["cost"]))
-        pnl = proceeds - cost
-        book["balance"] = float(Decimal(str(book["balance"])) + proceeds)
+    for item in step.trades:
+        invested = item.entry * item.quantity
         book["trades"].append({
-            "entry": pos["entry"], "exit": float(exit_price),
-            "entry_date": pos["entry_date"], "exit_date": str(bar["date"]),
-            "pnl": round(float(pnl), 2),
-            "pnl_pct": round(float(pnl / cost * Decimal("100")), 2),
-            "reason": reason,
+            "entry": str(item.entry), "exit": str(item.exit),
+            "entry_date": item.entry_at.date().isoformat(), "exit_date": str(bar["date"]),
+            "qty": str(item.quantity), "pnl": str(item.pnl),
+            "pnl_pct": str((item.pnl / invested * Decimal("100")).quantize(Decimal("0.01")))
+            if invested else "0.00",
+            "reason": item.reason, "net_verified": item.net_verified,
+            "provisional": item.provisional,
         })
-        if pnl < 0:
-            book["cooldown"] = COOLDOWN_BARS
-        book["position"] = None
-        changed = True
-
-    if position is not None:
-        stop = Decimal(str(position["sl"]))
-        if opening <= stop:
-            close(opening, "STOP")
-        elif "SAT" in verdict:
-            close(opening, "SAT")
-        elif low <= stop:
-            close(stop, "STOP")
-    elif book.get("cooldown", 0) > 0:
-        book["cooldown"] -= 1
-    elif "AL" in verdict:
-        atr = Decimal(str(pending["atr"]))
-        stop = opening - Decimal("2.5") * atr
-        step_value = book.get("quantity_step")
-        if stop > 0 and step_value is not None and Decimal(str(step_value)) > 0:
-            step = Decimal(str(step_value))
-            notional = Decimal(str(book.get("trade_notional", 1000.0)))
-            quantity = ((notional / opening) / step).to_integral_value(rounding=ROUND_FLOOR) * step
-            spent = quantity * opening
-            fee = spent * fee_rate
-            cash = Decimal(str(book["balance"]))
-            if quantity > 0 and spent + fee <= cash:
-                book["balance"] = float(cash - spent - fee)
-                book["position"] = {
-                    "entry": float(opening), "entry_date": str(bar["date"]),
-                    "qty": float(quantity), "cost": float(spent + fee),
-                    "highest": float(opening), "sl": float(stop), "tp": None,
-                }
-                changed = True
-                if low <= stop:
-                    close(stop, "STOP")
-
+    book["balance"] = str(state.cash)
+    book["cooldown"] = state.cooldown
+    open_position = state.position
+    book["position"] = None if open_position is None else {
+        "entry": str(open_position.entry), "entry_date": open_position.entry_at.date().isoformat(),
+        "qty": str(open_position.quantity), "cost": str(open_position.cost),
+        "entry_fee": str(open_position.entry_fee), "sl": str(open_position.stop), "tp": None,
+    }
+    if step.blocked:
+        book["last_block"] = step.blocked      # alım neden yapılmadı (AC102 görünürlüğü)
+    elif step.opened:
+        book["last_block"] = None
     book["pending"] = None
-    return changed
+    return bool(step.trades or step.opened)
 
 
 def _step_book(book, verdict, price, atr, date_str):
@@ -237,15 +247,21 @@ def run_paper_update(coin_map, source_pref="Binance", progress_callback=None, pa
                 continue
 
             asset_settings = (paper_settings or {}).get(name, {})
-            capital = float(asset_settings.get("capital", PER_ASSET_BALANCE))
+            capital = Decimal(str(asset_settings.get("capital", PER_ASSET_BALANCE)))
             book = state["assets"].setdefault(name, _blank_book(capital))
             for key, value in _blank_book().items():
                 book.setdefault(key, deepcopy(value))
             if asset_settings:
-                book["trade_notional"] = float(asset_settings.get("trade_notional", book["trade_notional"]))
+                book["trade_notional"] = str(asset_settings.get("trade_notional", book["trade_notional"]))
                 book["currency"] = str(asset_settings.get("currency", book["currency"]))
                 quantity_step = asset_settings.get("quantity_step")
-                book["quantity_step"] = None if quantity_step in (None, "") else float(quantity_step)
+                book["quantity_step"] = None if quantity_step in (None, "") else str(quantity_step)
+                # Maliyet varsayımları geçmiş testle aynı kullanıcı ayarından gelir.
+                # Boş = bilinmiyor; 0 = açıkça sıfır (Q7).
+                book["costs"] = {
+                    key: None if asset_settings.get(key) in (None, "") else str(asset_settings[key])
+                    for key in ("spread_bps", "slippage_bps", "commission_pct")
+                }
             closed = validation.usable
 
             # Which closed bars still need recording?
@@ -307,16 +323,18 @@ def paper_report():
     for name, book in state["assets"].items():
         lp = last_price.get(name, 0.0)
         pos = book["position"]
-        pos_value = pos["qty"] * lp if pos else 0.0
-        equity = book["balance"] + pos_value
-        initial_balance = float(book.get("initial_balance", PER_ASSET_BALANCE))
-        ret = (equity / initial_balance - 1) * 100
+        pos_value = Decimal(str(pos["qty"])) * Decimal(str(lp)) if pos else Decimal("0")
+        equity = Decimal(str(book["balance"])) + pos_value
+        initial_balance = Decimal(str(book.get("initial_balance", PER_ASSET_BALANCE)))
+        ret = float((equity / initial_balance - 1) * 100)
+        net_verified = (book.get("costs") or {}).get("commission_pct") is not None
         bh = (lp / book["first_price"] - 1) * 100 if book.get("first_price") else 0.0
         days = sum(1 for j in state["journal"] if j["asset"] == name)
         rows.append({
             "Varlık": name, "Gün": days, "İşlem": len(book["trades"]),
             "Pozisyon": "LONG" if pos else "-",
-            "Bakiye": round(equity, 2), "Para Birimi": book.get("currency", "USD/USDT"),
+            "Bakiye": round(float(equity), 2), "Para Birimi": book.get("currency", "USD/USDT"),
+            "Net Doğrulandı": "Evet" if net_verified else "Hayır (komisyon bilinmiyor)",
             "Getiri (%)": round(ret, 2),
             "Al&Tut (%)": round(bh, 2),
         })

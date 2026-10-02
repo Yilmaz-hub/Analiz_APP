@@ -23,7 +23,7 @@ from portfolio import (load_portfolio, save_portfolio, reset_portfolio, validate
                        check_active_positions_auto_close, multi_timeframe_confirmation)
 from ui_components import (render_sidebar_settings, render_asset_management, render_main_chart,
                            is_chart_renderable, is_mobile_mode, is_empty_data_reason,
-                           render_records_status, render_no_records_state)
+                           render_records_status, render_no_records_state, render_trade_settings)
 from scanner import render_opportunity_scanner
 from data_fetchers import get_live_price_for_portfolio
 from signal_engine import generate_stable_signal, generate_validated_signal, CompositeSignal, invalid_data_signal
@@ -497,12 +497,16 @@ if is_chart_renderable(df_view):
             st.markdown(theme.analysis_card("📐 Piyasa Yapısı", rows, ms["signal"], ms["description"], badges), unsafe_allow_html=True)
 
 
+    # --- İŞLEM VARSAYIMLARI (geçmiş test + sanal takip ortak) ---
+    paper_currency = "TRY" if symbol.endswith(".IS") or symbol == "GRAM_TRY" else "USD/USDT"
+    trade_parsed = render_trade_settings(sel_c, symbol, paper_currency, records_writable)
+
     # --- BACKTEST ---
     if df_view is not None:
         st.divider()
         with st.expander("📊 Backtest: Strateji Performansı", expanded=False):
             st.info("Günlük V1 testi; ML dahil kapanmış mum kararını sonraki açılışta uygular, 2,5 ATR başlangıç stopunu sabit tutar ve hedef/otomatik iz süren stopla satış yapmaz.")
-            if st.button("🚀 Backtest Başlat"):
+            if st.button("🚀 Backtest Başlat", disabled=view_tf == "1d" and not trade_parsed.ok):
                 with st.spinner("Backtest çalışıyor..."):
                     import plotly.graph_objects as go
                     tuned_weights = get_weights_for_symbol(symbol) if view_tf == "1d" else None
@@ -511,8 +515,10 @@ if is_chart_renderable(df_view):
                     if view_tf == "1d":
                         v1_decisions = build_v1_decisions(df_view, weights=tuned_weights, include_ml=True)
                         bt_results = run_v1_strategy_backtest(
-                            df_view, v1_decisions, initial_cash=Decimal("10000"),
-                            trade_notional=Decimal("1000"),
+                            df_view, v1_decisions, initial_cash=trade_parsed.capital,
+                            trade_notional=trade_parsed.settings.notional,
+                            quantity_step=trade_parsed.settings.quantity_step,
+                            costs=trade_parsed.settings.costs,
                         )
                     else:
                         st.warning("Bu zaman aralığı V1 kapsamı dışında; sonuç araştırma amaçlıdır.")
@@ -526,6 +532,13 @@ if is_chart_renderable(df_view):
                     if bt_results is None:
                         st.warning("Yeterli işlem oluşmadı. Daha uzun veri gerekebilir.")
                     else:
+                        if view_tf == "1d":
+                            if not bt_results["net_verified"]:
+                                st.warning("Komisyon bilinmiyor: sonuç brüt modeldir, doğrulanmış net sonuç değildir.")
+                            if not bt_results["spread_known"] or not bt_results["slippage_known"]:
+                                st.caption("Makas veya kayma bilinmiyor; ilgili etki hesaplanmadı (sıfır maliyet değildir).")
+                            for reason, count in bt_results["blocked"].items():
+                                st.warning(f"{count} alım yapılmadı: {describe_code(reason)}")
                         if tuned_weights and view_tf != "1d":
                             st.caption("🎯 Bu varlık sınıfı için ayarlanmış ağırlıklar kullanılıyor.")
                             bt_default = run_strategy_backtest(df_view, initial_balance=10000, timeframe=view_tf, weights=None)
@@ -572,29 +585,19 @@ if is_chart_renderable(df_view):
                 "sanal işlem yapar. Birkaç hafta sonra gerçek davranış ile backtest beklentisi "
                 "karşılaştırılır. Günlük otomatik görev kuruluysa buton sadece kontrol içindir.")
         from paper_trading import run_paper_update, paper_report
-        paper_currency = "TRY" if symbol.endswith(".IS") or symbol == "GRAM_TRY" else "USD/USDT"
-        paper_capital = st.number_input(
-            f"Sanal başlangıç sermayesi ({paper_currency})", min_value=0.01,
-            value=10000.0, step=100.0, key=f"paper-capital:{symbol}",
-        )
-        paper_notional = st.number_input(
-            f"Sanal işlem tutarı ({paper_currency})", min_value=0.01,
-            value=1000.0, step=100.0, key=f"paper-notional:{symbol}",
-        )
-        paper_quantity_step = st.number_input(
-            "Kurumun adet/lot adımı (bilinmiyorsa 0)", min_value=0.0,
-            value=0.0, step=0.00000001, format="%.8f", key=f"paper-step:{symbol}",
-        )
-        if paper_quantity_step == 0:
-            st.caption("Adet/lot adımı bilinmediği için sanal girişler bekler; bu bilgi sonradan girilebilir.")
-        if st.button("📸 Bugünü Kaydet / Güncelle"):
+        st.caption("Sermaye, tutar, adım ve maliyetler yukarıdaki **İşlem varsayımları** panelinden gelir.")
+        if st.button("📸 Bugünü Kaydet / Güncelle", disabled=not trade_parsed.ok):
             pp_bar = st.progress(0.0)
             pp_txt = st.empty()
             paper_selection = {sel_c: symbol}
+            paper_costs = trade_parsed.settings.costs
             paper_settings = {sel_c: {
-                "capital": paper_capital,
-                "trade_notional": paper_notional,
-                "quantity_step": paper_quantity_step or None,
+                "capital": trade_parsed.capital,
+                "trade_notional": trade_parsed.settings.notional,
+                "quantity_step": trade_parsed.settings.quantity_step,
+                "spread_bps": paper_costs.spread_bps,
+                "slippage_bps": paper_costs.slippage_bps,
+                "commission_pct": paper_costs.commission_pct,
                 "currency": paper_currency,
             }}
             status = run_paper_update(
