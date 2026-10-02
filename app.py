@@ -112,12 +112,24 @@ if st.session_state.get('records_loaded'):
 records_writable = st.session_state.get('storage_ok', True)
 
 # Spec 0003'ün işlem günlüğü; kayıtları kendi dosyasında tutar.
-if 'position_journal' not in st.session_state:
-    st.session_state['position_journal'] = PositionJournal(FileConfig.TRADING_JOURNAL_FILE)
+# Günlük kalıcı depoda tutulur (Q13); okunamazsa boş günlükle devam edilmez, işlem
+# günlüğü gerektiren kontroller kapanır.
+journal_error = None
+if st.session_state.get('position_journal') is None:
+    try:
+        st.session_state['position_journal'] = PositionJournal()
+    except StorageAccessError as e:
+        logger.error(f"Position journal unavailable: {e}")
+        st.session_state['position_journal'] = None
+        journal_error = "İşlem günlüğü okunamadı; işlem teyidi kapalı. Kayıtlarınız silinmedi."
+journal_ready = st.session_state.get('position_journal') is not None
+records_writable = records_writable and journal_ready
 
 # --- ARAYÜZ (SIDEBAR) ---
 tg_token, tg_chat = render_sidebar_settings()
 render_records_status(st.session_state.get('storage_ok', True), st.session_state.get('storage_msg', ''))
+if journal_error:
+    st.sidebar.error(journal_error)
 render_asset_management(st.session_state['coin_map'], st.session_state['portfolio_data'],
                         st.session_state.get('storage_ok', True))
 
@@ -642,10 +654,17 @@ if is_chart_renderable(df_view):
                     quantity = Decimal(str(investment)) / Decimal(str(entry_price))
                     event_id = f"{sel_c}:BUY:{executed_at.isoformat()}"
                     if not is_limit:
-                        st.session_state['position_journal'].confirm_trade(
-                            event_id, "BUY", quantity, Decimal(str(entry_price)),
-                            executed_at, datetime.now(timezone.utc), fee=None, symbol=symbol,
-                        )
+                        try:
+                            st.session_state['position_journal'].confirm_trade(
+                                event_id, "BUY", quantity, Decimal(str(entry_price)),
+                                executed_at, datetime.now(timezone.utc), fee=None, symbol=symbol,
+                            )
+                        except StorageAccessError as e:
+                            logger.error(f"Journal write blocked: {e}")
+                            if use_balance:
+                                st.session_state['portfolio_data']['balance'] += investment
+                            st.error("İşlem günlüğüne yazılamadı; işlem kaydedilmedi.")
+                            st.stop()
                     st.session_state['portfolio_data']['positions'].append({
                         "Coin": sel_c, "Giriş": entry_price, "Adet": investment / entry_price,
                         "Yatırım": investment, "Realized": 0.0,
@@ -743,11 +762,16 @@ if is_chart_renderable(df_view):
                         if st.button("Satışı Onayla", disabled=not records_writable):
                             executed_at = datetime.now(timezone.utc)
                             event_id = f"{s_coin}:SELL:{executed_at.isoformat()}"
-                            st.session_state['position_journal'].confirm_trade(
-                                event_id, "SELL", Decimal(str(sell_amt)), Decimal(str(sell_price)),
-                                executed_at, datetime.now(timezone.utc), fee=None,
-                                symbol=st.session_state['coin_map'].get(s_coin, s_coin),
-                            )
+                            try:
+                                st.session_state['position_journal'].confirm_trade(
+                                    event_id, "SELL", Decimal(str(sell_amt)), Decimal(str(sell_price)),
+                                    executed_at, datetime.now(timezone.utc), fee=None,
+                                    symbol=st.session_state['coin_map'].get(s_coin, s_coin),
+                                )
+                            except StorageAccessError as e:
+                                logger.error(f"Journal write blocked: {e}")
+                                st.error("İşlem günlüğüne yazılamadı; işlem kaydedilmedi.")
+                                st.stop()
                             st.session_state['portfolio_data']['balance'] += total_return
                             cost_basis = float(target_pos.get('Giriş', 0.0)) * float(sell_amt)
                             target_pos['Adet'] = float(target_pos.get('Adet', 0.0)) - float(sell_amt)

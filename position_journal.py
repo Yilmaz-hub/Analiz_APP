@@ -1,8 +1,16 @@
-import json
+"""Gerçek işlem günlüğü (spec 0003).
+
+Günlük kalıcı kayıt deposunda (`storage`) tutulur; yerel dosyaya yazılmaz, çünkü
+yayın ortamının diski kalıcı değildir (Q13 / spec 0004). Okuma başarısız olursa
+`StorageAccessError` yükselir: boş günlükle devam etmek, bir sonraki yazmada
+gerçek işlemlerin üzerine yazılmasına yol açardı.
+"""
 from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
-from pathlib import Path
+
+import storage
+from storage import StorageAccessError
 
 
 @dataclass(frozen=True)
@@ -39,8 +47,8 @@ class LegacyRecord:
 
 
 class PositionJournal:
-    def __init__(self, path):
-        self.path = Path(path)
+    def __init__(self, key=storage.JOURNAL_KEY):
+        self.key = key
         self.trades = []
         self.paper_trades = []
         self.legacy_records = []
@@ -49,8 +57,12 @@ class PositionJournal:
         self.cooldown_bars = 0
         self.verified_real_pnl = Decimal("0")
         self._paper_spread = None
-        if self.path.exists():
-            self._load()
+        payload = storage.read_doc(self.key)  # erişilemezse StorageAccessError
+        if payload is not None:
+            try:
+                self._load(payload)
+            except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+                raise StorageAccessError("İşlem günlüğü okunamadı.") from exc
 
     def apply_signal(self, signal):
         return False
@@ -61,13 +73,14 @@ class PositionJournal:
             return False
         trade = Trade(event_id, side, quantity, price, executed_at, recorded_at,
                       None if fee is None else Decimal(fee), str(symbol))
+        snapshot = self._snapshot()
         self.trades.append(trade)
         if side == "BUY":
             self.positions[trade.symbol] = RealPosition(quantity, price, executed_at)
         elif side == "SELL":
             self.positions.pop(trade.symbol, None)
         self.position = self.positions.get("")
-        self._save()
+        self._save_or_restore(snapshot)
         return True
 
     def correct_trade(self, event_id, **changes):
@@ -75,9 +88,10 @@ class PositionJournal:
             if trade.event_id == event_id:
                 normalized = {key: Decimal(value) if key in {"quantity", "price", "fee"} else value
                               for key, value in changes.items()}
+                snapshot = self._snapshot()
                 self.trades[index] = replace(trade, **normalized)
                 self._rebuild_positions()
-                self._save()
+                self._save_or_restore(snapshot)
                 return True
         return False
 
@@ -92,8 +106,9 @@ class PositionJournal:
         return self.correct_trade(event_id, fee=fee)
 
     def set_cooldown(self, bars):
+        snapshot = self._snapshot()
         self.cooldown_bars = int(bars)
-        self._save()
+        self._save_or_restore(snapshot)
 
     def set_paper_quantity_step(self, step):
         self._paper_quantity_step = Decimal(step)
@@ -106,8 +121,18 @@ class PositionJournal:
             LegacyRecord(str(item.get("id", "")), "ESKI_TEYITSIZ") for item in records
         )
 
+    def _snapshot(self):
+        return (list(self.trades), dict(self.positions), self.position, self.cooldown_bars)
+
+    def _save_or_restore(self, snapshot):
+        """Yazma başarısızsa bellek son kayıtlı duruma döner ve hata yükselir."""
+        try:
+            self._save()
+        except StorageAccessError:
+            self.trades, self.positions, self.position, self.cooldown_bars = snapshot
+            raise
+
     def _save(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "trades": [{
                 "event_id": t.event_id, "side": t.side, "quantity": str(t.quantity),
@@ -118,12 +143,9 @@ class PositionJournal:
             } for t in self.trades],
             "cooldown_bars": self.cooldown_bars,
         }
-        temporary = self.path.with_suffix(self.path.suffix + ".tmp")
-        temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        temporary.replace(self.path)
+        storage.write_doc(self.key, payload)
 
-    def _load(self):
-        payload = json.loads(self.path.read_text(encoding="utf-8"))
+    def _load(self, payload):
         self.trades = [Trade(
             item["event_id"], item["side"], Decimal(item["quantity"]), Decimal(item["price"]),
             datetime.fromisoformat(item["executed_at"]), datetime.fromisoformat(item["recorded_at"]),

@@ -10,7 +10,7 @@ RECORDED_AT = datetime(2026, 9, 10, 8, tzinfo=UTC)
 
 
 def _journal(tmp_path):
-    return PositionJournal(tmp_path / "journal.json")
+    return PositionJournal()
 
 
 def _buy(journal, event_id="buy-1", fee=None):
@@ -92,8 +92,8 @@ def test_invalid_confirmation_is_rejected(tmp_path):
 
 
 def test_journal_survives_restart(tmp_path):
-    path = tmp_path / "journal.json"; first = PositionJournal(path); _buy(first)
-    second = PositionJournal(path)
+    first = PositionJournal(); _buy(first)
+    second = PositionJournal()
     assert second.position.quantity == Decimal("2") and second.trades[0].executed_at == TRADE_AT
 
 
@@ -103,7 +103,7 @@ def test_real_positions_are_kept_separate_by_asset(tmp_path):
     journal.confirm_trade("xau-buy", "BUY", Decimal("1"), Decimal("2000"), TRADE_AT, RECORDED_AT, symbol="XAU_GOLD")
     journal.confirm_trade("eth-sell", "SELL", Decimal("2"), Decimal("110"), TRADE_AT, RECORDED_AT, symbol="ETH/USD")
 
-    restarted = PositionJournal(journal.path)
+    restarted = PositionJournal()
 
     assert "ETH/USD" not in restarted.positions
     assert restarted.positions["XAU_GOLD"].entry_price == Decimal("2000")
