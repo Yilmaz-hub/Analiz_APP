@@ -37,6 +37,7 @@ from advanced_analysis import detect_elliott_wave, analyze_ichimoku, detect_wyck
 from position_journal import PositionJournal
 from trade_decisions import Position, PositionState, Signal
 from trade_decisions import initial_stop
+from trade_confirmation import confirm_buy, confirm_sell, istanbul_to_utc, reconcile
 from trading_ui import (PanelInput, bars_since_loss_exit, build_decision_panel, describe_code,
                         format_decision_time, resolve_decision_time)
 import theme
@@ -125,6 +126,14 @@ if st.session_state.get('position_journal') is None:
         journal_error = "İşlem günlüğü okunamadı; işlem teyidi kapalı. Kayıtlarınız silinmedi."
 journal_ready = st.session_state.get('position_journal') is not None
 records_writable = records_writable and journal_ready
+# Portföy yazıldı ama günlük yazımı koptuysa yarım kalan işlem bir kereliğine tamamlanır (Q3).
+if journal_ready and st.session_state.get('portfolio_data') and not st.session_state.get('journal_reconciled'):
+    try:
+        reconcile(st.session_state['portfolio_data'], st.session_state['position_journal'],
+                  st.session_state.get('coin_map', {}))
+        st.session_state['journal_reconciled'] = True
+    except StorageAccessError as e:
+        logger.error(f"Journal reconcile blocked: {e}")
 
 # --- ARAYÜZ (SIDEBAR) ---
 tg_token, tg_chat = render_sidebar_settings()
@@ -636,8 +645,15 @@ if is_chart_renderable(df_view):
 
     with col_risk:
         st.subheader("🧮 Emir Gir")
-        entry_price = st.number_input("Giriş Fiyatı ($)", value=float(curr), step=0.01, format="%.4f")
-        investment = st.number_input("İşlem Tutarı ($)", value=1000.0, step=100.0)
+        entry_price = st.number_input("Giriş Fiyatı ($)", value=float(curr), step=0.01, format="%.4f", key="buy_price")
+        buy_quantity = st.number_input(
+            "Gerçekleşen miktar (adet)", min_value=0.0, value=round(1000.0 / float(curr), 8) if curr else 0.0,
+            step=0.00000001, format="%.8f", key="buy_qty")
+        investment = float(Decimal(str(buy_quantity)) * Decimal(str(entry_price)))
+        st.caption(f"İşlem tutarı: ${investment:,.2f}")
+        buy_now_tr = datetime.now(ZoneInfo("Europe/Istanbul"))
+        buy_date = st.date_input("İşlem tarihi (İstanbul)", value=buy_now_tr.date(), key="buy_date")
+        buy_time = st.time_input("İşlem saati (İstanbul)", value=buy_now_tr.time().replace(microsecond=0), key="buy_time")
         is_limit = st.checkbox("⏳ Limit Emir", value=False)
         use_balance = st.checkbox(f"🏦 Bakiyeden Kullan (${current_balance:,.2f})", value=True)
         atr_val = current_atr if 'current_atr' in locals() else entry_price*0.02
@@ -654,44 +670,25 @@ if is_chart_renderable(df_view):
 
         if st.button("➕ Emri Gir / Ekle", disabled=not records_writable):
             is_valid, risk_msg = validate_portfolio_risk(investment, current_balance, st.session_state['portfolio_data']['positions'])
-            if stop_default is None or Decimal(str(stop_input)) <= 0 or Decimal(str(stop_input)) >= Decimal(str(entry_price)):
-                st.error("Başlangıç stopu pozitif ve giriş fiyatının altında olmalıdır.")
-            elif not is_valid: st.error(risk_msg)
+            if not is_valid:
+                st.error(risk_msg)
             else:
-                proceed = True
-                if use_balance:
-                    if investment > current_balance: st.error("Yetersiz Bakiye! Lütfen Bakiye Düzenle kısmından para ekleyin."); proceed = False
-                    else: st.session_state['portfolio_data']['balance'] -= investment
-                
-                if proceed:
-                    executed_at = datetime.now(timezone.utc)
-                    quantity = Decimal(str(investment)) / Decimal(str(entry_price))
-                    event_id = f"{sel_c}:BUY:{executed_at.isoformat()}"
-                    if not is_limit:
-                        try:
-                            st.session_state['position_journal'].confirm_trade(
-                                event_id, "BUY", quantity, Decimal(str(entry_price)),
-                                executed_at, datetime.now(timezone.utc), fee=None, symbol=symbol,
-                            )
-                        except StorageAccessError as e:
-                            logger.error(f"Journal write blocked: {e}")
-                            if use_balance:
-                                st.session_state['portfolio_data']['balance'] += investment
-                            st.error("İşlem günlüğüne yazılamadı; işlem kaydedilmedi.")
-                            st.stop()
-                    st.session_state['portfolio_data']['positions'].append({
-                        "Coin": sel_c, "Giriş": entry_price, "Adet": investment / entry_price,
-                        "Yatırım": investment, "Realized": 0.0,
-                        "Status": "PENDING" if is_limit else "ACTIVE",
-                        "Tarih": time.strftime("%Y-%m-%d"), "Stop": stop_input,
-                        "Gerçekleşme Zamanı": executed_at.isoformat(),
-                        "V1Verified": not is_limit, "JournalEventId": event_id,
-                    })
+                # Doğrulama, ardından önce portföy sonra günlük (Q3): bakiye ve pozisyon
+                # doğrulamadan önce değişmez; kimlik işlemin kendi alanlarından türer.
+                outcome = confirm_buy(
+                    st.session_state['portfolio_data'], st.session_state['position_journal'],
+                    safe_save_portfolio, coin=sel_c, symbol=symbol, quantity=buy_quantity,
+                    price=entry_price, stop=stop_input,
+                    executed_at=istanbul_to_utc(buy_date, buy_time), now=datetime.now(timezone.utc),
+                    use_balance=use_balance, is_limit=is_limit,
+                )
+                if outcome.ok:
                     st.session_state[f'flat_confirmed:{sel_c}'] = False
-                    if safe_save_portfolio():
-                        st.success("Limit Emir Girildi! Fiyat bekleniyor..." if is_limit else "Pozisyon Açıldı!")
-                        time.sleep(1)
-                        st.rerun()
+                    st.success("Limit Emir Girildi! Fiyat bekleniyor..." if is_limit else "Pozisyon Açıldı!")
+                    time.sleep(1)
+                    st.rerun()
+                elif outcome.code != "KAYIT_YAZILAMADI":      # bu durumu safe_save_portfolio bildirir
+                    st.error(describe_code(outcome.code))
 
         st.write("---") 
         with st.expander("💳 Cüzdan Bakiyesi Düzenle"):
@@ -768,36 +765,31 @@ if is_chart_renderable(df_view):
                     s_coin = st.selectbox("Coin", p_coins, key="sell_sel")
                     target_pos = next((p for p in active_pos if p['Coin'] == s_coin), None)
                     if target_pos:
-                        sell_price = st.number_input("Satış Fiyatı", value=float(curr if s_coin == sel_c else target_pos['Giriş']))
+                        sell_price = st.number_input("Satış Fiyatı", value=float(curr if s_coin == sel_c else target_pos['Giriş']), key="sell_price")
                         st.caption("V1 SAT sinyali ve stop çıkışı pozisyonun tamamını kapatır.")
-                        sell_amt = target_pos['Adet']
+                        sell_amt = st.number_input(
+                            "Satılan miktar (adet)", min_value=0.0, value=float(target_pos['Adet']),
+                            step=0.00000001, format="%.8f", key=f"sell_qty:{s_coin}")
+                        sell_now_tr = datetime.now(ZoneInfo("Europe/Istanbul"))
+                        sell_date = st.date_input("İşlem tarihi (İstanbul)", value=sell_now_tr.date(), key="sell_date")
+                        sell_time = st.time_input("İşlem saati (İstanbul)", value=sell_now_tr.time().replace(microsecond=0), key="sell_time")
                         total_return = sell_amt * sell_price
                         st.write(f"**Gelecek Nakit:** ${total_return:,.2f}")
                         if st.button("Satışı Onayla", disabled=not records_writable):
-                            executed_at = datetime.now(timezone.utc)
-                            event_id = f"{s_coin}:SELL:{executed_at.isoformat()}"
-                            try:
-                                st.session_state['position_journal'].confirm_trade(
-                                    event_id, "SELL", Decimal(str(sell_amt)), Decimal(str(sell_price)),
-                                    executed_at, datetime.now(timezone.utc), fee=None,
-                                    symbol=st.session_state['coin_map'].get(s_coin, s_coin),
-                                )
-                            except StorageAccessError as e:
-                                logger.error(f"Journal write blocked: {e}")
-                                st.error("İşlem günlüğüne yazılamadı; işlem kaydedilmedi.")
-                                st.stop()
-                            st.session_state['portfolio_data']['balance'] += total_return
-                            cost_basis = float(target_pos.get('Giriş', 0.0)) * float(sell_amt)
-                            target_pos['Adet'] = float(target_pos.get('Adet', 0.0)) - float(sell_amt)
-                            target_pos['Yatırım'] = float(target_pos.get('Yatırım', 0.0)) - cost_basis
-                            target_pos['Realized'] = float(target_pos.get('Realized', 0.0)) + float(total_return - cost_basis)
-                            target_pos['Status'] = 'CLOSED_CONFIRMED'
-                            target_pos['Gerçekleşen Çıkış'] = sell_price
-                            target_pos['Çıkış Zamanı'] = executed_at.isoformat()
-                            st.session_state[f'flat_confirmed:{s_coin}'] = True
-                            if safe_save_portfolio():
+                            outcome = confirm_sell(
+                                st.session_state['portfolio_data'], st.session_state['position_journal'],
+                                safe_save_portfolio, position=target_pos,
+                                symbol=st.session_state['coin_map'].get(s_coin, s_coin),
+                                quantity=sell_amt, price=sell_price,
+                                executed_at=istanbul_to_utc(sell_date, sell_time),
+                                now=datetime.now(timezone.utc),
+                            )
+                            if outcome.ok:
+                                st.session_state[f'flat_confirmed:{s_coin}'] = True
                                 st.success("Satış gerçekleşti!")
                                 st.rerun()
+                            elif outcome.code != "KAYIT_YAZILAMADI":
+                                st.error(describe_code(outcome.code))
 
                 active_data, total_active_value = build_active_rows(
                     active_pos,

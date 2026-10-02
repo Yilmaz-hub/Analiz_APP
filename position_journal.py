@@ -83,6 +83,9 @@ class PositionJournal:
         self._save_or_restore(snapshot)
         return True
 
+    def has_event(self, event_id):
+        return any(trade.event_id == event_id for trade in self.trades)
+
     def correct_trade(self, event_id, **changes):
         for index, trade in enumerate(self.trades):
             if trade.event_id == event_id:
