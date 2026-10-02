@@ -1,6 +1,6 @@
 # Konvansiyonlar (conventions)
 
-> Adlandırma, katmanlar, hata yönetimi, para. Alan terimleri → `domain.md`.
+> Adlandırma, katmanlar, hata yönetimi, para. Alan terimleri → ilgili spec'in **Context → Terimler** bölümü.
 
 ## Para = decimal (mutlak kural)
 
@@ -18,16 +18,15 @@
 - **C#**: tip/metot/`public` üye → `PascalCase`; yerel/parametre → `camelCase`;
   `private` alan → `_camelCase`; sabit → `PascalCase`; arayüz → `IAd`.
 - Dosya adı = içindeki ana tip adı.
-- **Alan terimleri EN kod adıyla** yazılır (`Order`, `Coupon`, `Return`) — bkz. `domain.md`.
-- Boolean adları soru gibi: `IsPaid`, `HasCoupon`, `CanReturn`.
+- **Alan terimleri EN kod adıyla** yazılır; terim ve karşılığı ilgili spec'in **Context → Terimler** bölümündedir.
+- Boolean adları soru gibi yazılır.
 - DTO'lar `...Request` / `...Response` son ekiyle.
 
 ## Katmanlar
 
-- Bağımlılık yönü `Api → Application → Domain`, `Infrastructure → Domain` (bkz. `architecture.md`).
-- **Endpoint'ler minimal API**; endpoint gövdesi ince tutulur, iş mantığı `Application`'a iner.
-- `Domain` framework/altyapıdan bağımsızdır.
-- Doğrulama girişte (`Application`) yapılır; geçersiz girdi dom.katmana ulaşmaz.
+- Ayrı mimari belgesi yoktur; modül haritası kök dizindeki Python modülleridir
+  (bkz. `../AGENTS.md` Altın Kural 3). Yeni modül veya katman kararı ilgili spec'te alınır.
+- Doğrulama girişte yapılır; geçersiz girdi hesap katmanına ulaşmaz.
 
 ## Hata Yönetimi
 
