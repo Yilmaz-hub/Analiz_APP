@@ -1,7 +1,12 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
-from trade_decisions import PositionState, Signal, validate_position
+from datetime import datetime, timezone
+
+from trade_decisions import (
+    Action, LOSS_COOLDOWN_BARS, PositionState, Signal, classify_exit, decide_action,
+    validate_position,
+)
 
 
 @dataclass(frozen=True)
@@ -25,6 +30,10 @@ class PanelInput:
     quantity_error: str | None = None
     asset_kind: str | None = None
     neutral_components: tuple = ()
+    #: Güncel fiyat: açık pozisyonda stop temasını belirler (Q2). None = bilinmiyor.
+    current_price: Decimal | None = None
+    #: Zararlı çıkıştan beri kapanmış günlük mum sayısı (Q4). None = bekleme yok.
+    bars_since_loss_exit: int | None = None
 
 
 @dataclass(frozen=True)
@@ -86,6 +95,8 @@ CODE_TEXT = {
     "ZORUNLU_ALAN_EKSIK": "Zorunlu alan eksik",
     "TURETILMIS_OHLC": "Fiyat serisi türetilmiş; stop simülasyonu doğrulanmadı",
     "BILESEN_YOK": "Karar bileşeni hesaplanamadı; yeni işlem sinyali yok",
+    "STOP_TEMASI": "Güncel fiyat stop seviyesinde ya da altında; pozisyonun tamamı satılmalı",
+    "BEKLEME": "Zararlı çıkıştan sonra bekleme sürüyor; yeni alım şimdilik gösterilmez",
     "GC=F VADELI ALTIN REFERANSI": "Altın fiyatı GC=F vadeli kontrat referansıdır",
 }
 
@@ -161,13 +172,30 @@ def build_decision_panel(value):
         messages.append("SONRAKI_MUM_BEKLENIYOR")
         valid_context = False
 
+    exit_reason = value.exit_reason
     if valid_context:
-        if value.signal is Signal.BUY:
-            action = "SATIN AL" if value.position.state is PositionState.FLAT else "TUT"
-        elif value.signal is Signal.SELL and value.position.state is PositionState.OPEN:
+        is_open = value.position.state is PositionState.OPEN
+        stop = value.position.stop if is_open else None
+        # Güncel fiyatı bilinmeyen açık pozisyonda "TUT" denemez (Q2); açık SAT sinyali yine geçerlidir.
+        risk_unknown = is_open and stop is not None and value.current_price is None
+        stop_touched = (is_open and stop is not None and value.current_price is not None
+                        and value.current_price <= stop)
+        cooldown = LOSS_COOLDOWN_BARS if value.bars_since_loss_exit is None else value.bars_since_loss_exit
+        decision = decide_action(value.signal, value.position,
+                                 stop_touched=stop_touched, cooldown_bars=cooldown)
+        if risk_unknown and value.signal is not Signal.SELL:
+            messages.append("GUNCEL_RISK_DEGERLENDIRILEMIYOR")
+        elif decision.action is Action.SELL:
             action = "TAMAMINI SAT"
-        elif value.signal is Signal.WAIT and value.position.state is PositionState.OPEN:
+            if decision.reason == "STOP":
+                messages.append("STOP_TEMASI")
+                exit_reason = "STOP"
+        elif decision.action is Action.HOLD:
             action = "TUT"
+        elif decision.action is Action.BUY:
+            action = "SATIN AL"
+        elif value.signal is Signal.BUY:
+            messages.append("BEKLEME")
 
     if value.ambiguous_sequence:
         messages.append("SIRA_BILINMIYOR")
@@ -197,12 +225,33 @@ def build_decision_panel(value):
         provisional = "GECICI_ZARAR" if value.gross_result < 0 else "GECICI_SONUC"
     return DecisionPanel(
         action, tuple(messages), value.missing_component is None,
-        value.fee is not None, value.exit_reason,
+        value.fee is not None, exit_reason,
         "Uyum puanı kazanma olasılığı değildir", assumptions,
         value.decision_at if value.data_status != "GECERLI" else None,
         getattr(value.position, "stop", None), "TEYITLI GERCEK", "SANAL STRATEJI",
         value.real_trade_confirmed, pending, provisional, stop_verified,
     )
+
+
+def bars_since_loss_exit(positions, coin, daily_index, now):
+    """Son gerçek çıkış zararlıysa, çıkış gününden beri kapanmış günlük mum sayısı.
+
+    Zararsız (kâr ya da tam sıfır) çıkışta ya da çıkış yoksa None: bekleme yok.
+    Komisyon kayıtlı olmadığından sınıflama geçicidir (`classify_exit`, AC86).
+    Çıkış günü ve henüz kapanmamış bugünkü mum sayılmaz.
+    """
+    exits = [p for p in positions
+             if p.get("Coin") == coin and str(p.get("Status", "")).startswith("CLOSED")
+             and p.get("Çıkış Zamanı")]
+    if not exits:
+        return None
+    latest = max(exits, key=lambda p: datetime.fromisoformat(p["Çıkış Zamanı"]))
+    outcome = classify_exit(Decimal(str(latest.get("Realized", 0))), fee_known=False)
+    if not outcome.cooldown_required:
+        return None
+    exit_day = datetime.fromisoformat(latest["Çıkış Zamanı"]).astimezone(timezone.utc).date()
+    today = now.astimezone(timezone.utc).date()
+    return sum(1 for stamp in daily_index if exit_day < stamp.date() < today)
 
 
 def validate_fee(value):

@@ -36,7 +36,8 @@ from prediction_tracker import record_prediction, evaluate_predictions, get_trac
 from advanced_analysis import detect_elliott_wave, analyze_ichimoku, detect_wyckoff_phase, analyze_market_structure
 from position_journal import PositionJournal
 from trade_decisions import Position, PositionState, Signal
-from trading_ui import (PanelInput, build_decision_panel, describe_code,
+from trade_decisions import initial_stop
+from trading_ui import (PanelInput, bars_since_loss_exit, build_decision_panel, describe_code,
                         format_decision_time, resolve_decision_time)
 import theme
 
@@ -380,8 +381,14 @@ if is_chart_renderable(df_view):
         suggested_stop=Decimal(str(active_signal.stop_loss)) if active_signal.stop_loss else None,
         asset_kind=symbol if symbol in {"XAU_GOLD", "GRAM_TRY"} else None,
         in_scope=view_tf == "1d" and symbol != "GRAM_TRY",
+        current_price=Decimal(str(curr)),
+        bars_since_loss_exit=bars_since_loss_exit(
+            st.session_state['portfolio_data'].get('positions', []), sel_c,
+            df_view.index, datetime.now(timezone.utc)) if view_tf == "1d" else None,
     ))
-    if decision_panel.action:
+    if decision_panel.action == "TAMAMINI SAT" and decision_panel.exit_reason == "STOP":
+        st.error(f"Pozisyonuna göre eylem: **{decision_panel.action}** — stop seviyesine temas edildi")
+    elif decision_panel.action:
         st.success(f"Pozisyonuna göre eylem: **{decision_panel.action}**")
     else:
         st.warning("Pozisyon durumu teyit edilmeden kişisel işlem eylemi gösterilmez.")
@@ -634,16 +641,20 @@ if is_chart_renderable(df_view):
         is_limit = st.checkbox("⏳ Limit Emir", value=False)
         use_balance = st.checkbox(f"🏦 Bakiyeden Kullan (${current_balance:,.2f})", value=True)
         atr_val = current_atr if 'current_atr' in locals() else entry_price*0.02
-        stop_default = Decimal(str(entry_price)) - Decimal("2.5") * Decimal(str(atr_val))
+        # Başlangıç stopu ortak kuraldan gelir (AC83/AC110): pozitif değilse öneri yoktur.
+        stop_default = initial_stop(Decimal(str(entry_price)), Decimal(str(atr_val)))
         stop_input = st.number_input(
-            "Kuruma koyduğum stop", value=float(max(stop_default, Decimal("0"))),
+            "Kuruma koyduğum stop", value=float(stop_default or Decimal("0")),
             step=0.01, format="%.4f",
         )
-        st.caption(f"2,5 ATR başlangıç stop önerisi: ${stop_default:.2f}")
+        if stop_default is None:
+            st.caption("2,5 ATR başlangıç stopu pozitif çıkmıyor; kurumdaki stopu kendiniz belirleyin.")
+        else:
+            st.caption(f"2,5 ATR başlangıç stop önerisi: ${stop_default:.2f}")
 
         if st.button("➕ Emri Gir / Ekle", disabled=not records_writable):
             is_valid, risk_msg = validate_portfolio_risk(investment, current_balance, st.session_state['portfolio_data']['positions'])
-            if stop_default <= 0 or Decimal(str(stop_input)) <= 0 or Decimal(str(stop_input)) >= Decimal(str(entry_price)):
+            if stop_default is None or Decimal(str(stop_input)) <= 0 or Decimal(str(stop_input)) >= Decimal(str(entry_price)):
                 st.error("Başlangıç stopu pozitif ve giriş fiyatının altında olmalıdır.")
             elif not is_valid: st.error(risk_msg)
             else:

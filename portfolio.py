@@ -84,7 +84,8 @@ def check_active_positions_auto_close(portfolio_data, coin_map):
     for pos in portfolio_data["positions"]:
         if pos.get("Status") == "ACTIVE":
             coin_name = pos.get("Coin")
-            sl = pos.get("SL")
+            # Arayüz stopu "Stop" anahtarıyla yazar; eski kayıtlar "SL" kullanır (Q2).
+            sl = pos.get("Stop") or pos.get("SL")
             
             live_price = get_live_price_for_portfolio(coin_name, coin_map)
             
