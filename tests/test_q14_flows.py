@@ -96,7 +96,7 @@ def test_smoke_confirmed_buy_hold_sell_signal_exit_confirmed_sell_flat(store, mo
     # 1) Teyitli alış (dün 10:00 İstanbul).
     at = make_app(monkeypatch, frame).run()
     dun = date.today() - timedelta(days=1)
-    at.number_input(key="buy_qty").set_value(2.0)
+    at.number_input(key="buy_qty:BTC-USD").set_value(2.0)
     at.date_input(key="buy_date").set_value(dun)
     at.time_input(key="buy_time").set_value(time(10, 0))
     at = at.run()

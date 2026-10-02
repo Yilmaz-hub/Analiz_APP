@@ -179,8 +179,8 @@ def run_paper_update(coin_map, source_pref="Binance", progress_callback=None, pa
                 require_components=True,
             )
             if not validation.is_valid:
-                detail = ", ".join(validation.missing_components)
-                errors.append(f"{name}: {validation.reason}" + (f" ({detail})" if detail else ""))
+                errors.append(f"{name}: " + describe_code(
+                    validation.status or validation.reason, validation.missing_components))
                 continue
 
             asset_settings = (paper_settings or {}).get(name, {})

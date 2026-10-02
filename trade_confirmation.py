@@ -79,7 +79,11 @@ def validate_sell(*, position, quantity, price, executed_at, now):
         return "GECERSIZ_FIYAT"
     if executed_at > now:
         return "GELECEK_ZAMAN"
-    if quantity != _decimal(position.get("Adet")):
+    # Eski kayıtlarda kesirli adet uzun olabilir (1000/45000); kurum 8 haneye yuvarlar,
+    # bu yüzden karşılaştırma 8 haneye yuvarlanarak yapılır (Y5).
+    step = Decimal("0.00000001")
+    held = _decimal(position.get("Adet"))
+    if held is None or quantity.quantize(step) != held.quantize(step):
         return "MIKTAR_POZISYONLA_ESIT_DEGIL"
     entry = position.get("Gerçekleşme Zamanı")
     if entry and executed_at < datetime.fromisoformat(entry):

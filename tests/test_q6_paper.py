@@ -54,4 +54,4 @@ def test_q6_paper_reports_missing_components_by_name(paper_env, monkeypatch):
     monkeypatch.setattr(data_fetchers, "get_market_data", no_rsi)
     result = paper_env.run_paper_update({"BTC": "BTC-USD"})
     assert result["new_rows"] == 0
-    assert result["errors"] == ["BTC: BILESEN_HAZIR_DEGIL (momentum)"]
+    assert result["errors"] == ["BTC: Karar bileşeni hazır değil: momentum"]

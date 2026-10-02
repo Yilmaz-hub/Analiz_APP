@@ -96,6 +96,8 @@ def classify_exit(gross: Decimal, *, fee_known: bool, fees: Decimal = Decimal("0
 
 def initial_stop(entry_price, atr, *, later_atr=None):
     """Freeze the entry-decision ATR; a later ATR never moves the first stop."""
+    if atr is None:
+        return None
     value = Decimal(entry_price) - Decimal("2.5") * Decimal(atr)
     return value if value > 0 else None
 

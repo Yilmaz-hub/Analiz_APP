@@ -269,11 +269,11 @@ Aynı kripto varlığının USD ve USDT fiyatlamaları V1 sinyal ve stop değerl
 
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 20 — QA düzeltmeleri (Q1–Q14) ve yeni modül kararları işlendi |
-| Düzeltme turu sayısı | 1 — bağımsız QA turu (Q1–Q14) düzeltildi; Takım Yöneticisi onayı bekleniyor |
-| Bulgu gerçek/gürültü oranı | 14/0 — her bulgu `main`'de koddan çalıştırılarak doğrulandı |
-| Regresyon sayısı | Düzeltme sürecinde 0; tam paket yeşil (başlangıç 378, şimdi 476 test) |
-| Kaçan hata | 14 — Q1–Q14 (aşağıda), Developer'ın kendi testlerinden kaçmıştı |
+| Spec revizyon sayısı | 21 — QA düzeltmeleri (Q1–Q14, B1–B6, Y1–Y10), kapsam kararı (döviz) ve yeni modül kararları işlendi |
+| Düzeltme turu sayısı | 3 — QA turu 1 (Q1–Q14), tur 2 (B1–B6), tur 3 (Y1–Y10); Takım Yöneticisi onayı bekleniyor |
+| Bulgu gerçek/gürültü oranı | 30/0 — Q1–Q14 (14), B1–B6 (6), Y1–Y10 (10); her bulgu repro ile doğrulandı. Y3 (ML açıkken karar üretimi paritesi) ayrı spec dilimine ertelendi |
+| Regresyon sayısı | 2 — Y1 ve Y2 (alış/satış formu anahtarları, `0f2d7f2`); düzeltildi. Tam paket yeşil (başlangıç 378, şimdi 491 test) |
+| Kaçan hata | 30 — Q1–Q14 (aşağıda), B1–B6 ve Y1–Y10 (QA turları 2–3), Developer'ın kendi testlerinden kaçmıştı |
 
 ### Kaçan hatalar (QA Q1–Q14) ve karşılığı
 
@@ -293,6 +293,14 @@ Aynı kripto varlığının USD ve USDT fiyatlamaları V1 sinyal ve stop değerl
 | Q12 | Ekranda ham kod (`POZISYON_BILINMIYOR` …) görünüyordu | `trading_ui.describe_code` | `tests/test_q5_q11_q12.py` |
 | Q13 | `PositionJournal` yerel dosyaya yazıyordu | Kalıcı depo; okunamazsa boş günlükle devam yok | `tests/test_q13_journal_storage.py` |
 | Q14 | Ölü kod ve spec'e aykırı test (AC93 USD+USDT toplamı) | Ölü kod silindi; AC40/AC77/smoke uygulama düzeyinde | `tests/test_q14_flows.py` |
+
+### QA turu 2–3 özeti
+
+- **B1–B6:** eksik bileşen testleri, panelde risk uyarısı, bileşen adının ekranda görünmesi, sanal takip ile ekran paritesi (strict mod), Türkçe gerekçe. Karar: döviz çiftleri (`=X`) V1 kapsamı dışıdır, bileşen denetimi uygulanmaz ("V1 doğrulanmadı").
+- **Y1/Y2:** alış/satış formu alan anahtarları varlığa/pozisyona bağlandı (`tests/test_qa_round3.py`).
+- **Y4:** `strict_components`, açılışta `reconcile` ve maliyet aktarımı için düşen testler (mutasyonla doğrulandı).
+- **Y5:** satış miktarı 8 haneye yuvarlanarak karşılaştırılır. **Y6:** varsayımlar okunamazken geçmiş test ve sanal takip kapalı. **Y7:** sanal takip uyarısı Türkçe. **Y8:** ATR bilinmiyorsa başlangıç stopu yok. **Y10:** panel mesajları tekrarlanmaz.
+- **Y3 (ertelendi):** `build_v1_decisions` ML'i her barda, `generate_stable_signal` yalnız son barda hesaplıyor; ML açıkken karar üretimi ayrışıyor. Performans bütçesini etkileyen tasarım kararı olduğu için ayrı spec dilimi.
 
 ### Yeni modül kararları (AGENTS.md Altın Kural 3)
 

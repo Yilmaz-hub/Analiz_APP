@@ -233,7 +233,7 @@ def build_decision_panel(value):
     if value.fee is None and value.gross_result is not None:
         provisional = "GECICI_ZARAR" if value.gross_result < 0 else "GECICI_SONUC"
     return DecisionPanel(
-        action, tuple(messages), value.missing_component is None,
+        action, tuple(dict.fromkeys(messages)), value.missing_component is None,
         value.fee is not None, exit_reason,
         "Uyum puanı kazanma olasılığı değildir", assumptions,
         value.decision_at if value.data_status != "GECERLI" else None,

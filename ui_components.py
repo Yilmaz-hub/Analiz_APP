@@ -198,6 +198,10 @@ def render_trade_settings(asset_name, symbol, currency, writable=True):
             values[name] = st.text_input(
                 label, value=str(saved.get(name, default)), key=f"ts:{symbol}:{name}")
         parsed = trade_settings.parse_settings(values)
+        if not load_ok:
+            # Okunamayan kayıtla varsayılanlara düşülmez: değerlendirme kapalı (Y6).
+            parsed = trade_settings.ParsedSettings(
+                None, None, ("Kayıtlı işlem varsayımları okunamadı; geçmiş test ve sanal takip kapalı.",))
         for message in parsed.errors:
             st.error(message)
         if parsed.ok:

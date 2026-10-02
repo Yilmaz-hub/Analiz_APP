@@ -159,7 +159,7 @@ def test_q3_app_buy_form_has_time_and_quantity_fields_and_rejects_future_time(st
     _hazirla(store)
     at = make_app(monkeypatch, processed_df).run()
     assert not at.exception
-    assert at.number_input(key="buy_qty") and at.date_input(key="buy_date") and at.time_input(key="buy_time")
+    assert at.number_input(key="buy_qty:BTC-USD") and at.date_input(key="buy_date") and at.time_input(key="buy_time")
     at.date_input(key="buy_date").set_value(date.today() + timedelta(days=2)).run()
     at = _tikla(at, "➕ Emri Gir / Ekle")
     assert not at.exception
@@ -170,7 +170,7 @@ def test_q3_app_buy_form_has_time_and_quantity_fields_and_rejects_future_time(st
 def test_q3_app_buy_then_identical_buy_is_rejected_as_duplicate(store, monkeypatch, processed_df):
     _hazirla(store)
     at = make_app(monkeypatch, processed_df).run()
-    at.number_input(key="buy_qty").set_value(1.0)
+    at.number_input(key="buy_qty:BTC-USD").set_value(1.0)
     at.date_input(key="buy_date").set_value(date.today() - timedelta(days=1))
     at.time_input(key="buy_time").set_value(time(10, 0))
     at = at.run()

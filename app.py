@@ -628,7 +628,7 @@ if is_chart_renderable(df_view):
             )
             pp_bar.empty(); pp_txt.empty()
             if status["errors"]:
-                st.warning(f"{status['new_rows']} yeni kayıt. Veri alınamayan: {', '.join(status['errors'])}")
+                st.warning(f"{status['new_rows']} yeni kayıt. Güncellenemeyen: {', '.join(status['errors'])}")
             else:
                 st.success(f"{status['new_rows']} yeni kayıt eklendi ({status['assets']} varlık).")
         paper_df, paper_totals = paper_report()
@@ -649,10 +649,10 @@ if is_chart_renderable(df_view):
 
     with col_risk:
         st.subheader("🧮 Emir Gir")
-        entry_price = st.number_input("Giriş Fiyatı ($)", value=float(curr), step=0.01, format="%.4f", key="buy_price")
+        entry_price = st.number_input("Giriş Fiyatı ($)", value=float(curr), step=0.01, format="%.4f", key=f"buy_price:{symbol}")
         buy_quantity = st.number_input(
             "Gerçekleşen miktar (adet)", min_value=0.0, value=round(1000.0 / float(curr), 8) if curr else 0.0,
-            step=0.00000001, format="%.8f", key="buy_qty")
+            step=0.00000001, format="%.8f", key=f"buy_qty:{symbol}")
         investment = float(Decimal(str(buy_quantity)) * Decimal(str(entry_price)))
         st.caption(f"İşlem tutarı: ${investment:,.2f}")
         buy_now_tr = datetime.now(ZoneInfo("Europe/Istanbul"))
@@ -769,7 +769,7 @@ if is_chart_renderable(df_view):
                     s_coin = st.selectbox("Coin", p_coins, key="sell_sel")
                     target_pos = next((p for p in active_pos if p['Coin'] == s_coin), None)
                     if target_pos:
-                        sell_price = st.number_input("Satış Fiyatı", value=float(curr if s_coin == sel_c else target_pos['Giriş']), key="sell_price")
+                        sell_price = st.number_input("Satış Fiyatı", value=float(curr if s_coin == sel_c else target_pos['Giriş']), key=f"sell_price:{s_coin}")
                         st.caption("V1 SAT sinyali ve stop çıkışı pozisyonun tamamını kapatır.")
                         sell_amt = st.number_input(
                             "Satılan miktar (adet)", min_value=0.0, value=float(target_pos['Adet']),
@@ -831,7 +831,7 @@ if is_chart_renderable(df_view):
                             new_limit_price = st.number_input("Yeni Hedef Fiyat", value=float(target_pending['Giriş']), format="%.4f")
                             if st.button("✏️ Güncelle", disabled=not records_writable) and new_limit_price > 0:
                                 target_pending['Giriş'] = new_limit_price
-                                target_pending['Adet'] = target_pending['Yatırım'] / new_limit_price
+                                target_pending['Adet'] = round(target_pending['Yatırım'] / new_limit_price, 8)
                                 if safe_save_portfolio():
                                     st.success("Fiyat güncellendi.")
                                     time.sleep(1); st.rerun()
