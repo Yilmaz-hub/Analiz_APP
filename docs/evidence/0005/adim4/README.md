@@ -11,6 +11,6 @@ ile sürülür.
 | `empty.png` | AC02, AC49, AC78 — boş dönem ve sıfır sermayede "hesaplanamıyor" |
 | `error.png` | AC09, AC64 — geçersiz istek anlaşılır mesajla, teknik metin yok |
 | `currencies.png` | AC10 — para birimleri ayrı bloklarda, tek toplam yok |
-| `comparison.png` | AC47, AC62 — strateji ve al-tut aynı sermaye/dönemde |
+| `comparison.png` | AC47, AC62, AC88 — strateji ve al-tut değerlendirme diliminde, aynı anda başlar |
 
 Yeniden üretim: `streamlit run docs/evidence/0005/adim4/harness.py` ve `?state=missing_cost|empty|error|currencies|comparison`.

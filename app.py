@@ -601,6 +601,7 @@ if is_chart_renderable(df_view):
                         if view_tf == "1d":
                             st.session_state["perf_report_source"] = {
                                 "symbol": symbol, "backtest": bt_results, "frame": df_view,
+                                "decisions": v1_decisions, "notional": trade_parsed.settings.notional,
                                 "quantity_step": trade_parsed.settings.quantity_step,
                                 "costs": trade_parsed.settings.costs,
                             }

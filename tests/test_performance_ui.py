@@ -171,41 +171,79 @@ def test_smoke_backtest_screen_shows_reliable_performance_report(store, monkeypa
     assert {"Strateji son sermaye", "Al-tut son sermaye"} <= {m.label for m in at.metric}
 
 
-def test_comparison_shows_strategy_and_buy_and_hold_on_same_capital():
-    """AC47 — Strateji ile al-tut aynı sermayede yan yana; al-tut maliyet sonrası miktarla girer."""
+def _comparison_frame(open_values=None, close_values=None):
+    """12 günlük çubuk: ayar dilimi ilk 7, değerlendirme dilimi son 5 (index 7–11)."""
     import pandas as pd
-    from technical_analysis import run_v1_strategy_backtest
+
+    index = pd.date_range("2026-09-01", periods=12, freq="D", tz="UTC")
+    opens = open_values or [100] * 12
+    closes = close_values or [100] * 11 + [120]
+    frame = pd.DataFrame({"Open": opens, "High": [max(o, c) + 1 for o, c in zip(opens, closes)],
+                          "Low": [min(o, c) - 1 for o, c in zip(opens, closes)],
+                          "Close": closes, "ATR": [4] * 12}, index=index)
+    return frame, index
+
+
+def _compare(frame, decisions, step=Decimal("1"), commission="0"):
     from trade_execution import CostAssumptions
 
     zero = Decimal("0")
-    index = pd.date_range("2026-09-01", periods=4, freq="D", tz="UTC")
-    frame = pd.DataFrame({
-        "Open": [100, 100, 110, 120], "High": [101, 200, 115, 125],
-        "Low": [98, 95, 105, 118], "Close": [100, 110, 112, 120], "ATR": [4, 5, 5, 5],
-    }, index=index)
-    costs = CostAssumptions(zero, zero, zero)
-    result = run_v1_strategy_backtest(
-        frame, {index[0]: "AL", index[1]: "BEKLE", index[2]: "SAT"}, initial_cash=Decimal("1000"),
-        trade_notional=Decimal("1000"), quantity_step=Decimal("1"), costs=costs)
-    view = performance_ui.comparison_from_backtest("ETH-USD", frame, result, Decimal("1"), costs)
+    costs = CostAssumptions(zero, zero, Decimal(commission))
+    return performance_ui.comparison_from_backtest(
+        "ETH-USD", frame, decisions, Decimal("1000"), Decimal("1000"), step, costs)
+
+
+def test_comparison_shows_strategy_and_buy_and_hold_on_same_capital():
+    """AC47 — Strateji ile al-tut aynı sermayede yan yana; al-tut maliyet sonrası miktarla girer."""
+    frame, index = _comparison_frame()
+    view = _compare(frame, {index[7]: "AL"})
     metrics = dict(view.blocks[0].metrics)
     assert metrics["Al-tut son sermaye"] == "1200.00 USD"   # 10 adet × 120
     assert metrics["Al-tut kalıntı nakit"] == "0.00 USD"
-    assert "Strateji son sermaye" in metrics
+    assert metrics["Strateji son sermaye"] == "1200.00 USD"  # aynı anda, aynı fiyattan girdi
+
+
+def test_ac88_prices_before_evaluation_slice_do_not_change_comparison():
+    """AC88 — Değerlendirme diliminden önceki fiyatlar değişince al-tut ve strateji karşılaştırması değişmez."""
+    frame, index = _comparison_frame()
+    decisions = {index[7]: "AL"}
+    before = _compare(frame, decisions)
+    altered = frame.copy()
+    altered.iloc[:7, :4] = altered.iloc[:7, :4].values * 3
+    after = _compare(altered, decisions)
+    assert before.blocks[0].metrics == after.blocks[0].metrics
+
+
+def test_ac88_decisions_inside_tuning_slice_are_not_used():
+    """AC88 — Ayar dilimindeki kararlar karşılaştırmada işlem açmaz; ikisi de dilimin ilk açılışında başlar."""
+    frame, index = _comparison_frame()
+    with_old_decision = _compare(frame, {index[3]: "AL", index[6]: "AL"})
+    metrics = dict(with_old_decision.blocks[0].metrics)
+    assert metrics["Strateji son sermaye"] == "1000.00 USD"   # dilim içinde karar yok → nakitte
+    assert metrics["Al-tut son sermaye"] == "1200.00 USD"
+    notes = " ".join(with_old_decision.blocks[0].notes)
+    assert "2026-09-09 açılışında başlar" in notes            # index[8], dilimin ilk kapanışından sonra
+
+
+def test_comparison_short_history_is_flagged_not_sufficient_evidence():
+    """AC54 — 250'den az tarihli geçmişte karşılaştırma "yetersiz geçmiş" etiketiyle gösterilir."""
+    frame, index = _comparison_frame()
+    notes = " ".join(_compare(frame, {index[7]: "AL"}).blocks[0].notes)
+    assert "Yetersiz geçmiş" in notes
 
 
 def test_comparison_without_known_step_explains_instead_of_guessing():
     """AC47 — Miktar adımı bilinmiyorsa al-tut uydurulmaz, neden gösterilir."""
-    import pandas as pd
-    from trade_execution import CostAssumptions
-
-    index = pd.date_range("2026-09-01", periods=2, freq="D", tz="UTC")
-    frame = pd.DataFrame({"Open": [100, 100], "Close": [100, 110]}, index=index)
-    backtest = {"initial_cash": "1000", "daily_equity": [
-        {"date": index[0], "equity": Decimal("1000")}, {"date": index[1], "equity": Decimal("1000")}]}
-    view = performance_ui.comparison_from_backtest(
-        "ETH-USD", frame, backtest, None, CostAssumptions(Decimal("0"), Decimal("0"), Decimal("0")))
+    frame, index = _comparison_frame()
+    view = _compare(frame, {index[7]: "AL"}, step=None)
     assert view.blocks == [] and "Miktar adımı bilinmiyor" in view.messages[0]
+
+
+def test_comparison_evaluation_slice_too_short_gives_message():
+    """AC57 — Değerlendirme dilimi karşılaştırmaya yetmiyorsa "yetersiz geçmiş" mesajı görünür."""
+    frame, _ = _comparison_frame()
+    view = _compare(frame.iloc[:2], {})
+    assert view.blocks == [] and "Yetersiz geçmiş" in view.messages[0]
 
 
 def _backtest_screen(store, monkeypatch, processed_df):

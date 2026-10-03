@@ -41,16 +41,13 @@ elif state == "currencies":
         [tr("100"), tr("100", sym="THYAO.IS", cur="TRY", mk="BIST")], ReportFilters())))
 if state == "comparison":
     import pandas as pd
-    from technical_analysis import run_v1_strategy_backtest
     from trade_execution import CostAssumptions
     zero = Decimal("0")
-    idx = pd.date_range("2026-09-01", periods=4, freq="D", tz="UTC")
-    frame = pd.DataFrame({"Open": [100, 100, 110, 120], "High": [101, 200, 115, 125],
-                          "Low": [98, 95, 105, 118], "Close": [100, 110, 112, 120], "ATR": [4, 5, 5, 5]}, index=idx)
+    idx = pd.date_range("2026-09-01", periods=12, freq="D", tz="UTC")
+    closes = [100] * 11 + [120]
+    frame = pd.DataFrame({"Open": [100] * 12, "High": [c + 1 for c in closes],
+                          "Low": [c - 1 for c in closes], "Close": closes, "ATR": [4] * 12}, index=idx)
     costs = CostAssumptions(zero, zero, Decimal("0.1"))
-    res = run_v1_strategy_backtest(frame, {idx[0]: "AL", idx[1]: "BEKLE", idx[2]: "SAT"},
-                                   initial_cash=Decimal("2000"), trade_notional=Decimal("1000"),
-                                   quantity_step=Decimal("1"), costs=costs)
-    st.subheader("Strateji ve Al-Tut (AC47, AC62)")
-    ui.render_report_view(ui.build_report_view(ui.report_from_backtest("ETH-USD", res)))
-    ui.render_report_view(ui.comparison_from_backtest("ETH-USD", frame, res, Decimal("1"), costs))
+    st.subheader("Strateji ve Al-Tut — değerlendirme dilimi (AC47, AC62, AC88)")
+    ui.render_report_view(ui.comparison_from_backtest(
+        "ETH-USD", frame, {idx[7]: "AL"}, Decimal("1000"), Decimal("2000"), Decimal("1"), costs))
