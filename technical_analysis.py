@@ -1002,6 +1002,7 @@ def run_v1_strategy_backtest(df, decisions, *, initial_cash, trade_notional,
     state = BookState(start)
     trades = []
     blocked = {}
+    daily_equity = [{"date": df.index[0], "equity": start}]
 
     for index in range(1, len(df)):
         decision_row = df.iloc[index - 1]
@@ -1022,6 +1023,9 @@ def run_v1_strategy_backtest(df, decisions, *, initial_cash, trade_notional,
                 "quantity": str(item.quantity), "reason": item.reason,
                 "pnl": str(item.pnl),
             })
+        open_quantity = state.position.quantity if state.position is not None else Decimal("0")
+        daily_equity.append({"date": df.index[index],
+                             "equity": state.cash + open_quantity * bar.close})
 
     position = state.position
     last_close = Decimal(str(df["Close"].iloc[-1]))
@@ -1046,6 +1050,7 @@ def run_v1_strategy_backtest(df, decisions, *, initial_cash, trade_notional,
         "avg_loss": sum(losses, Decimal("0")) / len(losses) if losses else Decimal("0"),
         "equity_curve": [{"date": df.index[0], "equity": start},
                          {"date": df.index[-1], "equity": equity}],
+        "daily_equity": daily_equity,
         "net_verified": settings.net_verified,
         "spread_known": settings.costs.spread_bps is not None,
         "slippage_known": settings.costs.slippage_bps is not None,

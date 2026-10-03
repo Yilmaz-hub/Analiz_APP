@@ -598,6 +598,19 @@ if is_chart_renderable(df_view):
                         with st.expander("📋 Tüm İşlemler"):
                             trades_df = pd.DataFrame(bt_results['trades'])
                             st.dataframe(trades_df, width="stretch")
+                        if view_tf == "1d":
+                            st.session_state["perf_report_source"] = {
+                                "symbol": symbol, "backtest": bt_results, "frame": df_view,
+                                "decisions": v1_decisions, "notional": trade_parsed.settings.notional,
+                                "quantity_step": trade_parsed.settings.quantity_step,
+                                "costs": trade_parsed.settings.costs,
+                            }
+            perf_source = st.session_state.get("perf_report_source")
+            if view_tf == "1d" and perf_source is not None and perf_source["symbol"] == symbol:
+                import performance_ui
+                st.divider()
+                st.subheader("📑 Güvenilir Performans Raporu")
+                performance_ui.render_report_panel(perf_source)
 
     # --- KAĞIT TİCARET DOĞRULAMASI ---
     with st.expander("🧪 Kağıt Ticaret Doğrulaması (Canlı Sinyal Takibi)", expanded=False):
