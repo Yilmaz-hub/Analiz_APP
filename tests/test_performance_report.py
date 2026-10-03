@@ -5,7 +5,7 @@ from decimal import Decimal
 import market_map
 from performance_report import (
     BULUNAMADI, GECERSIZ_ISTEK, OK,
-    EquityPoint, ReportFilters, ReportTrade, build_report, lookup_report,
+    EquityPoint, OpenPosition, ReportFilters, ReportTrade, build_report, lookup_report,
 )
 
 D0 = date(2026, 1, 1)
@@ -181,6 +181,32 @@ def test_ac84_known_costs_are_not_upper_bound():
     result = _report({"ETH-USD": _series([10000, 10100])}, [_trade(100)]).results["USD"]
     assert result.is_upper_bound is False
     assert result.cost_missing_count == 0
+
+
+def test_ac84_open_position_with_unknown_cost_marks_upper_bound():
+    """AC84 — Maliyeti bilinmeyen açık pozisyon: kapanmış işlem olmasa da metrik üst sınırdır."""
+    outcome = build_report({"ETH-USD": _series([10000, 10500])}, [], ReportFilters(),
+                           open_positions=[OpenPosition("ETH-USD", D0, cost_known=False)])
+    result = outcome.report.results["USD"]
+    assert result.is_upper_bound is True
+    assert result.cost_missing_count == 1
+    assert result.closed_count == 0  # açık pozisyon kapanmış sayılmaz (AC06)
+
+
+def test_ac84_open_position_with_known_cost_is_not_upper_bound():
+    """AC84 — Maliyeti bilinen açık pozisyon üst sınır etiketi doğurmaz."""
+    outcome = build_report({"ETH-USD": _series([10000, 10500])}, [], ReportFilters(),
+                           open_positions=[OpenPosition("ETH-USD", D0, cost_known=True)])
+    assert outcome.report.results["USD"].is_upper_bound is False
+
+
+def test_ac84_open_position_outside_filter_is_not_counted():
+    """AC84 — Filtre dışındaki varlığın açık pozisyonu başka varlığın raporunu üst sınır yapmaz."""
+    outcome = build_report(
+        {"ETH-USD": _series([10000, 10500]), "BTC-USD": _series([5000, 5100])}, [],
+        ReportFilters(symbol="ETH-USD"),
+        open_positions=[OpenPosition("BTC-USD", D0, cost_known=False)])
+    assert outcome.report.results["USD"].is_upper_bound is False
 
 
 def test_market_map_known_symbols():
