@@ -91,6 +91,16 @@ def _rejected(reason: str) -> ReportOutcome:
     return ReportOutcome(GECERSIZ_ISTEK, reason)
 
 
+def net_return(points: Sequence[EquityPoint]) -> Decimal | None:
+    """Günlük kapanış sermaye dizisinin net getirisi (%); ölçülemiyorsa `None`."""
+    return _net_return(points)
+
+
+def max_drawdown(points: Sequence[EquityPoint]) -> Decimal | None:
+    """Günlük kapanış sermaye dizisinin en büyük düşüşü (%); ölçülemiyorsa `None`."""
+    return _max_drawdown(points)
+
+
 def lookup_report(records: Mapping[str, Report], record_id: str) -> ReportOutcome:
     """Kayıtlı değerlendirmeyi getirir; yoksa `BULUNAMADI`."""
     record = records.get(record_id)
