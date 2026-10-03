@@ -106,6 +106,16 @@ def build_risk_view(portfolio: Mapping, coin_map: Mapping[str, str], *, capital:
 
 def render_risk_panel(source: Mapping, portfolio: Mapping, coin_map: Mapping[str, str]) -> None:
     import streamlit as st
+
+    from storage import StorageAccessError
+
+    try:
+        _render_risk_panel(st, source, portfolio, coin_map)
+    except StorageAccessError:
+        st.warning("Risk kayıtları okunamadı; kayıt deposu erişimini kontrol edin.")
+
+
+def _render_risk_panel(st, source: Mapping, portfolio: Mapping, coin_map: Mapping[str, str]) -> None:
     from datetime import timezone
 
     from trade_decisions import initial_stop
