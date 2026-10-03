@@ -1,0 +1,45 @@
+name: Forward tracking
+
+# Spec 0005 Adım 7 (Q06a): ekran kapalıyken ileri dönem sanal takip.
+# Günlük mumun kullanılabildiği anlardan sonra çalışır (UTC): kripto 00:00 kesimi,
+# BIST seans kapanışı ~15:00, ABD/altın ~21:00. Bütçe 2 saat (Q06b); geciken ya da
+# atlanan gün sonraki çalışmada "sonradan oluşturuldu" olarak tamamlanır.
+on:
+  schedule:
+    - cron: "17 0 * * *"
+    - cron: "17 15 * * 1-5"
+    - cron: "17 21 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: forward-tracking
+  cancel-in-progress: false
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check database secret
+        env:
+          ANALIZ_APP_DB_URL: ${{ secrets.ANALIZ_APP_DB_URL }}
+        run: |
+          if [ -z "$ANALIZ_APP_DB_URL" ]; then
+            echo "::error::ANALIZ_APP_DB_URL secret tanımlı değil (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+
+      - name: Run forward tracker
+        env:
+          ANALIZ_APP_DB_URL: ${{ secrets.ANALIZ_APP_DB_URL }}
+        run: python -m forward_runner

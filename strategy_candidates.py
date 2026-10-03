@@ -195,6 +195,17 @@ def default_candidates(market: str, period_start: date | None,
     ]
 
 
+def load_candidate(key: str) -> Candidate | None:
+    """Ön kayıttaki tanımdan adayı geri kurar (koşucu, aktif aday sürümünü izlerken)."""
+    entry = _read(_REGISTRY_KEY, {}).get(key)
+    if entry is None:
+        return None
+    body = dict(entry["definition"])
+    for name in ("period_start", "period_end"):
+        body[name] = None if body[name] is None else date.fromisoformat(body[name])
+    return Candidate(name=entry["name"], **body)
+
+
 def registered_name(key: str) -> str | None:
     entry = _read(_REGISTRY_KEY, {}).get(key)
     return None if entry is None else entry["name"]

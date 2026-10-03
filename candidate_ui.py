@@ -99,6 +99,16 @@ def build_candidate_view(frame) -> CandidateView:
 
 def render_candidate_panel(source: dict) -> None:
     import streamlit as st
+
+    from storage import StorageAccessError
+
+    try:
+        _render_candidate_panel(st, source)
+    except StorageAccessError:
+        st.warning("Aday kayıtları okunamadı; kayıt deposu erişimini kontrol edin.")
+
+
+def _render_candidate_panel(st, source: dict) -> None:
     from datetime import timezone
 
     st.markdown("**🧪 Aday Stratejiler (kırılım / geri çekilme)**")

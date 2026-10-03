@@ -21,3 +21,6 @@ jobs:
 
       - name: Run test suite
         run: python -m pytest tests/ -v
+
+      - name: Run performance budgets (spec 0005 S7)
+        run: python -m pytest tests/ -m perf -v -s
