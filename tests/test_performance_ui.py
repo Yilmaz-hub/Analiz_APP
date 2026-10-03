@@ -307,3 +307,19 @@ def test_ac65_screen_market_without_data_shows_empty_not_error(store, monkeypatc
     assert not at.exception
     captions = " ".join(str(c.value) for c in at.caption)
     assert "Örnek sayısı: 0" in captions
+
+
+def test_smoke_candidate_panel_evaluates_and_lists_candidates(store, monkeypatch, processed_df):
+    """AC01, AC80 — Backtest ekranında aday paneli V1'i aktif gösterir; değerlendirme iki adayı ayrı listeler."""
+    from app_helpers import click
+
+    at = _backtest_screen(store, monkeypatch, processed_df)
+    assert not at.exception
+    captions = " ".join(str(c.value) for c in at.caption)
+    assert "Aktif strateji: V1 (mevcut strateji)" in captions
+    at = click(at, "Adayları değerlendir")
+    assert not at.exception
+    captions = " ".join(str(c.value) for c in at.caption)
+    assert "Kırılım (20 gün) — KRIPTO:" in captions
+    assert "Geri çekilme (EMA20, %1) — KRIPTO:" in captions
+    assert "Aktif strateji: V1 (mevcut strateji)" in captions
