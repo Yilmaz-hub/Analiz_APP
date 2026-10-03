@@ -613,6 +613,9 @@ if is_chart_renderable(df_view):
                 performance_ui.render_report_panel(perf_source)
                 import candidate_ui
                 candidate_ui.render_candidate_panel(perf_source)
+                import risk_ui
+                risk_ui.render_risk_panel(perf_source, st.session_state['portfolio_data'],
+                                          st.session_state.get('coin_map', {}))
 
     # --- KAĞIT TİCARET DOĞRULAMASI ---
     with st.expander("🧪 Kağıt Ticaret Doğrulaması (Canlı Sinyal Takibi)", expanded=False):
