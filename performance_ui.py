@@ -16,7 +16,7 @@ from trading_ui import describe_code
 from evaluation_window import EvaluationInput, buy_and_hold, comparable, split_dates
 from config import PerformanceConfig
 from performance_report import (
-    GECERSIZ_ISTEK, OK, CurrencyResult, EquityPoint, ReportFilters, ReportOutcome,
+    GECERSIZ_ISTEK, OK, CurrencyResult, EquityPoint, OpenPosition, ReportFilters, ReportOutcome,
     ReportTrade, build_report,
 )
 
@@ -104,7 +104,10 @@ def report_from_backtest(symbol: str, backtest: dict,
                     "V1", cost_known)
         for t in backtest["trades"]
     ]
-    return build_report({symbol: equity}, trades, filters or ReportFilters())
+    position = backtest.get("position")
+    open_positions = [] if position is None else [
+        OpenPosition(symbol, _as_day(position["entry_at"]), cost_known)]
+    return build_report({symbol: equity}, trades, filters or ReportFilters(), open_positions)
 
 
 def comparison_from_backtest(symbol: str, frame, decisions: dict, notional: Decimal,

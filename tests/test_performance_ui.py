@@ -140,6 +140,25 @@ def test_report_from_backtest_uses_daily_equity_and_flags_unknown_costs():
     assert usd.net_return_pct == Decimal("20")
 
 
+def test_ac84_backtest_open_position_with_unknown_cost_is_upper_bound():
+    """AC84 — Backtest sonunda maliyeti bilinmeyen açık pozisyon varsa rapor üst sınırdır."""
+    import pandas as pd
+    from technical_analysis import run_v1_strategy_backtest
+
+    index = pd.date_range("2026-09-01", periods=3, freq="D", tz="UTC")
+    frame = pd.DataFrame({
+        "Open": [99, 100, 110], "High": [101, 112, 115],
+        "Low": [98, 95, 105], "Close": [100, 110, 112], "ATR": [4, 5, 5],
+    }, index=index)
+    result = run_v1_strategy_backtest(
+        frame, {index[0]: "AL", index[1]: "BEKLE"}, initial_cash=Decimal("1000"),
+        trade_notional=Decimal("1000"), quantity_step=Decimal("1"))
+    assert result["position"] is not None and not result["trades"]
+    usd = performance_ui.report_from_backtest("ETH-USD", result).report.results["USD"]
+    assert usd.closed_count == 0
+    assert usd.is_upper_bound and usd.cost_missing_count == 1
+
+
 def test_report_from_backtest_unrecognised_symbol_is_rejected_politely():
     """AC64 — Piyasası tanınmayan varlık için rapor anlaşılır mesajla reddedilir."""
     outcome = performance_ui.report_from_backtest(

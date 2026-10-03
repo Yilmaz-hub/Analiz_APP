@@ -46,6 +46,14 @@ class ReportTrade:
 
 
 @dataclass(frozen=True)
+class OpenPosition:
+    """Dönem sonunda açık pozisyon; maliyeti bilinmiyorsa rapor üst sınırdır (R03)."""
+    symbol: str
+    opened_on: date
+    cost_known: bool = True
+
+
+@dataclass(frozen=True)
 class ReportFilters:
     market: str | None = None
     symbol: str | None = None
@@ -140,7 +148,8 @@ def _symbol_selected(symbol: str, filters: ReportFilters) -> bool:
 
 
 def build_report(equity_by_symbol: Mapping[str, Sequence[EquityPoint]],
-                 trades: Sequence[ReportTrade], filters: ReportFilters) -> ReportOutcome:
+                 trades: Sequence[ReportTrade], filters: ReportFilters,
+                 open_positions: Sequence[OpenPosition] = ()) -> ReportOutcome:
     if filters.market is not None and filters.market not in PerformanceConfig.MARKETS:
         return _rejected("Bilinmeyen piyasa seçildi; tanımlı piyasalardan birini seçin.")
     if filters.start is not None and filters.end is not None and filters.start > filters.end:
@@ -164,12 +173,20 @@ def build_report(equity_by_symbol: Mapping[str, Sequence[EquityPoint]],
             currency = market_map.market_of(symbol)[1]
             by_currency_series.setdefault(currency, []).append(period)
 
+    open_missing: dict[str, int] = {}
+    for position in open_positions:
+        if (position.cost_known or not _symbol_selected(position.symbol, filters)
+                or (filters.end is not None and position.opened_on > filters.end)):
+            continue
+        currency = market_map.market_of(position.symbol)[1]
+        open_missing[currency] = open_missing.get(currency, 0) + 1
+
     currencies = set(by_currency_series) | {t.currency for t in selected}
     results: dict[str, CurrencyResult] = {}
     for currency in sorted(currencies):
         points = _combine_equity(by_currency_series.get(currency, []))
         own = [t for t in selected if t.currency == currency]
-        missing = sum(1 for t in own if not t.cost_known)
+        missing = sum(1 for t in own if not t.cost_known) + open_missing.get(currency, 0)
         results[currency] = CurrencyResult(
             currency=currency,
             net_return_pct=_net_return(points),
