@@ -106,6 +106,78 @@ def remember_saved_portfolio():
     st.session_state['portfolio_snapshot'] = copy.deepcopy(st.session_state['portfolio_data'])
 
 
+@st.fragment
+def sell_panel(active_pos, sel_c, curr, records_writable):
+    """"Kâr Al / Satış Yap" paneli (spec 0006 + spec 0007 R06).
+
+    Parça (fragment) olarak çalışır: satış fiyatını, yüzdeyi ya da miktarı yazmak yalnız bu paneli
+    yeniden çalıştırır; grafik, sinyal ve fiyat çağrıları yeniden hesaplanmaz. Satış onaylanınca
+    `st.rerun()` sayfayı bir kez tümüyle yeniler."""
+    p_coins = list(set([p['Coin'] for p in active_pos]))
+    s_coin = st.selectbox("Coin", p_coins, key="sell_sel")
+    target_pos = next((p for p in active_pos if p['Coin'] == s_coin), None)
+    if target_pos:
+        sell_price = st.number_input("Satış Fiyatı", value=float(curr if s_coin == sel_c else target_pos['Giriş']), key=f"sell_price:{s_coin}")
+        st.caption("V1 SAT sinyali ve stop çıkışı pozisyonun tamamını kapatır.")
+        qty_key, pct_key = f"sell_qty:{s_coin}", f"sell_pct:{s_coin}"
+        msg_key = f"sell_pct_msg:{s_coin}"
+        held_qty = Decimal(str(target_pos['Adet']))
+        try:
+            sell_step = known_quantity_step(s_coin)
+        except StorageAccessError:
+            sell_step = None   # kayıtlar okunamıyor: satış zaten kapalı (records_writable)
+        st.session_state.setdefault(qty_key, float(held_qty))
+        st.session_state.setdefault(pct_key, 100.0)
+
+        def apply_percent(percent=None, qty_key=qty_key, pct_key=pct_key,
+                          msg_key=msg_key, held_qty=held_qty, sell_step=sell_step):
+            """Yüzdeyi satılacak miktara çevirir (spec 0006 R05); callback'te çalışır."""
+            if percent is not None:
+                st.session_state[pct_key] = float(percent)
+            quantity, code = quantity_from_percent(
+                held_qty, Decimal(str(st.session_state[pct_key])), sell_step)
+            st.session_state[msg_key] = "" if quantity is not None else describe_code(code)
+            if quantity is not None:
+                st.session_state[qty_key] = float(quantity)
+
+        preset_cols = st.columns(4)
+        for column, preset in zip(preset_cols, (25, 50, 75, 100)):
+            column.button(f"%{preset}", key=f"sell_preset:{s_coin}:{preset}",
+                          on_click=apply_percent, args=(preset,))
+        st.number_input("Yüzde (%)", min_value=0.0, max_value=100.0, step=1.0,
+                        key=pct_key, on_change=apply_percent)
+        if st.session_state.get(msg_key):
+            st.warning(st.session_state[msg_key])
+        sell_amt = st.number_input(
+            "Satılan miktar (adet)", min_value=0.0,
+            step=0.00000001, format="%.8f", key=qty_key)
+        remaining_qty = held_qty - Decimal(str(sell_amt))
+        st.caption(f"Kalan: {format(max(remaining_qty, Decimal('0')).normalize(), 'f')} adet")
+        sell_now_tr = datetime.now(ZoneInfo("Europe/Istanbul"))
+        sell_date = st.date_input("İşlem tarihi (İstanbul)", value=sell_now_tr.date(), key="sell_date")
+        sell_time = st.time_input("İşlem saati (İstanbul)", value=sell_now_tr.time().replace(microsecond=0), key="sell_time")
+        total_return = sell_amt * sell_price
+        st.write(f"**Gelecek Nakit:** ${total_return:,.2f}")
+        if st.button("Satışı Onayla", disabled=not records_writable):
+            outcome = confirm_sell(
+                st.session_state['portfolio_data'], st.session_state['position_journal'],
+                safe_save_portfolio, position=target_pos,
+                symbol=st.session_state['coin_map'].get(s_coin, s_coin),
+                quantity=sell_amt, price=sell_price,
+                executed_at=istanbul_to_utc(sell_date, sell_time),
+                now=datetime.now(timezone.utc),
+            )
+            if outcome.ok:
+                if target_pos.get('Status') == 'CLOSED_CONFIRMED':
+                    st.session_state[f'flat_confirmed:{s_coin}'] = True
+                for stale in (qty_key, pct_key, msg_key):
+                    st.session_state.pop(stale, None)
+                st.success("Satış gerçekleşti!")
+                st.rerun()
+            elif outcome.code != "KAYIT_YAZILAMADI":
+                st.error(describe_code(outcome.code))
+
+
 _RUN_PRICES = {}    # betik her çalıştırmada baştan işlendiği için bu sözlük çalıştırma başına tazedir
 
 
@@ -845,69 +917,7 @@ if is_chart_renderable(df_view):
                                 st.rerun()
                 st.markdown("##### ✅ Aktif Pozisyonlar")
                 with st.expander("💸 Kar Al / Satış Yap"):
-                    p_coins = list(set([p['Coin'] for p in active_pos]))
-                    s_coin = st.selectbox("Coin", p_coins, key="sell_sel")
-                    target_pos = next((p for p in active_pos if p['Coin'] == s_coin), None)
-                    if target_pos:
-                        sell_price = st.number_input("Satış Fiyatı", value=float(curr if s_coin == sel_c else target_pos['Giriş']), key=f"sell_price:{s_coin}")
-                        st.caption("V1 SAT sinyali ve stop çıkışı pozisyonun tamamını kapatır.")
-                        qty_key, pct_key = f"sell_qty:{s_coin}", f"sell_pct:{s_coin}"
-                        msg_key = f"sell_pct_msg:{s_coin}"
-                        held_qty = Decimal(str(target_pos['Adet']))
-                        try:
-                            sell_step = known_quantity_step(s_coin)
-                        except StorageAccessError:
-                            sell_step = None   # kayıtlar okunamıyor: satış zaten kapalı (records_writable)
-                        st.session_state.setdefault(qty_key, float(held_qty))
-                        st.session_state.setdefault(pct_key, 100.0)
-
-                        def apply_percent(percent=None, qty_key=qty_key, pct_key=pct_key,
-                                          msg_key=msg_key, held_qty=held_qty, sell_step=sell_step):
-                            """Yüzdeyi satılacak miktara çevirir (spec 0006 R05); callback'te çalışır."""
-                            if percent is not None:
-                                st.session_state[pct_key] = float(percent)
-                            quantity, code = quantity_from_percent(
-                                held_qty, Decimal(str(st.session_state[pct_key])), sell_step)
-                            st.session_state[msg_key] = "" if quantity is not None else describe_code(code)
-                            if quantity is not None:
-                                st.session_state[qty_key] = float(quantity)
-
-                        preset_cols = st.columns(4)
-                        for column, preset in zip(preset_cols, (25, 50, 75, 100)):
-                            column.button(f"%{preset}", key=f"sell_preset:{s_coin}:{preset}",
-                                          on_click=apply_percent, args=(preset,))
-                        st.number_input("Yüzde (%)", min_value=0.0, max_value=100.0, step=1.0,
-                                        key=pct_key, on_change=apply_percent)
-                        if st.session_state.get(msg_key):
-                            st.warning(st.session_state[msg_key])
-                        sell_amt = st.number_input(
-                            "Satılan miktar (adet)", min_value=0.0,
-                            step=0.00000001, format="%.8f", key=qty_key)
-                        remaining_qty = held_qty - Decimal(str(sell_amt))
-                        st.caption(f"Kalan: {format(max(remaining_qty, Decimal('0')).normalize(), 'f')} adet")
-                        sell_now_tr = datetime.now(ZoneInfo("Europe/Istanbul"))
-                        sell_date = st.date_input("İşlem tarihi (İstanbul)", value=sell_now_tr.date(), key="sell_date")
-                        sell_time = st.time_input("İşlem saati (İstanbul)", value=sell_now_tr.time().replace(microsecond=0), key="sell_time")
-                        total_return = sell_amt * sell_price
-                        st.write(f"**Gelecek Nakit:** ${total_return:,.2f}")
-                        if st.button("Satışı Onayla", disabled=not records_writable):
-                            outcome = confirm_sell(
-                                st.session_state['portfolio_data'], st.session_state['position_journal'],
-                                safe_save_portfolio, position=target_pos,
-                                symbol=st.session_state['coin_map'].get(s_coin, s_coin),
-                                quantity=sell_amt, price=sell_price,
-                                executed_at=istanbul_to_utc(sell_date, sell_time),
-                                now=datetime.now(timezone.utc),
-                            )
-                            if outcome.ok:
-                                if target_pos.get('Status') == 'CLOSED_CONFIRMED':
-                                    st.session_state[f'flat_confirmed:{s_coin}'] = True
-                                for stale in (qty_key, pct_key, msg_key):
-                                    st.session_state.pop(stale, None)
-                                st.success("Satış gerçekleşti!")
-                                st.rerun()
-                            elif outcome.code != "KAYIT_YAZILAMADI":
-                                st.error(describe_code(outcome.code))
+                    sell_panel(active_pos, sel_c, curr, records_writable)
 
                 run_prices = run_position_prices()
                 active_data, total_active_value = build_active_rows(
@@ -918,6 +928,13 @@ if is_chart_renderable(df_view):
                 price_note = total_value_note(active_data)
                 if price_note:
                     st.warning(price_note)
+                    with st.expander("Fiyat kaynağı ayrıntısı"):
+                        from data_fetchers import price_diagnostics
+                        for row in active_data:
+                            if str(row.get("Fiyat", "")).startswith("fiyat alınamadı"):
+                                details = price_diagnostics(st.session_state['coin_map'].get(row["Coin"], ""))
+                                st.caption(f"{row['Coin']}: " + ("; ".join(details) if details
+                                                                 else "kaynaklara henüz sorulmadı"))
 
             if pending_pos:
                 st.markdown("##### ⏳ Bekleyen Limit Emirler")

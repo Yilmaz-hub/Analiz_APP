@@ -217,41 +217,98 @@ def _positive(value):
     return number if number == number and number > 0 and number != float("inf") else None
 
 
+#: Fiyat kaynağı tanılaması: sembol -> {kaynak: sonuç}. Yalnız ekranda "neden alınamadı" göstermek içindir.
+PRICE_DIAGNOSTICS = {}
+_OUTCOME_RANK = {"yanıt yok": 0, "reddedildi": 1, "geçersiz yanıt": 2, "alındı": 3}
+
+
+def _note(symbol, source, outcome):
+    """Kaynağın en iyi sonucunu saklar (alındı > geçersiz yanıt > reddedildi > yanıt yok)."""
+    seen = PRICE_DIAGNOSTICS.setdefault(symbol, {})
+    if _OUTCOME_RANK[outcome] >= _OUTCOME_RANK.get(seen.get(source), -1):
+        seen[source] = outcome
+
+
+def price_diagnostics(symbol):
+    """Ekranda gösterilecek kısa satırlar; adres, istisna metni ve parola içermez (spec 0007 R07)."""
+    seen = PRICE_DIAGNOSTICS.get(market_map.canonical_symbol(symbol), {})
+    return [f"{source}: {outcome}" for source, outcome in seen.items()]
+
+
 def _binance_price(symbol):
     pair = market_map.binance_symbol(symbol)
     if pair is None:
         return None
     started = time.monotonic()
     for host in BINANCE_PRICE_HOSTS:
-        remaining = BINANCE_PRICE_BUDGET_SECONDS - (time.monotonic() - started)
-        if remaining <= 0.2:
-            break   # toplam süre aşıldı: kalan adresler denenmez, Yahoo'ya geçilir (R11)
-        try:
-            # Her isteğin zaman aşımı kalan bütçeye sığar: zincir bütçeyi aşamaz.
-            r = requests.get(f"{host}/api/v3/ticker/price", params={"symbol": pair},
-                             timeout=(min(1.5, remaining / 2), min(2.0, remaining / 2)))
-            if r.status_code == 200:
-                price = _positive(r.json().get("price"))
+        for path, params, pick in (
+            ("/api/v3/ticker/price", {"symbol": pair}, lambda body: body.get("price")),
+            ("/api/v3/klines", {"symbol": pair, "interval": "1m", "limit": 1}, lambda body: body[-1][4]),
+        ):
+            remaining = BINANCE_PRICE_BUDGET_SECONDS - (time.monotonic() - started)
+            if remaining <= 0.2:
+                return None   # toplam süre aşıldı: kalan adresler denenmez, sıradaki kaynağa geçilir (R11)
+            try:
+                # Grafik istekleriyle aynı tarayıcı kimliği (R05); zaman aşımı kalan bütçeye sığar.
+                r = requests.get(host + path, params=params, headers=DataFetchConfig.HEADERS,
+                                 timeout=(min(1.5, remaining / 2), min(2.0, remaining / 2)))
+                if r.status_code != 200:
+                    _note(symbol, "Binance", "reddedildi")
+                    if r.status_code == 451:
+                        break   # bölge engeli adresin tamamı için geçerli: kline uç noktası da denenmez
+                    continue
+                price = _positive(pick(r.json()))
                 if price is not None:
+                    _note(symbol, "Binance", "alındı")
                     return price
-        except Exception as e:
-            logger.debug(f"Binance price fetch failed ({host}, {pair}): {e}")
+                _note(symbol, "Binance", "geçersiz yanıt")
+            except Exception as e:
+                _note(symbol, "Binance", "yanıt yok")
+                logger.debug(f"Binance price fetch failed ({host}{path}, {pair}): {e}")
     return None
 
 
-def _live_price(ticker_symbol):
-    """Kaynak sırası: Binance adresleri (yalnız kripto) → Yahoo (kanonik sembolle)."""
-    canonical = market_map.canonical_symbol(ticker_symbol)
-    price = _binance_price(canonical)
-    if price is not None:
-        return price
+def _okx_price(symbol):
+    instrument = market_map.okx_symbol(symbol)
+    if instrument is None:
+        return None
     try:
-        yahoo_symbol = canonical[:-1] if canonical.endswith("-USDT") else canonical   # Yahoo USDT çiftini tanımaz
+        r = requests.get("https://www.okx.com/api/v5/market/ticker", params={"instId": instrument},
+                         headers=DataFetchConfig.HEADERS, timeout=(1.5, 2.0))
+        if r.status_code != 200:
+            _note(symbol, "OKX", "reddedildi")
+            return None
+        body = r.json()
+        price = _positive(body["data"][0]["last"]) if body.get("code") == "0" else None
+        _note(symbol, "OKX", "alındı" if price is not None else "geçersiz yanıt")
+        return price
+    except Exception as e:
+        _note(symbol, "OKX", "yanıt yok")
+        logger.debug(f"OKX price fetch failed ({instrument}): {e}")
+        return None
+
+
+def _yahoo_price(symbol):
+    yahoo_symbol = symbol[:-1] if symbol.endswith("-USDT") else symbol   # Yahoo USDT çiftini tanımaz
+    try:
         price = _positive(yf.Ticker(yahoo_symbol).fast_info['last_price'])
     except Exception as e:
-        logger.debug(f"Yahoo price fetch failed for {canonical}: {e}")
-        price = None
-    return price if price is not None else 0
+        logger.debug(f"Yahoo price fetch failed for {symbol}: {e}")
+        _note(symbol, "Yahoo", "yanıt yok")
+        return None
+    _note(symbol, "Yahoo", "alındı" if price is not None else "geçersiz yanıt")
+    return price
+
+
+def _live_price(ticker_symbol):
+    """Kaynak sırası: Binance adresleri → OKX (yalnız kripto) → Yahoo (kanonik sembolle)."""
+    canonical = market_map.canonical_symbol(ticker_symbol)
+    PRICE_DIAGNOSTICS.pop(canonical, None)
+    for source in (_binance_price, _okx_price, _yahoo_price):
+        price = source(canonical)
+        if price is not None:
+            return price
+    return 0
 
 
 #: Bir çalıştırmada tüm pozisyon fiyatları için toplam bekleme üst sınırı (spec 0007 R03).

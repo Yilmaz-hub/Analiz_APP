@@ -19,7 +19,17 @@ from conftest import make_ohlcv
 
 frame, _ = data_fetchers.process_data(make_ohlcv(), "kanit")
 PRICES = {"Chainlink": 18.4, "Hedera": 0, "Bitcoin (BTC)": float(frame["Close"].iloc[-1])}
-data_fetchers.get_market_data = lambda *a, **k: (frame, "Binance")
+COUNT_FILE = os.environ.get("COUNT_FILE")
+
+
+def _market(*a, **k):
+    if COUNT_FILE:                      # tarayıcı testi: ağ/hesap çağrılarını sayar (spec 0007 AC10)
+        with open(COUNT_FILE, "a") as handle:
+            handle.write("market\n")
+    return frame, "Binance"
+
+
+data_fetchers.get_market_data = _market
 data_fetchers.get_fear_greed_index = lambda: (50, "Neutral")
 data_fetchers.get_live_price_for_portfolio = lambda coin, coin_map: PRICES.get(coin, 0)
 
