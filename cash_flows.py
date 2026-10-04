@@ -19,9 +19,14 @@ def delta(old, new) -> Decimal:
     return Decimal(str(new)) - Decimal(str(old))
 
 
-def record(delta, at: datetime, note: str = "") -> None:
+def record(delta, at: datetime, note: str = "", reverses: str | None = None) -> str:
+    """Hareketi kaydeder ve zaman damgasını döndürür. `reverses`: geri alınan hareketin zaman damgası
+    (bakiye yazılamadığında yapılan telafi kaydı); geri alınan çift para hareketi sayılmaz."""
     entry = {"delta": str(Decimal(str(delta))), "at": at.isoformat(), "note": note}
+    if reverses is not None:
+        entry["reverses"] = reverses
     storage.update_doc(_KEY, lambda entries: [*(entries or []), entry])
+    return entry["at"]
 
 
 def flows() -> list[dict]:
@@ -29,4 +34,7 @@ def flows() -> list[dict]:
 
 
 def flow_days() -> list[date]:
-    return sorted({datetime.fromisoformat(entry["at"]).date() for entry in flows()})
+    entries = flows()
+    reversed_ats = {entry["reverses"] for entry in entries if entry.get("reverses")}
+    return sorted({datetime.fromisoformat(entry["at"]).date() for entry in entries
+                   if not entry.get("reverses") and entry["at"] not in reversed_ats})

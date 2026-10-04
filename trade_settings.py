@@ -98,6 +98,12 @@ def load_raw(asset):
     return dict(document.get(asset, {}))
 
 
+def known_quantity_step(asset):
+    """Varlığın kayıtlı miktar adımı; bilinmiyor ya da ayarlar geçersizse None."""
+    parsed = parse_settings(load_raw(asset))
+    return parsed.settings.quantity_step if parsed.ok else None
+
+
 def save_raw(asset, values):
     """Varlığın varsayımlarını yazar; diğer varlıkların kaydına dokunmaz (AC98)."""
     document = storage.read_doc(storage.TRADE_SETTINGS_KEY) or {}

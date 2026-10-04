@@ -56,7 +56,9 @@ def is_v1_scope(symbol):
 
 def policy_for_symbol(symbol, now):
     """Return the approved daily close policy for a supported V1 symbol."""
-    normalized = symbol.upper()
+    from market_map import canonical_symbol
+
+    normalized = canonical_symbol(symbol)
     utc_now = now.astimezone(timezone.utc)
     if normalized.endswith(("-USD", "/USD", "-USDT", "/USDT")):
         close = datetime.combine(utc_now.date(), time.min, tzinfo=timezone.utc)

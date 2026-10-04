@@ -24,7 +24,9 @@ def classify_asset(symbol):
         return "forex"
     if symbol in ("XAU_GOLD", "GRAM_TRY"):
         return "commodity"
-    if "-USD" in symbol or "-USDT" in symbol:
+    from market_map import canonical_symbol
+
+    if "-USD" in canonical_symbol(symbol):
         return "crypto"
     return None
 

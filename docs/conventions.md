@@ -4,9 +4,10 @@
 
 ## Para = decimal (mutlak kural)
 
-- Tüm para ve yüzde alanları **`decimal`**. `double`/`float` **yasak**.
-- DB tarafında para için sabit ölçek kullanılır (ör. `decimal(18,2)`); yüzde için yeterli
-  ölçek (ör. `decimal(5,2)`).
+- Tüm para ve yüzde alanları **`decimal.Decimal`**. `float` **yasak** (aşağıdaki V1 istisnası hariç).
+- `Decimal` değerler `str` olarak saklanır (belge deposunda JSON'a `float` olarak yazılmaz) ve
+  `Decimal(str(değer))` ile okunur; sabit ölçek gerektiğinde `quantize` kullanılır
+  (para için iki ondalık, yüzde için iki ondalık).
 - Para değeri para birimi bilgisiyle taşınır; yuvarlama tek noktada, açıkça yapılır.
 
 ## V1 analitik ara hesap istisnası
@@ -15,12 +16,13 @@
 
 ## Adlandırma
 
-- **C#**: tip/metot/`public` üye → `PascalCase`; yerel/parametre → `camelCase`;
-  `private` alan → `_camelCase`; sabit → `PascalCase`; arayüz → `IAd`.
-- Dosya adı = içindeki ana tip adı.
+- **Python (PEP 8)**: modül/fonksiyon/değişken → `snake_case`; sınıf → `PascalCase`;
+  sabit → `UPPER_SNAKE_CASE`; modül içi yardımcı → `_önek`.
+- Modül dosya adı küçük harf `snake_case` (ör. `risk_sizing.py`); ekran kodu `*_ui.py`,
+  saf hesap kodu Streamlit içermeyen ayrı modüldür.
 - **Alan terimleri EN kod adıyla** yazılır; terim ve karşılığı ilgili spec'in **Context → Terimler** bölümündedir.
-- Boolean adları soru gibi yazılır.
-- DTO'lar `...Request` / `...Response` son ekiyle.
+- Boolean adları soru gibi yazılır (`is_approved`, `has_position`).
+- Sonuç taşıyan veri yapıları `@dataclass(frozen=True)` olur (ör. `ReportOutcome`, `SizeResult`).
 
 ## Katmanlar
 
@@ -30,11 +32,15 @@
 
 ## Hata Yönetimi
 
-- Beklenen iş hataları için anlamlı sonuç (ör. `Result`/`ProblemDetails`), exception'la akış kontrol edilmez.
-- Beklenmeyen hatalar merkezi bir hata middleware'inde yakalanır ve loglanır.
-- **Kullanıcıya teknik hata metni / stack trace sızmaz** (frontend tarafı için de geçerli, bkz. `frontend.md`).
-- HTTP durum kodları anlamlı: doğrulama `400`, yetki `401/403`, bulunamadı `404`, çakışma `409`.
-- Loglar yapılandırılmış (structured) olur; log'a sır/PII yazılmaz.
+- Beklenen iş hataları için anlamlı sonuç nesnesi (ör. `status`/`code` + Türkçe `reason`) döner;
+  exception ile akış kontrol edilmez.
+- Beklenmeyen ve altyapı hataları (depo, ağ) sınırda yakalanıp anlamlı bir hata türüne çevrilir
+  (ör. `StorageAccessError`) ve `logger.py` ile loglanır.
+- **Kullanıcıya teknik hata metni / stack trace sızmaz** (ekran tarafı için bkz. `frontend.md`).
+  Ekran, hata durumunda anlaşılır Türkçe uyarı gösterir ve geri kalanı çalışmaya devam eder.
+- Beklenen durumlar uygulama terimleriyle adlandırılır (ör. `BULUNAMADI`, `GECERSIZ_ISTEK`);
+  HTTP durum kodlarıyla anlatılmaz.
+- Loglar anlamlı ve ayıklanabilir olur; log'a sır (ör. `db_url` parolası) ve kişisel veri yazılmaz.
 
 ## Genel
 

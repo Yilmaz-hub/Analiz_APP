@@ -128,7 +128,9 @@ def test_q3_sell_closes_the_position_and_is_journaled(store):
 
 
 @pytest.mark.parametrize("over,code", [
-    (dict(quantity=D("1")), "MIKTAR_POZISYONLA_ESIT_DEGIL"),
+    # Spec 0006 Q01 eski "yalnız tam miktar" kuralını kaldırdı: eksik miktar artık kısmi satıştır
+    # (tests/test_partial_sale.py). Geçersiz olan, eldeki miktardan FAZLA satıştır.
+    (dict(quantity=D("3")), "MIKTAR_FAZLA"),
     (dict(executed_at=NOW + timedelta(hours=1)), "GELECEK_ZAMAN"),
     (dict(executed_at=TRADE_AT - timedelta(hours=1)), "CIKIS_GIRISTEN_ONCE"),
     (dict(price=D("0")), "GECERSIZ_FIYAT"),

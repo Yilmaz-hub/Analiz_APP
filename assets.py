@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import positions as positions_module
 import storage
+import market_map
 from config import DEFAULT_COIN_MAP
 
 
@@ -66,7 +67,12 @@ def add_asset(assets: dict, name, symbol):
 
     updated = dict(assets)
     updated[clean_name] = clean_symbol
-    return True, f"{clean_name} eklendi!", updated
+    message = f"{clean_name} eklendi!"
+    canonical = market_map.canonical_symbol(clean_symbol)
+    if canonical != clean_symbol.upper():
+        # Kayıt yazıldığı gibi kalır; kullanıcıya nasıl okunacağı gösterilir (spec 0006 Q08).
+        message += f" ({clean_symbol} → {canonical}, kripto olarak okunacak)"
+    return True, message, updated
 
 
 def delete_asset(assets: dict, name, portfolio_positions):

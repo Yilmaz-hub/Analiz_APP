@@ -28,7 +28,7 @@ from scanner import render_opportunity_scanner
 from data_fetchers import get_live_price_for_portfolio
 from signal_engine import generate_stable_signal, generate_validated_signal, CompositeSignal, invalid_data_signal
 from market_validation import is_v1_scope, policy_for_symbol, validate_market_data
-from positions import (group_positions, build_active_rows, asset_name as position_asset_name,
+from positions import (total_value_note, group_positions, build_active_rows, asset_name as position_asset_name,
                        AKTIF as POS_AKTIF, BEKLEYEN as POS_BEKLEYEN,
                        SORUNLU as POS_SORUNLU)
 from weight_profiles import get_weights_for_symbol
@@ -37,7 +37,9 @@ from advanced_analysis import detect_elliott_wave, analyze_ichimoku, detect_wyck
 from position_journal import PositionJournal
 from trade_decisions import Position, PositionState, Signal
 from trade_decisions import initial_stop
-from trade_confirmation import confirm_buy, confirm_sell, istanbul_to_utc, reconcile
+from trade_confirmation import (confirm_buy, confirm_sell, istanbul_to_utc, quantity_from_percent,
+                                reconcile)
+from trade_settings import known_quantity_step
 from trading_ui import (PanelInput, bars_since_loss_exit, build_decision_panel, describe_code,
                         format_decision_time, resolve_decision_time)
 import theme
@@ -747,7 +749,7 @@ if is_chart_renderable(df_view):
                 if _flow != 0:
                     # Hareket önce kaydedilir: kaydedilemezse bakiye değişmez, AC14 engeli atlanmaz.
                     try:
-                        cash_flows.record(_flow, _dtc.now(_tzc.utc), "elle bakiye güncelleme")
+                        _flow_at = cash_flows.record(_flow, _dtc.now(_tzc.utc), "elle bakiye güncelleme")
                     except StorageAccessError:
                         _flow_saved = False
                         st.error("Bakiye değiştirilmedi: nakit hareketi kaydedilemedi. "
@@ -759,9 +761,11 @@ if is_chart_renderable(df_view):
                     elif _flow != 0:
                         # Bakiye yazılamadı: kaydedilen hareketi ters kayıtla geri al (hayalet hareket kalmasın).
                         try:
-                            cash_flows.record(-_flow, _dtc.now(_tzc.utc), "geri alma: bakiye yazılamadı")
+                            cash_flows.record(-_flow, _dtc.now(_tzc.utc), "geri alma: bakiye yazılamadı",
+                                              reverses=_flow_at)
                         except StorageAccessError:
-                            pass
+                            st.warning("Nakit hareketi kaydı geri alınamadı; bu günün strateji karşılaştırması "
+                                       "dışarıdan nakit hareketi nedeniyle uygun sayılmayabilir.")
 
     with col_wallet:
         st.subheader("💰 Varlıklarım")
@@ -832,9 +836,40 @@ if is_chart_renderable(df_view):
                     if target_pos:
                         sell_price = st.number_input("Satış Fiyatı", value=float(curr if s_coin == sel_c else target_pos['Giriş']), key=f"sell_price:{s_coin}")
                         st.caption("V1 SAT sinyali ve stop çıkışı pozisyonun tamamını kapatır.")
+                        qty_key, pct_key = f"sell_qty:{s_coin}", f"sell_pct:{s_coin}"
+                        msg_key = f"sell_pct_msg:{s_coin}"
+                        held_qty = Decimal(str(target_pos['Adet']))
+                        try:
+                            sell_step = known_quantity_step(s_coin)
+                        except StorageAccessError:
+                            sell_step = None   # kayıtlar okunamıyor: satış zaten kapalı (records_writable)
+                        st.session_state.setdefault(qty_key, float(held_qty))
+                        st.session_state.setdefault(pct_key, 100.0)
+
+                        def apply_percent(percent=None, qty_key=qty_key, pct_key=pct_key,
+                                          msg_key=msg_key, held_qty=held_qty, sell_step=sell_step):
+                            """Yüzdeyi satılacak miktara çevirir (spec 0006 R05); callback'te çalışır."""
+                            if percent is not None:
+                                st.session_state[pct_key] = float(percent)
+                            quantity, code = quantity_from_percent(
+                                held_qty, Decimal(str(st.session_state[pct_key])), sell_step)
+                            st.session_state[msg_key] = "" if quantity is not None else describe_code(code)
+                            if quantity is not None:
+                                st.session_state[qty_key] = float(quantity)
+
+                        preset_cols = st.columns(4)
+                        for column, preset in zip(preset_cols, (25, 50, 75, 100)):
+                            column.button(f"%{preset}", key=f"sell_preset:{s_coin}:{preset}",
+                                          on_click=apply_percent, args=(preset,))
+                        st.number_input("Yüzde (%)", min_value=0.0, max_value=100.0, step=1.0,
+                                        key=pct_key, on_change=apply_percent)
+                        if st.session_state.get(msg_key):
+                            st.warning(st.session_state[msg_key])
                         sell_amt = st.number_input(
-                            "Satılan miktar (adet)", min_value=0.0, value=float(target_pos['Adet']),
-                            step=0.00000001, format="%.8f", key=f"sell_qty:{s_coin}")
+                            "Satılan miktar (adet)", min_value=0.0,
+                            step=0.00000001, format="%.8f", key=qty_key)
+                        remaining_qty = held_qty - Decimal(str(sell_amt))
+                        st.caption(f"Kalan: {format(max(remaining_qty, Decimal('0')).normalize(), 'f')} adet")
                         sell_now_tr = datetime.now(ZoneInfo("Europe/Istanbul"))
                         sell_date = st.date_input("İşlem tarihi (İstanbul)", value=sell_now_tr.date(), key="sell_date")
                         sell_time = st.time_input("İşlem saati (İstanbul)", value=sell_now_tr.time().replace(microsecond=0), key="sell_time")
@@ -850,7 +885,10 @@ if is_chart_renderable(df_view):
                                 now=datetime.now(timezone.utc),
                             )
                             if outcome.ok:
-                                st.session_state[f'flat_confirmed:{s_coin}'] = True
+                                if target_pos.get('Status') == 'CLOSED_CONFIRMED':
+                                    st.session_state[f'flat_confirmed:{s_coin}'] = True
+                                for stale in (qty_key, pct_key, msg_key):
+                                    st.session_state.pop(stale, None)
                                 st.success("Satış gerçekleşti!")
                                 st.rerun()
                             elif outcome.code != "KAYIT_YAZILAMADI":
@@ -861,15 +899,22 @@ if is_chart_renderable(df_view):
                     lambda coin: curr if coin == sel_c else get_live_price_for_portfolio(coin, st.session_state['coin_map']),
                 )
                 if active_data: st.dataframe(pd.DataFrame(active_data), width="stretch")
+                price_note = total_value_note(active_data)
+                if price_note:
+                    st.warning(price_note)
 
             if pending_pos:
                 st.markdown("##### ⏳ Bekleyen Limit Emirler")
                 pending_data = []
                 for item in pending_pos:
                     lp = curr if item['Coin'] == sel_c else get_live_price_for_portfolio(item['Coin'], st.session_state['coin_map'])
+                    priced = bool(lp) and lp > 0
                     pending_data.append({
-                        "Coin": item['Coin'], "Hedef Giriş": item['Giriş'], "Anlık Fiyat": lp,
-                        "Uzaklık (%)": f"%{((lp - item['Giriş']) / max(lp, 0.001)) * 100:.2f}", "Kilitli Tutar": item['Yatırım']
+                        "Coin": item['Coin'], "Hedef Giriş": item['Giriş'],
+                        "Anlık Fiyat": f"{lp:.2f}" if priced else "fiyat alınamadı",
+                        "Uzaklık (%)": (f"%{((lp - item['Giriş']) / lp) * 100:.2f}" if priced
+                                        else "hesaplanamıyor"),
+                        "Kilitli Tutar": item['Yatırım']
                     })
                 st.dataframe(pd.DataFrame(pending_data), width="stretch")
                 
