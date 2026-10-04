@@ -42,6 +42,9 @@ def test_ac17_evaluation_never_changes_active_strategy(trending_df):
     """AC17 — Değerlendirme hangi sonucu verirse versin aktif strateji kullanıcı seçimi olmadan değişmez."""
     _run(trending_df)
     assert sc.active_strategy() == "V1"
+    assert sc.history()                                     # değerlendirme gerçekten çalıştı ve kayıt bıraktı
+    assert any(entry["status"] in (sc.OLCUTU_KARSILADI, sc.OLCUTU_KARSILAMADI, sc.YETERSIZ_VERI)
+               for entry in sc.history())
 
 
 def test_ac16_failed_candidate_is_visible_in_history_view():
