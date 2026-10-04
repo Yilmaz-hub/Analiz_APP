@@ -7,7 +7,8 @@
 **3) Okuması gerekenler.**
 - `AGENTS.md` (açılışta)
 - İlgili onaylı spec (`../../specs/<NNNN>-<ad>.md`)
-- `../architecture.md`, `../conventions.md` — mimari, katman, para=decimal, minimal API
+- Kök dizindeki Python modülleri — modül haritası (bkz. `../../AGENTS.md` Altın Kural 3)
+- `../conventions.md` — adlandırma, hata yönetimi, para=decimal
 - `../testing.md`, `../frontend.md`, `../git.md` — test, arayüz, branch/commit/PR
 
 **4) Yetkiler ve YASAKLAR.**

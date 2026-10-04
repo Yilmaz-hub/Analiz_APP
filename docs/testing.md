@@ -46,8 +46,6 @@
   ile sürülür; ağ kaynakları `monkeypatch` ile taklit edilir.
 - Kayıt deposu testlerde izoledir: `tests/conftest.py` içindeki `store`
   fixture'ı `autouse`'dur, hiçbir test gerçek kullanıcı kayıtlarına dokunamaz.
-- Değişmeyen kurallar: **her kabul kriteri en az bir test**; her arayüz
-  kriterine ekran görüntüsü; kritik akışa smoke test.
 
 ## Genel
 
