@@ -911,7 +911,7 @@ if is_chart_renderable(df_view):
                     priced = bool(lp) and lp > 0
                     pending_data.append({
                         "Coin": item['Coin'], "Hedef Giriş": item['Giriş'],
-                        "Anlık Fiyat": lp if priced else "fiyat alınamadı",
+                        "Anlık Fiyat": f"{lp:.2f}" if priced else "fiyat alınamadı",
                         "Uzaklık (%)": (f"%{((lp - item['Giriş']) / lp) * 100:.2f}" if priced
                                         else "hesaplanamıyor"),
                         "Kilitli Tutar": item['Yatırım']

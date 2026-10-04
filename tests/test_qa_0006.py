@@ -159,11 +159,14 @@ def test_k7_chart_fetchers_send_the_exchange_symbol(monkeypatch):
 # ---- K8: sembol yorumu döviz/altın çiftlerini kripto saymaz ---------------------------------------
 def test_k8_fiat_and_metal_pairs_are_not_read_as_crypto():
     """AC34 — `GBPUSD`, `EURUSD`, `XAUUSD` gibi döviz/altın çiftleri kripto olarak yorumlanmaz."""
-    for symbol in ("GBPUSD", "EURUSD", "XAUUSD", "USDUSD", "TRYUSD"):
+    for symbol in ("GBPUSD", "EURUSD", "XAUUSD", "USDUSD", "TRYUSD", "MXNUSD", "ZARUSD", "BRLUSD", "INRUSD",
+                   "KRWUSD", "PLNUSD", "HKDUSD", "SGDUSD", "AUDUSD", "THBUSD"):
         assert market_map.canonical_symbol(symbol) == symbol, symbol
         assert market_map.market_of(symbol) is None, symbol
     assert market_map.canonical_symbol("LINKUSD") == "LINK-USD"
     assert market_map.canonical_symbol("HBARUSDT") == "HBAR-USDT"
+    for crypto in ("BTCUSD", "SOLUSD", "ADAUSD", "DOTUSD", "XRPUSD", "USDCUSDT", "PAXGUSDT", "MNTUSD", "CROUSD"):
+        assert market_map.market_of(crypto) == ("KRIPTO", crypto[-4:] if crypto.endswith("USDT") else "USD"), crypto
 
 
 def test_k8_yahoo_fallback_converts_usdt_to_usd(monkeypatch):
@@ -193,14 +196,14 @@ def test_k9_binance_chain_stops_after_its_time_budget(monkeypatch):
 
     def slow_get(url, params=None, timeout=None, **kwargs):
         timeouts.append(timeout)
-        clock[0] += 3.0
+        clock[0] += max(timeout)          # en kötü durum: istek kendi zaman aşımını tamamen bekler
         raise TimeoutError("zaman aşımı")
 
     monkeypatch.setattr(data_fetchers.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(data_fetchers.requests, "get", slow_get)
     assert data_fetchers._binance_price("BTC-USD") is None
-    assert len(timeouts) < len(data_fetchers.BINANCE_PRICE_HOSTS)
-    assert all(isinstance(t, tuple) and sum(t) <= 4 for t in timeouts)
+    assert clock[0] <= data_fetchers.BINANCE_PRICE_BUDGET_SECONDS + 0.01   # toplam bekleme bütçeyi aşmaz
+    assert len(timeouts) < len(data_fetchers.BINANCE_PRICE_HOSTS) + 1
 
 
 # ---- K11: kayıt zamanı sabit saatle sınanır -------------------------------------------------------
@@ -267,3 +270,14 @@ def test_n2b_reversed_flow_pair_does_not_block_the_comparison_day(store):
     cash_flows.record(D("-750"), at, "geri alma", reverses=original)
     cash_flows.record(D("100"), at + timedelta(days=2), "elle bakiye güncelleme")
     assert [d.isoformat() for d in cash_flows.flow_days()] == ["2026-10-06"]
+
+
+def test_n_c_pending_price_column_is_text_only_so_the_table_converts_cleanly(store, monkeypatch, processed_df):
+    """AC33 — Bekleyen emir tablosunun "Anlık Fiyat" sütunu tek türdendir (metin); karışık tür günlüğe hata düşürmez."""
+    store.write_doc(store.ASSETS_KEY, {COIN: "BTC-USD", "Ethereum (ETH)": "ETH-USD"})
+    store.write_doc(store.PORTFOLIO_KEY, {"balance": 1000.0, "positions": [{
+        "Coin": "Ethereum (ETH)", "Giriş": 2000.0, "Adet": 0.5, "Yatırım": 1000.0, "Realized": 0.0,
+        "Status": "PENDING", "Tarih": "2026-09-01", "Stop": 1800.0}]})
+    at = make_app(monkeypatch, processed_df, live_price=2100.0).run()
+    frame = next(f.value for f in at.dataframe if "Hedef Giriş" in f.value.columns)
+    assert all(isinstance(v, str) for v in frame["Anlık Fiyat"])

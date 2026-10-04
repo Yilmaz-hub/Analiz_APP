@@ -108,7 +108,7 @@ Başarı: kullanıcı pozisyonunun herhangi bir bölümünü kayda geçirebilir,
 ## SCORECARD
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 4 — Rev 4: QA bulguları, AC32–AC35; Rev 3: Rev 3: Q01–Q08 onaylandı; onaydan önce Rev 2'de B bölümü kullanıcı itirazıyla kök nedenle yeniden yazıldı |
+| Spec revizyon sayısı | 4 — Rev 4: QA bulguları, AC32–AC35; Rev 3: Q01–Q08 onaylandı; onaydan önce Rev 2'de B bölümü kullanıcı itirazıyla kök nedenle yeniden yazıldı |
 | Düzeltme turu sayısı | 1 — bağımsız QA denetimi (K1–K14) sonrası; yeniden QA bekliyor |
 | Bulgu gerçek/gürültü oranı | Ölçülmedi |
 | Regresyon sayısı | Ölçülmedi |

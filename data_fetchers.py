@@ -205,7 +205,7 @@ BINANCE_PRICE_HOSTS = (
 
 
 #: Üç adres için toplam bekleme üst sınırı; ekran pozisyon sayısıyla çarpıldığı için kısa tutulur.
-BINANCE_PRICE_BUDGET_SECONDS = 5.0
+BINANCE_PRICE_BUDGET_SECONDS = 4.0
 
 
 def _positive(value):
@@ -223,11 +223,13 @@ def _binance_price(symbol):
         return None
     started = time.monotonic()
     for host in BINANCE_PRICE_HOSTS:
-        if time.monotonic() - started >= BINANCE_PRICE_BUDGET_SECONDS:
+        remaining = BINANCE_PRICE_BUDGET_SECONDS - (time.monotonic() - started)
+        if remaining <= 0.2:
             break   # toplam süre aşıldı: kalan adresler denenmez, Yahoo'ya geçilir (R11)
         try:
+            # Her isteğin zaman aşımı kalan bütçeye sığar: zincir bütçeyi aşamaz.
             r = requests.get(f"{host}/api/v3/ticker/price", params={"symbol": pair},
-                             timeout=(1.5, 2.0))
+                             timeout=(min(1.5, remaining), min(2.0, remaining)))
             if r.status_code == 200:
                 price = _positive(r.json().get("price"))
                 if price is not None:
