@@ -21,6 +21,7 @@ from performance_report import (
 )
 
 NOT_COMPUTABLE = "hesaplanamıyor"
+REGIME_LABELS = {"YUKSELEN": "Yükselen", "DUSEN": "Düşen", "YATAY": "Yatay"}
 _CENT = Decimal("0.01")
 
 
@@ -77,36 +78,62 @@ def _block(result: CurrencyResult) -> MetricBlock:
     )
 
 
-def build_report_view(outcome: ReportOutcome) -> ReportView:
+def _regime_notes(regime: str | None) -> list[str]:
+    if regime is None:
+        return []
+    from regime_classifier import REGIME_VERSION
+
+    return [f"Piyasa koşulu: {REGIME_LABELS[regime]} ({REGIME_VERSION}) — işlem, girişe karar "
+            "verildiği gündeki koşula göre sayılır.",
+            "Net getiri ve en büyük düşüş piyasa koşuluna göre hesaplanamaz: sermaye eğrisi "
+            "kesintisizdir, koşula göre bölünmez."]
+
+
+def build_report_view(outcome: ReportOutcome, regime: str | None = None) -> ReportView:
     if outcome.status != OK:
         return ReportView(blocks=[], messages=[outcome.reason])
     report = outcome.report
+    notes = _regime_notes(regime)
     if not report.results:
         return ReportView(blocks=[], messages=[
-            f"Seçili filtre ve dönemde veri yok. Örnek sayısı: {report.sample_count}."],
+            f"Seçili filtre ve dönemde veri yok. Örnek sayısı: {report.sample_count}.", *notes],
             sample_count=report.sample_count, is_empty=True)
     return ReportView(blocks=[_block(r) for _, r in sorted(report.results.items())],
-                      messages=[f"Örnek sayısı: {report.sample_count}."],
+                      messages=[f"Örnek sayısı: {report.sample_count}.", *notes],
                       sample_count=report.sample_count)
 
 
-def report_from_backtest(symbol: str, backtest: dict,
-                         filters: ReportFilters | None = None) -> ReportOutcome:
-    """V1 backtest çıktısından rapor üretir (günlük kapanış sermaye dizisi + kapanmış işlemler)."""
+def regime_at_decision(regimes, entry_day: date) -> str | None:
+    """Girişe karar verilen günün koşulu: giriş gününden önceki son kapanmış gün (sızıntı yok)."""
+    earlier = [label for day, label in zip(regimes.index, regimes.values) if _as_day(day) < entry_day]
+    return earlier[-1] if earlier else None
+
+
+def report_from_backtest(symbol: str, backtest: dict, filters: ReportFilters | None = None,
+                         regimes=None) -> ReportOutcome:
+    """V1 backtest çıktısından rapor üretir (günlük kapanış sermaye dizisi + kapanmış işlemler).
+
+    `regimes` (gün → sınıf serisi) verilirse her işlem, girişe karar verilen günün koşuluyla
+    etiketlenir; piyasa koşulu filtresi (AC89) bu etikete bakar.
+    """
     info = market_map.market_of(symbol)
     if info is None:
         return ReportOutcome(GECERSIZ_ISTEK, "Bu varlığın piyasası tanınmıyor; rapor üretilemedi.")
     market, currency = info
     equity = [EquityPoint(_as_day(p["date"]), Decimal(p["equity"])) for p in backtest["daily_equity"]]
     cost_known = bool(backtest.get("net_verified"))
+    def entry_regime(entry_at):
+        return None if regimes is None else regime_at_decision(regimes, _as_day(entry_at))
+
     trades = [
         ReportTrade(symbol, market, currency, Decimal(t["pnl"]), _as_day(t["exit_at"]),
-                    "V1", cost_known)
+                    "V1", cost_known, entry_regime(t["entry_at"]))
         for t in backtest["trades"]
     ]
     position = backtest.get("position")
     open_positions = [] if position is None else [
-        OpenPosition(symbol, _as_day(position["entry_at"]), cost_known)]
+        OpenPosition(symbol, _as_day(position["entry_at"]), cost_known,
+                     entry_regime(position["entry_at"]))]
     return build_report({symbol: equity}, trades, filters or ReportFilters(), open_positions)
 
 
@@ -189,6 +216,16 @@ def render_report_view(view: ReportView) -> None:
                 column.metric(label, value)
 
 
+def _regimes_for(st, source: dict, scope: str):
+    """Gün bazında piyasa koşulu serisi; pahalı olduğu için oturumda bir kez hesaplanır."""
+    key = f"perf_regimes:{scope}"
+    if key not in st.session_state:
+        from regime_classifier import classify_frame
+
+        st.session_state[key] = classify_frame(source["frame"])
+    return st.session_state[key]
+
+
 def render_report_panel(source: dict) -> None:
     """Filtre kutuları + rapor + al-tut karşılaştırması. `source` backtest sonucunu taşır."""
     import streamlit as st
@@ -202,8 +239,14 @@ def render_report_panel(source: dict) -> None:
     end = second.date_input("Bitiş", value=days[-1], min_value=days[0], max_value=days[-1],
                             key=f"perf_end:{scope}")
     market = third.selectbox("Piyasa", ["Tümü", *PerformanceConfig.MARKETS], key=f"perf_market:{scope}")
-    filters = ReportFilters(market=None if market == "Tümü" else market, start=start, end=end)
-    render_report_view(build_report_view(report_from_backtest(symbol, backtest, filters)))
+    regime_label = st.selectbox("Piyasa koşulu", ["Tümü", *REGIME_LABELS.values()],
+                                key=f"perf_regime:{scope}")
+    regime = next((code for code, label in REGIME_LABELS.items() if label == regime_label), None)
+    regimes = _regimes_for(st, source, scope) if regime is not None else None
+    filters = ReportFilters(market=None if market == "Tümü" else market, start=start, end=end,
+                            regime=regime)
+    render_report_view(build_report_view(report_from_backtest(symbol, backtest, filters, regimes),
+                                         regime))
     render_report_view(comparison_from_backtest(
         symbol, source["frame"], source["decisions"], source["notional"],
         Decimal(backtest["initial_cash"]), source["quantity_step"], source["costs"]))
