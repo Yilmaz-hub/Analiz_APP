@@ -11,19 +11,20 @@ import re
 _US_TICKER = re.compile(r"^[A-Z]{1,5}$")
 # Tire olmadan yazılan kripto çifti (`LINKUSD`, `HBARUSDT`): en az iki karakterlik taban.
 # ISO 4217 döviz ve değerli maden kodları kripto tabanı değildir (`GBPUSD` bir döviz çiftidir).
-# Kripto ile çakışan kodlar (ör. MNT = Mantle) bilerek listede yoktur.
+# Kripto ile çakışan kodlar bilerek listede yoktur: MNT (Mantle), SCR (Scroll), BOB (Build on Bitcoin),
+# SBD (Steem Dollars), TOP, SOS. Bunların tiresiz yazımı kripto sayılır; döviz olarak `XXX=X` biçimi kullanılır.
 _NON_CRYPTO_BASES = frozenset({
     "AED", "AFN", "ALL", "AMD", "ANG", "AOA", "ARS", "AUD", "AWG", "AZN", "BAM", "BBD", "BDT",
-    "BGN", "BHD", "BIF", "BMD", "BND", "BOB", "BRL", "BSD", "BTN", "BWP", "BYN", "BZD", "CAD",
+    "BGN", "BHD", "BIF", "BMD", "BND", "BRL", "BSD", "BTN", "BWP", "BYN", "BZD", "CAD",
     "CDF", "CHF", "CLP", "CNH", "CNY", "COP", "CRC", "CUP", "CVE", "CZK", "DJF", "DKK", "DOP",
     "DZD", "EGP", "ERN", "ETB", "EUR", "FJD", "FKP", "GBP", "GEL", "GHS", "GIP", "GMD", "GNF",
     "GTQ", "GYD", "HKD", "HNL", "HTG", "HUF", "IDR", "ILS", "INR", "IQD", "IRR", "ISK", "JMD",
     "JOD", "JPY", "KES", "KGS", "KHR", "KMF", "KPW", "KRW", "KWD", "KYD", "KZT", "LAK", "LBP",
     "LKR", "LRD", "LSL", "LYD", "MAD", "MDL", "MGA", "MKD", "MMK", "MOP", "MRU", "MUR", "MVR",
     "MWK", "MXN", "MYR", "MZN", "NAD", "NGN", "NIO", "NOK", "NPR", "NZD", "OMR", "PAB", "PEN",
-    "PGK", "PHP", "PKR", "PLN", "PYG", "QAR", "RON", "RSD", "RUB", "RWF", "SAR", "SBD", "SCR",
-    "SDG", "SEK", "SGD", "SHP", "SLE", "SOS", "SRD", "SSP", "STN", "SVC", "SYP", "SZL", "THB",
-    "TJS", "TMT", "TND", "TOP", "TRY", "TTD", "TWD", "TZS", "UAH", "UGX", "USD", "UYU", "UZS",
+    "PGK", "PHP", "PKR", "PLN", "PYG", "QAR", "RON", "RSD", "RUB", "RWF", "SAR",
+    "SDG", "SEK", "SGD", "SHP", "SLE", "SRD", "SSP", "STN", "SVC", "SYP", "SZL", "THB",
+    "TJS", "TMT", "TND", "TRY", "TTD", "TWD", "TZS", "UAH", "UGX", "USD", "UYU", "UZS",
     "VES", "VND", "VUV", "WST", "XAF", "XAG", "XAU", "XCD", "XOF", "XPD", "XPF", "XPT", "YER",
     "ZAR", "ZMW", "ZWL"
 })

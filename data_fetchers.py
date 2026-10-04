@@ -229,7 +229,7 @@ def _binance_price(symbol):
         try:
             # Her isteğin zaman aşımı kalan bütçeye sığar: zincir bütçeyi aşamaz.
             r = requests.get(f"{host}/api/v3/ticker/price", params={"symbol": pair},
-                             timeout=(min(1.5, remaining), min(2.0, remaining)))
+                             timeout=(min(1.5, remaining / 2), min(2.0, remaining / 2)))
             if r.status_code == 200:
                 price = _positive(r.json().get("price"))
                 if price is not None:

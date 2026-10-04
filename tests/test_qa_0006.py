@@ -165,7 +165,8 @@ def test_k8_fiat_and_metal_pairs_are_not_read_as_crypto():
         assert market_map.market_of(symbol) is None, symbol
     assert market_map.canonical_symbol("LINKUSD") == "LINK-USD"
     assert market_map.canonical_symbol("HBARUSDT") == "HBAR-USDT"
-    for crypto in ("BTCUSD", "SOLUSD", "ADAUSD", "DOTUSD", "XRPUSD", "USDCUSDT", "PAXGUSDT", "MNTUSD", "CROUSD"):
+    for crypto in ("BTCUSD", "SOLUSD", "ADAUSD", "DOTUSD", "XRPUSD", "USDCUSDT", "PAXGUSDT", "MNTUSD", "CROUSD",
+                   "SCRUSDT", "BOBUSDT", "SBDUSD", "TOPUSDT", "SOSUSDT"):
         assert market_map.market_of(crypto) == ("KRIPTO", crypto[-4:] if crypto.endswith("USDT") else "USD"), crypto
 
 
@@ -196,14 +197,14 @@ def test_k9_binance_chain_stops_after_its_time_budget(monkeypatch):
 
     def slow_get(url, params=None, timeout=None, **kwargs):
         timeouts.append(timeout)
-        clock[0] += max(timeout)          # en kötü durum: istek kendi zaman aşımını tamamen bekler
+        clock[0] += sum(timeout)          # en kötü durum: bağlantı ve okuma zaman aşımları birikir
         raise TimeoutError("zaman aşımı")
 
     monkeypatch.setattr(data_fetchers.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(data_fetchers.requests, "get", slow_get)
     assert data_fetchers._binance_price("BTC-USD") is None
     assert clock[0] <= data_fetchers.BINANCE_PRICE_BUDGET_SECONDS + 0.01   # toplam bekleme bütçeyi aşmaz
-    assert len(timeouts) < len(data_fetchers.BINANCE_PRICE_HOSTS) + 1
+    assert timeouts and all(sum(t) <= data_fetchers.BINANCE_PRICE_BUDGET_SECONDS for t in timeouts)
 
 
 # ---- K11: kayıt zamanı sabit saatle sınanır -------------------------------------------------------
