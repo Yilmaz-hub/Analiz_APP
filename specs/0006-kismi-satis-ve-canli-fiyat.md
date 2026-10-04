@@ -1,13 +1,13 @@
 # Spec: 0006 — Kısmi Satış Teyidi ve Pozisyon Fiyatının Güvenilirliği
 
 > Şablon: [TEMPLATE.md](TEMPLATE.md). Rol: Analist — INTENT · CLARIFY · SPEC. Revizyon 1 (2026-10-04).
-> Durum: **TASLAK — karar bekliyor.** Q01–Q07 onaylanmadan kod yazılmaz (AGENTS.md Altın Kural 1 ve 4).
-> Kaynak: kullanıcının canlı uygulamada bildirdiği iki sorun (2026-10-04).
+> Durum: **TASLAK — karar bekliyor.** Q01–Q08 onaylanmadan kod yazılmaz (AGENTS.md Altın Kural 1 ve 4).
+> Kaynak: kullanıcının canlı uygulamada bildirdiği iki sorun (2026-10-04). Revizyon 2 (2026-10-04): B bölümü, kullanıcının "fiyat alınamadı demek çözüm değil, ekranın amacı fiyatı göstermek" itirazı ve `LINKUSD`/`HBARUSD` örnekleri üzerine kök nedenle yeniden yazıldı.
 
 ## Intent
 Kullanıcı elindeki pozisyonun bir kısmını (ör. %40'ını ya da istediği bir miktarı) satıp kalanını tutabilmek istiyor. Bugün "Kar Al / Satış Yap" ekranı miktar kutusu gösteriyor ama yalnızca pozisyonun tamamını kabul ediyor; bu, kâr almak isteyen kullanıcıyı ya hepsini satmaya ya da hiç satmamaya zorluyor.
-Kullanıcı ayrıca uygulamayı açtığında "Pozisyonlar" listesinde, kendi sonradan eklediği varlıkların kârının 0 göründüğünü, grafiği açınca gerçek değere döndüğünü bildiriyor. Gerçek kâr bilinmezken 0 göstermek kullanıcıyı yanıltır; bilinmeyen değer sıfır diye sunulmaz.
-Başarı: kullanıcı pozisyonunun herhangi bir bölümünü kayda geçirebilir, kalan pozisyon doğru görünür ve hesaplanır; fiyatı alınamayan varlık hiçbir zaman "kâr 0" gibi görünmez.
+Kullanıcı ayrıca uygulamayı açtığında "Pozisyonlar" listesinde, kendi sonradan eklediği varlıkların (örnek: `LINKUSD`, `HBARUSD`) kârının 0 göründüğünü, grafiği açınca gerçek değere döndüğünü bildiriyor. Bu ekranın amacı güncel fiyatı ve kârı göstermektir; fiyat alınamadığını bildirmek çözüm değildir. Sorun, sembolün uygulamada nasıl yorumlandığı ve fiyatın grafikten farklı bir yoldan alınmasıdır.
+Başarı: kullanıcı pozisyonunun herhangi bir bölümünü kayda geçirebilir, kalan pozisyon doğru görünür ve hesaplanır; grafiği açılabilen her varlığın pozisyon satırı, grafik açılmadan, güncel fiyat ve gerçek kârla görünür.
 
 ## Requirements
 ### A — Kısmi satış teyidi
@@ -21,9 +21,10 @@ Başarı: kullanıcı pozisyonunun herhangi bir bölümünü kayda geçirebilir,
 - **R08:** V1 SAT uyarısı ve stop çıkışı "tam çıkış" yönlendirmesi olarak kalır; uygulama kısmi satışı kendiliğinden yapmaz ya da önermez.
 
 ### B — Pozisyon fiyatının güvenilirliği
-- **R09:** Aktif pozisyon listesinde canlı fiyatı alınamayan varlık için kâr/zarar sessizce 0 yapılmaz. Sırasıyla: (1) son bilinen günlük kapanış fiyatı kullanılır ve satır "gecikmeli fiyat (tarih)" etiketi taşır; (2) hiçbir fiyat yoksa satırda "fiyat alınamadı" ve kâr/zarar "hesaplanamıyor" yazar.
-- **R10:** Bu davranış varsayılan listedeki ve kullanıcının sonradan eklediği varlıklar için aynıdır; grafiğin açılması gerekmez.
-- **R11:** Toplam pozisyon değeri, fiyatı alınamayan ya da gecikmeli fiyatla hesaplanan pozisyonları ayrıca belirtir.
+- **R09:** Pozisyonlar listesindeki güncel fiyat, o varlığın grafiğini gösteren kaynaklarla ve aynı sembol yorumuyla alınmalıdır. Grafiği açılabilen her varlık için liste, grafik açılması gerekmeden, güncel fiyat ve gerçek kârı göstermelidir; sonradan eklenen varlık ile varsayılan listedeki varlık arasında fark olmamalıdır.
+- **R10:** Kullanıcı kripto sembolünü tire olmadan yazdığında (`LINKUSD`, `HBARUSD`) uygulama onu varsayılan listedeki biçimle (`LINK-USD`) aynı varlık türü olarak tanımalıdır: aynı fiyat kaynakları, aynı günlük kapanış kuralı ([0003](done/0003-islem-kararlari-ve-performans-tutarliligi.md) kripto politikası) ve [0005](0005-performans-strateji-risk-ve-sanal-dogrulama.md) raporlarında, aday değerlendirmesinde ve ileri takipte aynı kripto piyasası ve para birimi. Kayıtlı sembol sessizce değiştirilmez; yorum okuma anında yapılır (spec 0004: sessiz dönüşüm yok).
+- **R11:** Bir fiyat kaynağı yanıt vermezse sıradaki kaynağa geçilir; kullanıcı bunu fark etmez, fiyat yine görünür.
+- **R12 (savunma, çözüm değil):** Beklenmedik biçimde hiçbir kaynaktan fiyat alınamazsa kâr/zarar sessizce 0 yapılmaz; satır bunu belirtir ve toplam değer de belirtir.
 
 ## Constraints
 - Para ve yüzde `Decimal` ([conventions.md](../docs/conventions.md)); sunum yuvarlaması hesap girdisi olamaz.
@@ -34,8 +35,9 @@ Başarı: kullanıcı pozisyonunun herhangi bir bölümünü kayda geçirebilir,
 ## Context
 - İlgili modüller: `trade_confirmation.py` (`validate_sell`, `confirm_sell`, `reconcile`), `position_journal.py` (`_rebuild_positions`), `positions.py` (`build_active_rows`), `data_fetchers.py` (`get_live_price_for_portfolio`), `app.py` ("Kar Al / Satış Yap").
 - **Mevcut durum (kod okumasıyla doğrulandı):** `validate_sell` miktar pozisyona eşit değilse `MIKTAR_POZISYONLA_ESIT_DEGIL` döner (spec 0003 R03: "SAT tam çıkış"; 0003 kapsam dışı: "kısmi satış"). `confirm_sell` pozisyonu `Adet = 0` ve `CLOSED_CONFIRMED` yapar. `PositionJournal._rebuild_positions` her SATIŞ'ı pozisyonu tamamen kapatan olay sayar. `reconcile` tek çıkış kimliği varsayar. Yani kısmi satış yalnız bir kutuyu açmak değil, bu üç yerin birlikte değişmesidir.
-- **Fiyat sorununun mekanizması (doğrulandı):** `build_active_rows` canlı fiyat 0 dönünce giriş fiyatını kullanır; değer = yatırım olur ve kâr tam 0 görünür, hiçbir uyarı yoktur. Aynı pozisyonun grafiği açıkken fiyat grafikteki son kapanıştan geldiği için doğru görünür.
-- **Doğrulanamayan kısım:** canlı fiyatın neden 0 döndüğü. Bu geliştirme ortamından Yahoo'ya erişim engelli (HTTP 403) olduğu için yeniden üretilemedi. Kullanıcıdan etkilenen varlığın sembolü istenmiştir (açık bilgi, aşağıda). Çözüm kök nedene bağlı değildir: R09 her nedenle fiyat alınamadığında geçerlidir.
+- **Fiyat sorununun kök nedeni (kodla ve taklit edilmiş ağ yanıtlarıyla yeniden üretildi):** (1) `get_live_price_for_portfolio` Binance'e yalnız `api.binance.com` adresinden sorar; grafik ise `data-api.binance.vision`, `api.binance.us` ve `api.binance.com`'u sırayla dener. İlk adres ABD çıkışlı sunucularda engelli olabilir (HTTP 451); grafik çalışır, canlı fiyat çalışmaz. (2) Binance'ten yanıt gelmeyince Yahoo'ya kullanıcının yazdığı sembolle sorulur; Yahoo kriptoyu yalnız `LINK-USD` biçiminde tanır, `LINKUSD` için hata verir ve fiyat 0 döner. Tireli sembol (`LINK-USD`) Yahoo yedeğiyle fiyat bulduğu için varsayılan listedeki varlıklar sorunsuz görünür. (3) `build_active_rows` fiyat 0 iken giriş fiyatını kullanır; kâr tam 0 görünür, uyarı yoktur.
+- **Aynı kökten ikinci etki:** tire olmadan yazılan kripto sembolleri uygulamanın başka yerlerinde de kripto sayılmıyor. 0005'in `market_map.market_of("LINKUSD")` boş döner (rapor "piyasası tanınmıyor" der, aday değerlendirmesi ve ileri takip koşucusu varlığı atlar); [0003](done/0003-islem-kararlari-ve-performans-tutarliligi.md)'ün `policy_for_symbol("LINKUSD")` bunu ABD hissesi politikasına (16:00 New York kapanışı) bağlar. R10 bunu da kapsar.
+- **Doğrulanamayan kısım:** Streamlit Cloud'da `api.binance.com`'un gerçekten engelli olup olmadığı bu ortamdan görülemiyor (burada Yahoo ve Binance erişimi sınırlı). Çözüm bu varsayıma bağlı değildir: R09–R11 her kaynak sırasında ve her sembol biçiminde geçerlidir.
 - Terimler: **kısmi satış** — pozisyon miktarının bir bölümünün satışı, pozisyon aktif kalır; **gecikmeli fiyat** — canlı fiyat yerine kullanılan son günlük kapanış; **tam çıkış** — kalan miktarın tamamının satışı.
 - Bağımlılıklar: [0003](done/0003-islem-kararlari-ve-performans-tutarliligi.md) (satış akışı), [0004](done/0004-varlik-ve-pozisyon-kayitlarini-koruma.md) (kalan miktar durumun önündedir, G01).
 
@@ -48,9 +50,10 @@ Başarı: kullanıcı pozisyonunun herhangi bir bölümünü kayda geçirebilir,
 | Q04 | Kâr/zarar hangi maliyete göre? | Pozisyonun giriş fiyatına göre, satılan miktar oranında. Ek alım kapsam dışı olduğundan tek giriş fiyatı vardır. | Basit ve denetlenebilir; ortalama maliyet ek alım gelirse ayrı spec ister. |
 | Q05 | Kapanmış işlem sayısı? | Pozisyon son parçada kapanınca tam 1. | 0005 AC61 ve 0003 "kademeli satışlar tek pozisyonun parçalarıdır" terimiyle tutarlı; aksi halde performans raporu şişer. |
 | Q06 | Eski kayıtlar ve veri biçimi? | Yeni `Çıkışlar` listesi eklenir (her satış: kimlik, miktar, fiyat, zaman); tam kapanışta eski alanlar da doldurulmaya devam eder, eski kayıtlar olduğu gibi okunur. | Geri uyumlu; mevcut portföy ve günlük kayıtları bozulmaz (spec 0004). Tek çıkış alanı kısmi satışı taşıyamaz. |
-| Q07 | Fiyat alınamayınca ne gösterilsin? | Önce son günlük kapanış ("gecikmeli fiyat (tarih)" etiketiyle), o da yoksa "fiyat alınamadı" + "hesaplanamıyor". Kâr hiçbir durumda sessizce 0 olmaz. | Grafiğin kullandığı yol zaten çalışıyor (kullanıcı bildirdi); bilinmeyen değer sıfır diye sunulmaz ([conventions.md](../docs/conventions.md)). |
+| Q07 | Pozisyon fiyatı hangi kaynaktan ve hangi sembol yorumuyla alınsın? | Grafikle aynı kaynak sırası (önce `data-api.binance.vision`, sonra `api.binance.us`, sonra `api.binance.com`, ardından Yahoo). Tire olmadan yazılan kripto sembolleri (`LINKUSD`, `HBARUSD`) okuma anında tireli biçime (`LINK-USD`) çevrilerek yorumlanır; her kaynak kendi biçimini alır. Depodaki kayıt değişmez. | Kök neden iki parçalı: dar kaynak listesi ve Yahoo'nun tireli sembol beklemesi. İkisi birlikte çözülmezse biri düzelirken öteki 0 göstermeyi sürdürür. Grafik zaten çalışan yolu kullandığı için yeni bir bağımlılık gerekmez. |
+| Q08 | Sembol yorumu nerede uygulansın, depodaki kayıt dönüştürülsün mü? | Dönüştürülmez; yorum okuma anında, uygulamanın her yerinde tek bir kuralla yapılır (fiyat, piyasa/para birimi, günlük kapanış kuralı). Varlık eklenirken, sembolün nasıl yorumlanacağı kullanıcıya gösterilir (ör. `LINKUSD → LINK-USD, kripto`). | Sessiz veri dönüşümü yasaktır (spec 0004). Kullanıcının canlı Neon verisine dokunmayan tek yol budur; ayrıca aynı hata başka yerlerde de çözülür. Alternatif: ekleme anında canonical biçime çevirmek — eski kayıtları düzeltmez. |
 
-**Açık bilgi (karar değil):** Kârı 0 görünen varlığın sembolü nedir (ör. `AAPL`, `XYZ-USD`)? Kök nedeni (Yahoo/Binance erişimi, sembol biçimi) bulmak için AP-05 gereği en küçük yeniden üretim denenecek; sonuç bu spec'in kararlarını değiştirmez.
+**Önceki taslaktaki Q07 ("fiyat alınamayınca son kapanışı etiketle") kullanıcı tarafından reddedildi:** ekranın amacı fiyatı göstermek; etiketlemek kök nedeni çözmez. Savunma davranışı yalnız R12 olarak kaldı.
 
 ## Acceptance Criteria
 > Her kriter tek başına test edilir; her kriter bir pytest testi, docstring ilk satırı `ACnn`. Q etiketli kriter önerilen karara bağlıdır.
@@ -74,17 +77,25 @@ Başarı: kullanıcı pozisyonunun herhangi bir bölümünü kayda geçirebilir,
 - [ ] **AC17 — Ekran, R05:** "Kar Al / Satış Yap" ekranında yüzde kutusu ve hazır düğmeler görünür; %40 girilip onaylanınca pozisyon kalan miktarla listede kalır.
 - [ ] **AC18 — SAT uyarısı, R08:** SAT uyarısı verildiğinde ekran "tamamını sat" yönlendirmesini korur; kısmi satış kendiliğinden yapılmaz.
 ### B — Fiyat güvenilirliği
-- [ ] **AC19 — Gecikmeli fiyat, Q07:** Canlı fiyatı alınamayan varlığın satırı son günlük kapanışla hesaplanır, "gecikmeli fiyat" ve tarih etiketi taşır ve kâr giriş fiyatından farklıysa 0 görünmez.
-- [ ] **AC20 — Fiyat yok, Q07:** Hiçbir fiyatı olmayan varlığın satırında "fiyat alınamadı" ve kâr/zarar "hesaplanamıyor" yazar; 0 yazmaz.
-- [ ] **AC21 — Sonradan eklenen varlık, R10:** Sonradan eklenmiş bir varlığın canlı fiyatı alınamadığında, grafik açılmadan, pozisyon satırı AC19'daki gibi görünür.
-- [ ] **AC22 — Toplam, R11:** Fiyatı alınamayan ya da gecikmeli fiyatlı pozisyon varsa toplam değer bunu belirtir.
-- [ ] **AC23 — Canlı fiyat varken, R09:** Canlı fiyat alındığında satır bugünkü gibi canlı fiyatla hesaplanır ve etiket taşımaz.
+- [ ] **AC19 — Tiresiz sembol, Q07:** İlk Binance adresi yanıt vermediğinde ve ikincisi fiyat döndürdüğünde `LINKUSD` sembollü varlığın güncel fiyatı bulunur (0 değil).
+- [ ] **AC20 — İkinci örnek, Q07:** Aynı koşulda `HBARUSD` sembollü varlığın güncel fiyatı bulunur.
+- [ ] **AC21 — Kaynak sırası, R11:** İlk kaynak hata verdiğinde fiyat sıradaki kaynaktan alınır ve kullanıcıya hata görünmez.
+- [ ] **AC22 — Yahoo biçimi, Q07:** Binance kaynaklarının hiçbiri yanıt vermediğinde `LINKUSD` için Yahoo'ya `LINK-USD` biçimiyle sorulur ve fiyat bulunur.
+- [ ] **AC23 — Tireli sembol, R09:** `LINK-USD` sembollü varlığın fiyatı bugünkü gibi bulunur (gerileme yok).
+- [ ] **AC24 — Kripto tanıma, R10:** `LINKUSD` ve `HBARUSD` kripto piyasası ve USD para birimi olarak tanınır; günlük kapanış kuralı tireli kripto ile aynıdır (00:00 UTC), ABD hissesi kuralı uygulanmaz.
+- [ ] **AC25 — Hisse ayrımı, R10:** `AAPL`, `THYAO.IS`, `EURUSD=X`, `XAU_GOLD` ve `GRAM_TRY` yorumları değişmez (yanlış kripto tanıma yok).
+- [ ] **AC26 — Kayıt değişmez, Q08:** Depoda `LINKUSD` olarak kayıtlı sembol, fiyat ve rapor akışlarından sonra da `LINKUSD` olarak kalır.
+- [ ] **AC27 — Ekran, R09:** Sonradan eklenmiş `LINKUSD` varlığının pozisyon satırı, grafik açılmadan, kaynaktan gelen güncel fiyat ve ona göre kâr/zararla görünür; kâr 0 görünmez.
+- [ ] **AC28 — Yorum gösterimi, Q08:** Varlık eklerken `LINKUSD` için "LINK-USD, kripto olarak okunacak" bilgisi görünür.
+- [ ] **AC29 — 0005 uyumu, R10:** `LINKUSD` sembollü varlık için performans raporu, aday değerlendirmesi ve ileri takip varlığı atlamaz.
+- [ ] **AC30 — Savunma, R12:** Tüm kaynaklar yanıt vermezse satırda kâr/zarar 0 yazmaz, nedenini belirtir ve toplam değer bunu belirtir.
+- [ ] **AC31 — Canlı fiyat varken:** Fiyat bulunduğunda satır etiket taşımaz ve bugünkü gibi hesaplanır.
 
 ## Definition of Done
-- [ ] Q01–Q07 kararları kesinleşti; kriterler güncellendi; spec Takım Yöneticisi tarafından onaylandı.
+- [ ] Q01–Q08 kararları kesinleşti; kriterler güncellendi; spec Takım Yöneticisi tarafından onaylandı.
 - [ ] Tüm kabul kriterleri bağımsız pytest testiyle karşılandı; arayüz kriterlerinin ekran görüntüleri eklendi.
 - [ ] Geçerli lint ve test kontrolleri yeşil; para/yüzde `Decimal`; teknik hata kullanıcıya sızmadı.
-- [ ] Kök neden için en küçük yeniden üretim denendi ve sonucu kaydedildi (AP-05).
+- [ ] Kök neden yeniden üretimi (taklit ağ yanıtlarıyla) testlere dönüştü; canlıda `LINKUSD`/`HBARUSD` ile doğrulandı ve sonucu kaydedildi (AP-05).
 - [ ] Ayrı QA oturumu doğrulaması tamamlandı.
 - [ ] PR ve squash-merge [git.md](../docs/git.md) kurallarıyla tamamlandı.
 
@@ -93,7 +104,7 @@ Başarı: kullanıcı pozisyonunun herhangi bir bölümünü kayda geçirebilir,
 ## SCORECARD
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 1 — taslak |
+| Spec revizyon sayısı | 2 — Rev 2: B bölümü kök nedenle yeniden yazıldı (kullanıcı itirazı) |
 | Düzeltme turu sayısı | Uygulama başlamadı |
 | Bulgu gerçek/gürültü oranı | Ölçülmedi |
 | Regresyon sayısı | Ölçülmedi |
