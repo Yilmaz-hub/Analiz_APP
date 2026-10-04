@@ -740,15 +740,28 @@ if is_chart_renderable(df_view):
         with st.expander("💳 Cüzdan Bakiyesi Düzenle"):
             new_balance_input = st.number_input("Güncel USDT Bakiyesi", value=float(current_balance), step=100.0)
             if st.button("Bakiyeyi Güncelle", disabled=not records_writable):
-                _old_balance = float(current_balance)
-                st.session_state['portfolio_data']['balance'] = new_balance_input
-                if safe_save_portfolio():
-                    if new_balance_input != _old_balance:
-                        import cash_flows
-                        from datetime import datetime as _dtc, timezone as _tzc
-                        cash_flows.record(new_balance_input - _old_balance, _dtc.now(_tzc.utc),
-                                          "elle bakiye güncelleme")
-                    st.success("Bakiye güncellendi!"); time.sleep(0.5); st.rerun()
+                import cash_flows
+                from datetime import datetime as _dtc, timezone as _tzc
+                _flow = cash_flows.delta(current_balance, new_balance_input)
+                _flow_saved = True
+                if _flow != 0:
+                    # Hareket önce kaydedilir: kaydedilemezse bakiye değişmez, AC14 engeli atlanmaz.
+                    try:
+                        cash_flows.record(_flow, _dtc.now(_tzc.utc), "elle bakiye güncelleme")
+                    except StorageAccessError:
+                        _flow_saved = False
+                        st.error("Bakiye değiştirilmedi: nakit hareketi kaydedilemedi. "
+                                 "Kayıt deposu erişimini kontrol edin.")
+                if _flow_saved:
+                    st.session_state['portfolio_data']['balance'] = new_balance_input
+                    if safe_save_portfolio():
+                        st.success("Bakiye güncellendi!"); time.sleep(0.5); st.rerun()
+                    elif _flow != 0:
+                        # Bakiye yazılamadı: kaydedilen hareketi ters kayıtla geri al (hayalet hareket kalmasın).
+                        try:
+                            cash_flows.record(-_flow, _dtc.now(_tzc.utc), "geri alma: bakiye yazılamadı")
+                        except StorageAccessError:
+                            pass
 
     with col_wallet:
         st.subheader("💰 Varlıklarım")

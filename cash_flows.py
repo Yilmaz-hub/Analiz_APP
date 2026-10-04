@@ -14,6 +14,11 @@ import storage
 _KEY = "external_cash_flows"
 
 
+def delta(old, new) -> Decimal:
+    """Yeni − eski bakiye; kayan nokta artığı olmaması için `str` üzerinden `Decimal` (Altın Kural 2)."""
+    return Decimal(str(new)) - Decimal(str(old))
+
+
 def record(delta, at: datetime, note: str = "") -> None:
     entry = {"delta": str(Decimal(str(delta))), "at": at.isoformat(), "note": note}
     storage.update_doc(_KEY, lambda entries: [*(entries or []), entry])

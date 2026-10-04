@@ -184,7 +184,7 @@ Tümü Takım Yöneticisi onayıyla, 2026-10-03. Değerler sonuçlar görülmede
 
 ### Ek kriterler — Revizyon 6 (B13 bağlama)
 - [ ] **AC104 — Aktif aday sinyali, B13/R09:** Kullanıcı bir adayı aktif seçtiyse karar panelindeki canlı giriş sinyali o adayın kuralından gelir (çıkış V1 kurallarıyla aynıdır) ve ekran bunu belirtir; aday seçilmediyse sinyal V1'dir; aktif adayın kaydı bulunamazsa V1 kullanılır ve bu belirtilir.
-> AC14, AC15, AC22, AC57, AC66, AC77 ve AC83'ün testleri bu revizyonla ürün akışını (ekran, kayıt, rapor) sürer; yalnız saf fonksiyonu sınayan test yeterli sayılmaz. Asgari işlem tutarı (O3) varlık başına isteğe bağlı kayıttır; boşsa kontrol uygulanmaz.
+> AC14, AC15, AC22, AC57, AC66, AC77 ve AC83'ün testleri bu revizyonla ürün akışını (ekran, kayıt, rapor) sürer; yalnız saf fonksiyonu sınayan test yeterli sayılmaz. Asgari işlem tutarı (O3) varlık başına isteğe bağlı kayıttır; boşsa kontrol uygulanmaz. AC14: nakit hareketi tutarı `Decimal` ile hesaplanır; hareket kaydedilemezse bakiye değişmez ve kullanıcıya anlaşılır uyarı gösterilir. AC83: bozuk asgari tutar kaydı yok sayılır.
 
 ### Ek kriterler — Revizyon 5 (bağımsız QA bulguları)
 > Parantezdeki B kodu QA bulgu raporuna atıftır. Mevcut kriterlerin testlerinin görmediği yollar bu kriterlerle kapatılır.
