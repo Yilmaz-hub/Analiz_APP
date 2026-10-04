@@ -222,7 +222,7 @@ Tümü Takım Yöneticisi onayıyla, 2026-10-03. Değerler sonuçlar görülmede
 | Metrik | Değer |
 |--------|-------|
 | Spec revizyon sayısı | 5 — Rev 5: bağımsız QA denetimi kararları (B1–B19), AC90–AC103; Rev 4: R04 piyasa koşulu filtresi (AC89); Rev 1: bağımsız QA denetimi sonrası boşluk kapatma; Rev 2: Adım 4 kararları (Q01 + AC88, O1, R04 ertelemesi); Rev 3: Q02–Q08 ve O2–O4 kesinleşti, spec onaylandı |
-| Düzeltme turu sayısı | Adım 4 uygulaması bitti (S1+S2), QA denetimi bekliyor; Adım 5–7 başlamadı |
+| Düzeltme turu sayısı | 1 — bağımsız QA denetimi (B1–B19) sonrası düzeltmeler; yeniden QA denetimi bekliyor |
 | Bulgu gerçek/gürültü oranı | Revizyon 1: 35 bulgu getirildi, 35'i gerçek kabul edildi, 0 gürültü (spec denetimi; kod denetimi yapılmadı) |
 | Regresyon sayısı | Ölçülmedi |
 | Kaçan hata | Ölçülmedi |

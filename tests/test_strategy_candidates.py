@@ -35,7 +35,7 @@ def test_ac17_passing_candidate_does_not_switch_active_strategy():
     sc.record_result(BREAKOUT, "KRIPTO", verdict, NOW)
     assert sc.active_strategy() == "V1"
     sc.choose_active_strategy(BREAKOUT)  # yalnız açık kullanıcı eylemi değiştirir
-    assert sc.active_strategy() == sc.fingerprint(BREAKOUT)
+    assert sc.active_strategy() == sc.strategy_fingerprint(BREAKOUT)
 
 
 def test_ac18_29_closed_trades_is_insufficient_even_if_return_is_higher():
@@ -146,8 +146,10 @@ def test_ac80_breakout_and_pullback_are_separate_candidates_with_separate_result
     frame = _entry_frame()
     regimes = pd.Series([YUKSELEN] * 6, index=frame.index, dtype=object)
     v1 = {frame.index[4]: "SAT"}
-    breakout = sc.candidate_decisions(frame, v1, BREAKOUT, regimes, lookback=3)
-    pullback = sc.candidate_decisions(frame, v1, PULLBACK, regimes, ema_span=3)
+    # B12: ayarlar adayın kendisinde; kısa veri için aday ayarları küçültülür.
+    breakout = sc.candidate_decisions(frame, v1, replace(BREAKOUT, settings={"lookback": "3"}), regimes)
+    pullback = sc.candidate_decisions(
+        frame, v1, replace(PULLBACK, settings={"ema": "3", "tolerance_pct": "1"}), regimes)
     assert breakout[frame.index[3]] == "AL" and pullback[frame.index[3]] != "AL"
     assert pullback[frame.index[5]] == "AL" and breakout[frame.index[5]] != "AL"
     assert breakout[frame.index[4]] == pullback[frame.index[4]] == "SAT"  # çıkış V1 ile aynı
@@ -163,5 +165,5 @@ def test_ac80_candidate_entries_only_in_rising_market():
     """AC80 — Aday girişleri yalnız yükselen piyasa gününde üretilir (Q02)."""
     frame = _entry_frame()
     flat = pd.Series([YATAY] * 6, index=frame.index, dtype=object)
-    decisions = sc.candidate_decisions(frame, {}, BREAKOUT, flat, lookback=3)
+    decisions = sc.candidate_decisions(frame, {}, replace(BREAKOUT, settings={"lookback": "3"}), flat)
     assert "AL" not in decisions.values()

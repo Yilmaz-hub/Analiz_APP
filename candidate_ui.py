@@ -56,7 +56,7 @@ def evaluate_candidates(symbol: str, frame, v1_decisions: dict, *, notional: Dec
     first, last = split.evaluation[0], split.evaluation[-1]
     inside = [_as_day(ts) >= first for ts in frame.index]
     window = frame[inside]
-    regimes = classify_frame(frame)[inside]
+    regimes_full = classify_frame(frame)
     run = dict(initial_cash=Decimal(capital), trade_notional=Decimal(notional),
                quantity_step=quantity_step, costs=costs)
     reference = sc.metrics_from_backtest(run_v1_strategy_backtest(window, v1_decisions, **run))
@@ -67,7 +67,9 @@ def evaluate_candidates(symbol: str, frame, v1_decisions: dict, *, notional: Dec
         permit = sc.start_run(candidate)
         if not permit.ok:
             return EvaluationOutcome(False, permit.reason, results)
-        decisions = sc.candidate_decisions(window, v1_decisions, candidate, regimes)
+        # Giriş kuralı tam geçmişi görür (ör. önceki 20 gün); yalnız sonuç ölçümü dilimde başlar
+        # ve koşucuyla aynı kararı üretir (AC97).
+        decisions = sc.candidate_decisions(frame, v1_decisions, candidate, regimes_full)
         metrics = sc.metrics_from_backtest(run_v1_strategy_backtest(window, decisions, **run))
         verdict = sc.judge(metrics, reference, approved=sc.is_approved(candidate))
         sc.record_result(candidate, market, verdict, now)
@@ -122,3 +124,13 @@ def _render_candidate_panel(st, source: dict) -> None:
             st.warning(outcome.reason)
     for line in build_candidate_view(source["frame"]).lines:
         st.caption(line)
+    info = market_map.market_of(source["symbol"])
+    if info is not None:
+        for candidate in sc.default_candidates(info[0], None, None):
+            if st.button(f"Aktif yap: {candidate.name}", key=f"cand_pick:{source['symbol']}:{candidate.name}"):
+                sc.preregister(candidate, datetime.now(timezone.utc))
+                sc.choose_active_strategy(candidate)
+                st.rerun()
+    if sc.active_strategy() != sc.REFERENCE_STRATEGY and st.button("V1'e dön", key=f"cand_back:{source['symbol']}"):
+        sc.choose_active_strategy(None)
+        st.rerun()

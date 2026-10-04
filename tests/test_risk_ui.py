@@ -25,8 +25,7 @@ def _closed(coin="Ethereum (ETH)", realized=-500.0, at=NOW):
 
 
 def _view(portfolio, **kw):
-    params = dict(capital=D("10000"), entry=D("100"), stop=D("90"), quantity_step=D("1"),
-                  currency="USD", signals={})
+    params = dict(entry=D("100"), stop=D("90"), quantity_step=D("1"), currency="USD", signals={})
     params.update(kw)
     return " | ".join(risk_ui.build_risk_view(portfolio, COINS, **params).lines)
 

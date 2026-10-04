@@ -20,8 +20,11 @@ from datetime import datetime, timedelta
 from decimal import ROUND_FLOOR, Decimal
 from typing import Iterable, Mapping
 
-from trade_execution import Bar, evaluate_stop
+from trade_execution import (
+    Bar, CostAssumptions, commission_fee, compute_initial_stop, evaluate_stop, fill_price,
+)
 
+REFERENCE = "V1_REFERANS"      # sabit stop + SAT; ek kâr koruma kuralı yok
 TARGET = "HEDEF_2R"
 TRAILING = "IZ_SUREN_2ATR"
 SCALE_OUT = "KADEMELI_1R"
@@ -56,6 +59,63 @@ class VirtualResult:
     open_quantity: Decimal
     closed_positions: int
     stop_path: list[Decimal] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RuleResult:
+    rule: str
+    label: str
+    closed_count: int
+    total_pnl: Decimal
+    expectancy: Decimal | None
+    costs_known: bool
+    open_count: int = 0
+
+
+LABELS = {
+    REFERENCE: "V1 referansı (sabit stop + SAT)",
+    TARGET: "Sabit hedef (2R)",
+    TRAILING: "İz süren stop (2×ATR)",
+    SCALE_OUT: "Kademeli çıkış (1R'de yarısı)",
+}
+
+
+def compare(frame, v1_decisions: Mapping, backtest: Mapping, costs: CostAssumptions | None,
+            quantity_step: Decimal) -> list[RuleResult]:
+    """Backtest'in her kapanmış V1 işlemini dört kuralla yeniden oynatır (R13, AC95).
+
+    Hepsi aynı girişten, aynı mumlar, aynı V1 SAT uyarıları ve aynı maliyet modeliyle
+    işletilir; fark yalnız kâr koruma kuralından gelir. Girdi ve gerçek kayıtlar değiştirilmez.
+    Çıkış fiyatına makas/kayma uygulanır, her satışa komisyon ve girişe bir kez giriş komisyonu
+    işlenir. Dönem sonunda kapanmamış sanal pozisyon sonuca girmez, `open_count`ta görünür."""
+    costs = costs or CostAssumptions(None, None, None)
+    sell_signals = {ts for ts, verdict in v1_decisions.items() if verdict == "SAT"}
+    totals = {rule: [0, Decimal("0"), 0] for rule in LABELS}
+    for trade in backtest["trades"]:
+        position_index = frame.index.get_loc(trade["entry_at"])
+        entry, quantity = Decimal(trade["entry"]), Decimal(trade["quantity"])
+        decision_atr = Decimal(str(frame["ATR"].iloc[position_index - 1]))
+        position = VirtualPosition(entry=entry, quantity=quantity,
+                                   stop=compute_initial_stop(entry, decision_atr),
+                                   entry_at=frame.index[position_index])
+        bars = [(Bar(frame.index[i], Decimal(str(frame["Open"].iloc[i])), Decimal(str(frame["High"].iloc[i])),
+                     Decimal(str(frame["Low"].iloc[i])), Decimal(str(frame["Close"].iloc[i]))),
+                 Decimal(str(frame["ATR"].iloc[i]))) for i in range(position_index, len(frame))]
+        entry_fee = commission_fee(entry * quantity, costs)
+        for rule in LABELS:
+            result = simulate(position, bars, rule, quantity_step=quantity_step, sell_signals=sell_signals)
+            if result.closed_positions != 1:
+                totals[rule][2] += 1
+                continue
+            pnl = -entry_fee
+            for fill in result.fills:
+                net_price = fill_price(fill.price, "SELL", costs)
+                pnl += (net_price - entry) * fill.quantity - commission_fee(net_price * fill.quantity, costs)
+            totals[rule][0] += 1
+            totals[rule][1] += pnl
+    known = None not in (costs.commission_pct, costs.spread_bps, costs.slippage_bps)
+    return [RuleResult(rule, LABELS[rule], count, total, (total / count) if count else None, known, open_count)
+            for rule, (count, total, open_count) in totals.items()]
 
 
 def from_portfolio(position: Mapping) -> VirtualPosition:
@@ -102,7 +162,7 @@ class VirtualBook:
 def simulate(position: VirtualPosition, bars: Iterable[tuple[Bar, Decimal]], rule: str, *,
              quantity_step: Decimal, sell_signals: Iterable[datetime] = ()) -> VirtualResult:
     """Girişten sonraki günlük mumlar (`(mum, ATR)`) üzerinde tek adayı sanal işletir."""
-    if rule not in (TARGET, TRAILING, SCALE_OUT):
+    if rule not in (REFERENCE, TARGET, TRAILING, SCALE_OUT):
         raise ValueError(f"Bilinmeyen kâr koruma adayı: {rule}")
     book = VirtualBook(position, quantity_step=quantity_step)
     risk = position.entry - position.stop

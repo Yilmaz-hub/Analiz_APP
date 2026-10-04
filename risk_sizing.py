@@ -133,8 +133,24 @@ def total_risk_check(limit: Decimal, open_risks: Sequence[tuple[str, Decimal]],
 
 
 def set_loss_limit(limit: Decimal, currency: str, started_at: datetime) -> None:
-    storage.write_doc(_LOSS_KEY, {"limit": str(limit), "currency": currency,
-                                  "started_at": started_at.isoformat(), "history": []})
+    """Kayıp sınırını belirler.
+
+    Açık bir dönem yokken yeni dönem başlatır. Açık dönem varken dönemi ve sıfırlama
+    kayıtlarını **korur**: aynı değer yeniden kaydedilirse hiçbir şey değişmez, farklıysa
+    değişiklik ayrı bir kayıt olarak eklenir (dönemi yalnız `reset_loss_period` yeniler;
+    spec 0005 R11, AC94)."""
+    def apply(period):
+        if period is None:
+            return {"limit": str(limit), "currency": currency,
+                    "started_at": started_at.isoformat(), "history": []}
+        if Decimal(period["limit"]) == limit and period["currency"] == currency:
+            return period
+        history = [*period["history"], {"action": "SINIR_DEGISTI", "at": started_at.isoformat(),
+                                        "old": period["limit"], "new": str(limit),
+                                        "currency": currency}]
+        return {**period, "limit": str(limit), "currency": currency, "history": history}
+
+    storage.update_doc(_LOSS_KEY, apply)
 
 
 def loss_period() -> dict | None:
@@ -143,13 +159,15 @@ def loss_period() -> dict | None:
 
 def reset_loss_period(at: datetime) -> None:
     """Yalnız kullanıcının açık eylemiyle çağrılır; kapanan dönem kayıtta kalır."""
-    period = loss_period()
-    if period is None:
-        return
-    period["history"].append({"action": "SIFIRLAMA", "at": at.isoformat(),
-                              "closed_period_start": period["started_at"]})
-    period["started_at"] = at.isoformat()
-    storage.write_doc(_LOSS_KEY, period)
+    def apply(period):
+        if period is None:
+            return None
+        history = [*period["history"], {"action": "SIFIRLAMA", "at": at.isoformat(),
+                                        "closed_period_start": period["started_at"]}]
+        return {**period, "history": history, "started_at": at.isoformat()}
+
+    if loss_period() is not None:
+        storage.update_doc(_LOSS_KEY, apply)
 
 
 def loss_gate(period_results: Sequence[tuple[str, Decimal]]) -> Gate:

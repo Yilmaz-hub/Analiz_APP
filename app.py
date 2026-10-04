@@ -616,6 +616,10 @@ if is_chart_renderable(df_view):
                 import risk_ui
                 risk_ui.render_risk_panel(perf_source, st.session_state['portfolio_data'],
                                           st.session_state.get('coin_map', {}))
+                import protection_ui
+                from market_map import market_of as _market_of
+                protection_ui.render_protection_panel(
+                    perf_source, (_market_of(perf_source["symbol"]) or ("", "USD"))[1])
 
     # --- İLERİ DÖNEM SANAL TAKİP (spec 0005 Adım 7) ---
     with st.expander("📡 İleri Dönem Sanal Takip (ekran kapalıyken)", expanded=False):
