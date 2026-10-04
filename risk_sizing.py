@@ -22,6 +22,7 @@ import storage
 
 _PROFILE_KEY = "risk_profile"
 _LOSS_KEY = "loss_period"
+_MIN_KEY = "asset_minimums"
 _PCT_SCALE = Decimal("0.01")
 _ZERO = Decimal("0")
 _HUNDRED = Decimal("100")
@@ -185,3 +186,35 @@ def loss_gate(period_results: Sequence[tuple[str, Decimal]]) -> Gate:
         return Gate(False, True, f"Dönem kaybı {loss} sınıra ({period['limit']}) ulaştı; yeni giriş "
                                  "önerilmez. Açık pozisyonların stop ve SAT bilgisi geçerlidir.")
     return Gate(True, True)
+
+
+def parse_min_notional(value) -> tuple[Decimal | None, str]:
+    """Asgari işlem tutarı girdisi; boş = yok. `(tutar, "")` ya da `(None, neden)` (AC83)."""
+    text = str(value).strip()
+    if not text:
+        return None, ""
+    try:
+        amount = Decimal(text.replace(",", "."))
+    except (InvalidOperation, ValueError):
+        return None, "Asgari işlem tutarı sayı olmalı."
+    if not amount.is_finite() or amount <= 0:
+        return None, "Asgari işlem tutarı 0'dan büyük olmalı."
+    return amount, ""
+
+
+def save_min_notional(asset: str, amount: Decimal | None) -> None:
+    """Varlık başına kayıt; `None` kaydı kaldırır, diğer varlıklara dokunmaz."""
+    def change(current):
+        current = dict(current or {})
+        if amount is None:
+            current.pop(asset, None)
+        else:
+            current[asset] = str(amount)
+        return current
+
+    storage.update_doc(_MIN_KEY, change)
+
+
+def load_min_notional(asset: str) -> Decimal | None:
+    value = (storage.read_doc(_MIN_KEY) or {}).get(asset)
+    return None if value is None else Decimal(value)

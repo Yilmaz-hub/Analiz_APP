@@ -387,6 +387,20 @@ if is_chart_renderable(df_view):
     market_signal = Signal.BUY if "AL" in active_signal.verdict else (
         Signal.SELL if "SAT" in active_signal.verdict else Signal.WAIT
     )
+    if view_tf == "1d":
+        # Kullanıcı bir adayı aktif seçtiyse giriş sinyali onun kuralından gelir (spec 0005 R09, AC104).
+        import candidate_ui
+        try:
+            market_signal, active_note = candidate_ui.active_entry_signal(df_view, market_signal)
+            if active_note:
+                st.caption(active_note)
+            if verified_position:
+                management_note = candidate_ui.management_note(
+                    verified_position, candidate_ui.sc.active_strategy())
+                if management_note:
+                    st.caption(management_note)
+        except StorageAccessError:
+            st.caption("Aktif strateji kaydı okunamadı; V1 kuralı kullanıldı.")
     decision_panel = build_decision_panel(PanelInput(
         signal=market_signal, position=position,
         data_status=validation_statuses.get(view_tf, "V1_DOGRULANMADI"),
@@ -602,7 +616,7 @@ if is_chart_renderable(df_view):
                             st.dataframe(trades_df, width="stretch")
                         if view_tf == "1d":
                             st.session_state["perf_report_source"] = {
-                                "symbol": symbol, "backtest": bt_results, "frame": df_view,
+                                "symbol": symbol, "asset": sel_c, "backtest": bt_results, "frame": df_view,
                                 "decisions": v1_decisions, "notional": trade_parsed.settings.notional,
                                 "quantity_step": trade_parsed.settings.quantity_step,
                                 "costs": trade_parsed.settings.costs,
@@ -728,8 +742,14 @@ if is_chart_renderable(df_view):
         with st.expander("💳 Cüzdan Bakiyesi Düzenle"):
             new_balance_input = st.number_input("Güncel USDT Bakiyesi", value=float(current_balance), step=100.0)
             if st.button("Bakiyeyi Güncelle", disabled=not records_writable):
+                _old_balance = float(current_balance)
                 st.session_state['portfolio_data']['balance'] = new_balance_input
                 if safe_save_portfolio():
+                    if new_balance_input != _old_balance:
+                        import cash_flows
+                        from datetime import datetime as _dtc, timezone as _tzc
+                        cash_flows.record(new_balance_input - _old_balance, _dtc.now(_tzc.utc),
+                                          "elle bakiye güncelleme")
                     st.success("Bakiye güncellendi!"); time.sleep(0.5); st.rerun()
 
     with col_wallet:
