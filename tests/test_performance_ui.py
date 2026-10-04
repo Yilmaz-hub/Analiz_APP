@@ -325,6 +325,22 @@ def test_smoke_candidate_panel_evaluates_and_lists_candidates(store, monkeypatch
     assert "Aktif strateji: V1 (mevcut strateji)" in captions
 
 
+def test_smoke_risk_panel_profile_save_drives_quantity(store, monkeypatch, processed_df):
+    """AC23, AC81 — Ekranda profil yokken miktar önerilmez; profil kaydedilince miktar görünür."""
+    from app_helpers import click
+
+    at = _backtest_screen(store, monkeypatch, processed_df)
+    captions = " ".join(str(c.value) for c in at.caption)
+    assert "Risk profili belirlenmedi" in captions and "Önerilen miktar" not in captions
+    at.text_input(key="risk_per_trade").set_value("1")
+    at.text_input(key="risk_total").set_value("3")
+    at = click(at, "Risk profilini kaydet")
+    assert not at.exception
+    at = at.run()
+    captions = " ".join(str(c.value) for c in at.caption)
+    assert "Önerilen miktar:" in captions
+
+
 def test_ac89_trade_is_labelled_with_regime_known_when_the_order_was_decided():
     """AC89 — İşlem, girişe karar verildiği gündeki koşulla etiketlenir; giriş gününün kapanışı kullanılmaz."""
     from datetime import date
