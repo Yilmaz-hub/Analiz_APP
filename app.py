@@ -25,7 +25,7 @@ from ui_components import (render_sidebar_settings, render_asset_management, ren
                            is_chart_renderable, is_mobile_mode, is_empty_data_reason,
                            render_records_status, render_no_records_state, render_trade_settings)
 from scanner import render_opportunity_scanner
-from data_fetchers import get_live_price_for_portfolio
+from data_fetchers import fetch_prices, get_live_price_for_portfolio
 from signal_engine import generate_stable_signal, generate_validated_signal, CompositeSignal, invalid_data_signal
 from market_validation import is_v1_scope, policy_for_symbol, validate_market_data
 from positions import (total_value_note, group_positions, build_active_rows, asset_name as position_asset_name,
@@ -104,6 +104,21 @@ def remember_saved_portfolio():
     ve ilk başarısız yazmada meşru bir kapanış geri alınıyordu (QA F10).
     """
     st.session_state['portfolio_snapshot'] = copy.deepcopy(st.session_state['portfolio_data'])
+
+
+_RUN_PRICES = {}    # betik her çalıştırmada baştan işlendiği için bu sözlük çalıştırma başına tazedir
+
+
+def run_position_prices():
+    """Bu çalıştırmada tüm pozisyon fiyatları: eşzamanlı ve süre bütçeli (spec 0007 R03/R04).
+
+    Tablolar seçili varlık için grafik fiyatını (`curr`) kullanır; stop teması uyarısı ise her
+    varlıkta canlı fiyata bakar. Alınamayan fiyat 0'dır ve ekranda "fiyat alınamadı" görünür."""
+    if 'prices' not in _RUN_PRICES:
+        positions = (st.session_state.get('portfolio_data') or {}).get('positions', [])
+        coins = [p['Coin'] for p in positions if p.get('Status') in ('ACTIVE', 'PENDING')]
+        _RUN_PRICES['prices'] = fetch_prices(coins, st.session_state.get('coin_map', {}))
+    return _RUN_PRICES['prices']
 
 
 # --- F2: kayıt yazan kontroller erişim durumuna bağlıdır --------------------
@@ -894,9 +909,10 @@ if is_chart_renderable(df_view):
                             elif outcome.code != "KAYIT_YAZILAMADI":
                                 st.error(describe_code(outcome.code))
 
+                run_prices = run_position_prices()
                 active_data, total_active_value = build_active_rows(
                     active_pos,
-                    lambda coin: curr if coin == sel_c else get_live_price_for_portfolio(coin, st.session_state['coin_map']),
+                    lambda coin: curr if coin == sel_c else run_prices.get(coin, 0),
                 )
                 if active_data: st.dataframe(pd.DataFrame(active_data), width="stretch")
                 price_note = total_value_note(active_data)
@@ -907,7 +923,7 @@ if is_chart_renderable(df_view):
                 st.markdown("##### ⏳ Bekleyen Limit Emirler")
                 pending_data = []
                 for item in pending_pos:
-                    lp = curr if item['Coin'] == sel_c else get_live_price_for_portfolio(item['Coin'], st.session_state['coin_map'])
+                    lp = curr if item['Coin'] == sel_c else run_position_prices().get(item['Coin'], 0)
                     priced = bool(lp) and lp > 0
                     pending_data.append({
                         "Coin": item['Coin'], "Hedef Giriş": item['Giriş'],
@@ -984,7 +1000,8 @@ else:
 # yazan tek nokta safe_save_portfolio olarak kalır (spec 0004, QA F10).
 if st.session_state.get('portfolio_data'):
     _, stop_alerts = check_active_positions_auto_close(
-        st.session_state['portfolio_data'], st.session_state['coin_map']
+        st.session_state['portfolio_data'], st.session_state['coin_map'],
+        prices=run_position_prices()
     )
     for trade in stop_alerts:
         st.sidebar.warning(

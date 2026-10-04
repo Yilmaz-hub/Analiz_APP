@@ -254,6 +254,47 @@ def _live_price(ticker_symbol):
     return price if price is not None else 0
 
 
+#: Bir çalıştırmada tüm pozisyon fiyatları için toplam bekleme üst sınırı (spec 0007 R03).
+PRICE_BUDGET_SECONDS = 6.0
+
+
+def fetch_prices(coin_names, coin_map, budget=None):
+    """Pozisyon fiyatlarını eşzamanlı alır; süre bütçesini aşan fiyat 0 (alınamadı) döner.
+
+    Sıralı çağrıda her kaynak ağ zaman aşımı kadar bekleyip sayfayı donduruyordu. Burada
+    her coin ayrı iş parçacığında çalışır, tümü bütçe içinde beklenir; geç dönen fiyat
+    arka planda tamamlanır ve sonraki çalıştırmada önbellekten gelir."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, wait
+
+    names = list(dict.fromkeys(coin_names))
+    if not names:
+        return {}
+    try:
+        from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
+        context = get_script_run_ctx()
+    except Exception:  # pragma: no cover - streamlit sürümüne bağlı yardımcı
+        add_script_run_ctx, context = None, None
+
+    def job(name):
+        if add_script_run_ctx is not None and context is not None:
+            add_script_run_ctx(threading.current_thread(), context)
+        return get_live_price_for_portfolio(name, coin_map)
+
+    pool = ThreadPoolExecutor(max_workers=min(8, len(names)))
+    futures = {name: pool.submit(job, name) for name in names}
+    wait(futures.values(), timeout=PRICE_BUDGET_SECONDS if budget is None else budget)
+    pool.shutdown(wait=False, cancel_futures=True)
+    prices = {}
+    for name, future in futures.items():
+        try:
+            prices[name] = future.result(timeout=0) if future.done() else 0
+        except Exception as exc:
+            logger.debug(f"fetch_prices failed for {name}: {exc}")
+            prices[name] = 0
+    return prices
+
+
 @st.cache_data(ttl=30, show_spinner=False)
 def get_live_price_for_portfolio(coin_name, coin_map):
     try:
