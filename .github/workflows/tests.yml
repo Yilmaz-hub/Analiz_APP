@@ -4,7 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # Yığın (stacked) PR'larda taban `main` olmayabilir; CI her tabanda çalışır (spec 0005 QA, B18).
+
+permissions:
+  contents: read
 
 jobs:
   pytest:

@@ -20,17 +20,9 @@ class ForwardView:
     lines: list[str]
 
 
-def _tracked_pairs() -> list[tuple[str, str]]:
-    from sqlalchemy import text
-
-    with ft._engine().connect() as conn:
-        rows = conn.execute(text("SELECT DISTINCT asset, strategy_version FROM forward_decisions "
-                                 "ORDER BY asset, strategy_version")).fetchall()
-    return [(row.asset, row.strategy_version) for row in rows]
-
-
 def build_forward_view(now: datetime) -> ForwardView:
     lines = []
+    runs = ft.recent_runs(1)
     last = ft.last_successful_run()
     if last is None:
         lines.append("İleri takip koşucusu henüz çalışmadı.")
@@ -38,15 +30,29 @@ def build_forward_view(now: datetime) -> ForwardView:
         lines.append(f"Son başarılı takip çalışması: {last.isoformat()}")
         if now - last > STALE_AFTER:
             lines.append("Uyarı: koşucu 2 günden uzun süredir çalışmadı; takip durmuş olabilir.")
-    for asset, version in _tracked_pairs():
+    if runs:
+        latest = runs[0]
+        if not latest["ok"]:
+            lines.append(f"Uyarı: Son çalışma başarısız ({latest['run_at'].isoformat()}): {latest['note']}")
+        elif latest["note"] and latest["note"] != "tamam":
+            lines.append(f"Son çalışma notu ({latest['run_at'].isoformat()}): {latest['note']}")
+    for asset, version in ft.tracked_pairs():
         verdict = ft.assess(asset, version)
         status = "yeterli kanıt" if verdict.sufficient else "yetersiz kanıt"
         detail = "" if verdict.sufficient else " (" + ", ".join(verdict.missing) + ")"
         lines.append(f"{asset} · {version}: {status}{detail}")
-        for decision in ft.decisions(asset, version)[-RECENT:]:
+        gaps = ft.missing_days(asset, version)
+        if gaps:
+            lines.append(f"{asset} · {version}: eksik görünen gün: {len(gaps)} "
+                         f"(ilk: {gaps[0]}; resmi tatiller de eksik görünebilir)")
+        recent = ft.decisions(asset, version)[-RECENT:]
+        for decision in recent:
             lines.append(f"{decision.candle_day} · {decision.decision} · {version} · kaynak "
                          f"{decision.source} · karar {decision.evaluated_at.isoformat()} · "
                          f"{ft.status_text(decision)}")
+        if recent and recent[-1].assumptions:
+            shown = "; ".join(f"{key}: {value}" for key, value in recent[-1].assumptions.items())
+            lines.append(f"Son kararın varsayımları — {shown}")
         for revision in ft.revisions(asset, version):
             lines.append(f"{revision['candle_day']}: mum sağlayıcıda revize edildi; karar değişmedi.")
     lines.append("Sanal takip gerçek işlem değildir; geçmiş sonuç gelecekteki kazanç olasılığı değildir.")

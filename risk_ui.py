@@ -53,20 +53,56 @@ def period_results(portfolio: Mapping, coin_map: Mapping[str, str],
     return results
 
 
-def build_risk_view(portfolio: Mapping, coin_map: Mapping[str, str], *, capital: Decimal,
+def portfolio_capital(portfolio: Mapping) -> tuple[Decimal, Decimal]:
+    """`(sermaye, nakit)`: sermaye = nakit + açık pozisyonların maliyeti; kayıt yoksa 0 (AC93)."""
+    cash = _number(portfolio.get("balance", 0) or 0)
+    invested = sum((_number(p.get("Yatırım", 0) or 0) for p in _active(portfolio)), Decimal("0"))
+    return cash + invested, cash
+
+
+def unit_cost(entry: Decimal, costs) -> Decimal:
+    """Birim başına **bilinen** giriş maliyeti: komisyon (%) + makas/2 + kayma (baz puan).
+
+    Bilinmeyen kalem sıfır sayılmaz, hesaba katılmaz ve ekranda açıkça belirtilir."""
+    if costs is None:
+        return Decimal("0")
+    total = Decimal("0")
+    if costs.commission_pct is not None:
+        total += entry * Decimal(costs.commission_pct) / Decimal("100")
+    if costs.spread_bps is not None:
+        total += entry * Decimal(costs.spread_bps) / Decimal("2") / Decimal("10000")
+    if costs.slippage_bps is not None:
+        total += entry * Decimal(costs.slippage_bps) / Decimal("10000")
+    return total
+
+
+def _unknown_cost_names(costs) -> list[str]:
+    if costs is None:
+        return ["komisyon", "makas", "kayma"]
+    return [name for name, value in (("komisyon", costs.commission_pct), ("makas", costs.spread_bps),
+                                     ("kayma", costs.slippage_bps)) if value is None]
+
+
+def build_risk_view(portfolio: Mapping, coin_map: Mapping[str, str], *,
                     entry: Decimal, stop: Decimal | None, quantity_step: Decimal | None,
-                    currency: str, signals: Mapping[str, str]) -> RiskView:
+                    currency: str, signals: Mapping[str, str], costs=None,
+                    minimum_notional: Decimal | None = None) -> RiskView:
     lines: list[str] = []
     blocked = False
     profile = rs.load_profile()
+    capital, cash = portfolio_capital(portfolio)
 
     period = rs.loss_period()
     if period is not None:
         lines.append(f"Kayıp dönemi başlangıcı: {period['started_at']} · sınır {period['limit']} "
                      f"{period['currency']}")
         for item in period["history"]:
-            lines.append(f"Sıfırlama kaydı: {item['closed_period_start'][:10]} başlayan dönem "
-                         f"{item['at']} tarihinde kullanıcı tarafından kapatıldı.")
+            if item["action"] == "SIFIRLAMA":
+                lines.append(f"Sıfırlama kaydı: {item['closed_period_start'][:10]} başlayan dönem "
+                             f"{item['at']} tarihinde kullanıcı tarafından kapatıldı.")
+            else:
+                lines.append(f"Sınır değişikliği kaydı: {item['old']} → {item['new']} {item['currency']} "
+                             f"({item['at']}); dönem sıfırlanmadı.")
         gate = rs.loss_gate(period_results(portfolio, coin_map,
                                            datetime.fromisoformat(period["started_at"])))
         if not gate.allowed:
@@ -75,7 +111,7 @@ def build_risk_view(portfolio: Mapping, coin_map: Mapping[str, str], *, capital:
 
     if profile is None:
         lines.append(rs.suggest(capital=capital, entry=entry, stop=stop or Decimal("0"),
-                                quantity_step=quantity_step, cash=capital).reason)
+                                quantity_step=quantity_step, cash=cash).reason)
         blocked = True
     elif not blocked:
         if stop is None:
@@ -83,7 +119,9 @@ def build_risk_view(portfolio: Mapping, coin_map: Mapping[str, str], *, capital:
             blocked = True
         else:
             suggestion = rs.suggest(capital=capital, entry=entry, stop=stop,
-                                    quantity_step=quantity_step, cash=capital)
+                                    quantity_step=quantity_step, cash=cash,
+                                    unit_cost=unit_cost(entry, costs),
+                                    minimum_notional=minimum_notional)
             limit = capital * profile.total_pct / Decimal("100")
             new_risk = (rs.position_risk(entry, stop, suggestion.quantity)
                         if suggestion.quantity is not None else Decimal("0"))
@@ -96,6 +134,10 @@ def build_risk_view(portfolio: Mapping, coin_map: Mapping[str, str], *, capital:
                 lines.append(f"Önerilen miktar: {suggestion.quantity} (giriş {entry}, stop {stop}, "
                              f"işlem başına risk %{profile.per_trade_pct})")
                 lines.append("Stop bütçesi, fiyat boşluklarında azami kayıp garantisi değildir.")
+                unknown = _unknown_cost_names(costs)
+                if unknown:
+                    lines.append("Bilinmeyen maliyet (" + ", ".join(unknown) + ") miktar hesabına "
+                                 "girmedi; gerçek risk daha yüksek olabilir.")
 
     for position in _active(portfolio):
         signal = signals.get(position["Coin"], "—")
@@ -149,14 +191,27 @@ def _render_risk_panel(st, source: Mapping, portfolio: Mapping, coin_map: Mappin
             st.warning("Kayıp sınırı 0'dan büyük bir tutar olmalı.")
         else:
             rs.set_loss_limit(amount, currency, datetime.now(timezone.utc))
+    asset = source.get("asset") or source["symbol"]
+    min_col, min_btn = st.columns(2)
+    saved_min = rs.load_min_notional(asset)
+    min_text = min_col.text_input(f"Asgari işlem tutarı ({currency}, boş = yok)",
+                                  value="" if saved_min is None else str(saved_min),
+                                  key=f"risk_min:{source['symbol']}")
+    if min_btn.button("Asgari tutarı kaydet", key=f"risk_min_save:{source['symbol']}"):
+        amount, reason = rs.parse_min_notional(min_text)
+        if reason:
+            st.warning(reason)
+        else:
+            rs.save_min_notional(asset, amount)
+            saved_min = amount
     frame = source["frame"]
     entry = Decimal(str(frame["Close"].iloc[-1]))
     atr = frame["ATR"].iloc[-1] if "ATR" in frame.columns else None
     stop = None if atr is None or atr != atr else initial_stop(entry, Decimal(str(atr)))
     view = build_risk_view(
-        portfolio, coin_map, capital=Decimal(source["backtest"]["initial_cash"]), entry=entry,
-        stop=stop, quantity_step=source["quantity_step"],
-        currency=currency, signals=source.get("signals", {}))
+        portfolio, coin_map, entry=entry, stop=stop, quantity_step=source["quantity_step"],
+        currency=currency, signals=source.get("signals", {}), costs=source["costs"],
+        minimum_notional=saved_min)
     for line in view.lines:
         st.caption(line)
     if rs.loss_period() is not None and st.button("Kayıp dönemini sıfırla (yeni dönem başlat)",

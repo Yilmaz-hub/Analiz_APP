@@ -22,6 +22,7 @@ import storage
 
 _PROFILE_KEY = "risk_profile"
 _LOSS_KEY = "loss_period"
+_MIN_KEY = "asset_minimums"
 _PCT_SCALE = Decimal("0.01")
 _ZERO = Decimal("0")
 _HUNDRED = Decimal("100")
@@ -133,8 +134,24 @@ def total_risk_check(limit: Decimal, open_risks: Sequence[tuple[str, Decimal]],
 
 
 def set_loss_limit(limit: Decimal, currency: str, started_at: datetime) -> None:
-    storage.write_doc(_LOSS_KEY, {"limit": str(limit), "currency": currency,
-                                  "started_at": started_at.isoformat(), "history": []})
+    """Kayıp sınırını belirler.
+
+    Açık bir dönem yokken yeni dönem başlatır. Açık dönem varken dönemi ve sıfırlama
+    kayıtlarını **korur**: aynı değer yeniden kaydedilirse hiçbir şey değişmez, farklıysa
+    değişiklik ayrı bir kayıt olarak eklenir (dönemi yalnız `reset_loss_period` yeniler;
+    spec 0005 R11, AC94)."""
+    def apply(period):
+        if period is None:
+            return {"limit": str(limit), "currency": currency,
+                    "started_at": started_at.isoformat(), "history": []}
+        if Decimal(period["limit"]) == limit and period["currency"] == currency:
+            return period
+        history = [*period["history"], {"action": "SINIR_DEGISTI", "at": started_at.isoformat(),
+                                        "old": period["limit"], "new": str(limit),
+                                        "currency": currency}]
+        return {**period, "limit": str(limit), "currency": currency, "history": history}
+
+    storage.update_doc(_LOSS_KEY, apply)
 
 
 def loss_period() -> dict | None:
@@ -143,13 +160,15 @@ def loss_period() -> dict | None:
 
 def reset_loss_period(at: datetime) -> None:
     """Yalnız kullanıcının açık eylemiyle çağrılır; kapanan dönem kayıtta kalır."""
-    period = loss_period()
-    if period is None:
-        return
-    period["history"].append({"action": "SIFIRLAMA", "at": at.isoformat(),
-                              "closed_period_start": period["started_at"]})
-    period["started_at"] = at.isoformat()
-    storage.write_doc(_LOSS_KEY, period)
+    def apply(period):
+        if period is None:
+            return None
+        history = [*period["history"], {"action": "SIFIRLAMA", "at": at.isoformat(),
+                                        "closed_period_start": period["started_at"]}]
+        return {**period, "history": history, "started_at": at.isoformat()}
+
+    if loss_period() is not None:
+        storage.update_doc(_LOSS_KEY, apply)
 
 
 def loss_gate(period_results: Sequence[tuple[str, Decimal]]) -> Gate:
@@ -167,3 +186,39 @@ def loss_gate(period_results: Sequence[tuple[str, Decimal]]) -> Gate:
         return Gate(False, True, f"Dönem kaybı {loss} sınıra ({period['limit']}) ulaştı; yeni giriş "
                                  "önerilmez. Açık pozisyonların stop ve SAT bilgisi geçerlidir.")
     return Gate(True, True)
+
+
+def parse_min_notional(value) -> tuple[Decimal | None, str]:
+    """Asgari işlem tutarı girdisi; boş = yok. `(tutar, "")` ya da `(None, neden)` (AC83)."""
+    text = str(value).strip()
+    if not text:
+        return None, ""
+    try:
+        amount = Decimal(text.replace(",", "."))
+    except (InvalidOperation, ValueError):
+        return None, "Asgari işlem tutarı sayı olmalı."
+    if not amount.is_finite() or amount <= 0:
+        return None, "Asgari işlem tutarı 0'dan büyük olmalı."
+    return amount, ""
+
+
+def save_min_notional(asset: str, amount: Decimal | None) -> None:
+    """Varlık başına kayıt; `None` kaydı kaldırır, diğer varlıklara dokunmaz."""
+    def change(current):
+        current = dict(current or {})
+        if amount is None:
+            current.pop(asset, None)
+        else:
+            current[asset] = str(amount)
+        return current
+
+    storage.update_doc(_MIN_KEY, change)
+
+
+def load_min_notional(asset: str) -> Decimal | None:
+    """Kayıtlı asgari tutar; kayıt yoksa ya da bozuksa (sayı değil, ≤ 0) `None`."""
+    value = (storage.read_doc(_MIN_KEY) or {}).get(asset)
+    if value is None:
+        return None
+    amount, reason = parse_min_notional(value)
+    return None if reason else amount

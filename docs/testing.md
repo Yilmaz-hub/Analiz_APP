@@ -31,7 +31,17 @@
 
 ## Bu depodaki uygulama (Python / Streamlit)
 
-- Sürekli tümleştirme: `.github/workflows/tests.yml` → `python -m pytest tests/ -v`.
+> Karar: spec 0004, **P3**. Yukarıdaki teknolojiye özgü bölümler (xUnit,
+> `Metot_Durum_BeklenenSonuc`, .NET test projesi ayrımı) ilgisiz bir projeye
+> aittir ve bu depo için **bağlayıcı değildir**.
+
+- Çatı: **pytest** (`requirements-dev.txt`), testler `tests/` altında.
+- Sürekli tümleştirme: `.github/workflows/tests.yml` → `python -m pytest tests/ -v`, ardından süre
+  bütçesi testleri ayrı adımda: `python -m pytest tests/ -m perf -v -s` (`pytest.ini`: `perf`
+  işaretli testler normal koşudan çıkarılır; spec 0005 S7). Ölçüm ortamı (Python sürümü, işlemci,
+  çekirdek) test çıktısına yazılır; kanıt `docs/evidence/` altında tutulur.
+- Ekransız ileri takip koşucusu `.github/workflows/forward-tracking.yml` ile zamanlanır
+  (`python -m forward_runner`); `ANALIZ_APP_DB_URL` repository secret'ı gerekir (`storage.md`).
 - Arayüz davranışı gerçek `app.py` üzerinde **`streamlit.testing.v1.AppTest`**
   ile sürülür; ağ kaynakları `monkeypatch` ile taklit edilir.
 - Kayıt deposu testlerde izoledir: `tests/conftest.py` içindeki `store`

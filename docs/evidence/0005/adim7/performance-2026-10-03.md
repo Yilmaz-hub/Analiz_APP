@@ -14,3 +14,17 @@
 
 AC35 (2 saat) koşucu içi süredir; GitHub Actions zamanlama gecikmesi ölçüme dahil değildir,
 geciken gün "sonradan oluşturuldu" olarak işaretlenir (Q06a/Q06b).
+
+## Ek (2026-10-04) — QA bulgusu B1 sonrası koşucu ölçümü
+
+QA denetimi, ML açıkken (workflow `--no-ml` vermiyor) koşucunun tek varlık için tüm geçmişi yeniden
+hesapladığını ölçtü: **393 sn**; 20 varlık ≈ 130 dk, 60 dk iş sınırını aşar. Düzeltme: koşucu yalnız
+yeni (ve kaçan) günlerin kararını hesaplar (`build_v1_decisions(only_last=N)`).
+
+| Ölçüm | Önce (QA) | Sonra |
+|---|---|---|
+| ML açık, 1 varlık, tek yeni gün | 393 sn | **0,7 sn** (`tests/test_performance_budgets.py::test_ac90…`, `-m perf`) |
+| 20 varlık tahmini | ≈ 130 dk | ≈ 0,2 dk (iş sınırı 60 dk) |
+
+Ortam: Python 3.13.14 · x86_64 · 4 çekirdek. Yalnız yeni günler hesaplandığı için kaçan 10 güne kadar
+tamamlama da bu sınırın çok altındadır (her ek gün ≈ 0,3 sn).

@@ -385,6 +385,20 @@ if is_chart_renderable(df_view):
     market_signal = Signal.BUY if "AL" in active_signal.verdict else (
         Signal.SELL if "SAT" in active_signal.verdict else Signal.WAIT
     )
+    if view_tf == "1d":
+        # Kullanıcı bir adayı aktif seçtiyse giriş sinyali onun kuralından gelir (spec 0005 R09, AC104).
+        import candidate_ui
+        try:
+            market_signal, active_note = candidate_ui.active_entry_signal(df_view, market_signal)
+            if active_note:
+                st.caption(active_note)
+            if verified_position:
+                management_note = candidate_ui.management_note(
+                    verified_position, candidate_ui.sc.active_strategy())
+                if management_note:
+                    st.caption(management_note)
+        except StorageAccessError:
+            st.caption("Aktif strateji kaydı okunamadı; V1 kuralı kullanıldı.")
     decision_panel = build_decision_panel(PanelInput(
         signal=market_signal, position=position,
         data_status=validation_statuses.get(view_tf, "V1_DOGRULANMADI"),
@@ -600,7 +614,7 @@ if is_chart_renderable(df_view):
                             st.dataframe(trades_df, width="stretch")
                         if view_tf == "1d":
                             st.session_state["perf_report_source"] = {
-                                "symbol": symbol, "backtest": bt_results, "frame": df_view,
+                                "symbol": symbol, "asset": sel_c, "backtest": bt_results, "frame": df_view,
                                 "decisions": v1_decisions, "notional": trade_parsed.settings.notional,
                                 "quantity_step": trade_parsed.settings.quantity_step,
                                 "costs": trade_parsed.settings.costs,
@@ -616,6 +630,10 @@ if is_chart_renderable(df_view):
                 import risk_ui
                 risk_ui.render_risk_panel(perf_source, st.session_state['portfolio_data'],
                                           st.session_state.get('coin_map', {}))
+                import protection_ui
+                from market_map import market_of as _market_of
+                protection_ui.render_protection_panel(
+                    perf_source, (_market_of(perf_source["symbol"]) or ("", "USD"))[1])
 
     # --- İLERİ DÖNEM SANAL TAKİP (spec 0005 Adım 7) ---
     with st.expander("📡 İleri Dönem Sanal Takip (ekran kapalıyken)", expanded=False):
@@ -722,9 +740,28 @@ if is_chart_renderable(df_view):
         with st.expander("💳 Cüzdan Bakiyesi Düzenle"):
             new_balance_input = st.number_input("Güncel USDT Bakiyesi", value=float(current_balance), step=100.0)
             if st.button("Bakiyeyi Güncelle", disabled=not records_writable):
-                st.session_state['portfolio_data']['balance'] = new_balance_input
-                if safe_save_portfolio():
-                    st.success("Bakiye güncellendi!"); time.sleep(0.5); st.rerun()
+                import cash_flows
+                from datetime import datetime as _dtc, timezone as _tzc
+                _flow = cash_flows.delta(current_balance, new_balance_input)
+                _flow_saved = True
+                if _flow != 0:
+                    # Hareket önce kaydedilir: kaydedilemezse bakiye değişmez, AC14 engeli atlanmaz.
+                    try:
+                        cash_flows.record(_flow, _dtc.now(_tzc.utc), "elle bakiye güncelleme")
+                    except StorageAccessError:
+                        _flow_saved = False
+                        st.error("Bakiye değiştirilmedi: nakit hareketi kaydedilemedi. "
+                                 "Kayıt deposu erişimini kontrol edin.")
+                if _flow_saved:
+                    st.session_state['portfolio_data']['balance'] = new_balance_input
+                    if safe_save_portfolio():
+                        st.success("Bakiye güncellendi!"); time.sleep(0.5); st.rerun()
+                    elif _flow != 0:
+                        # Bakiye yazılamadı: kaydedilen hareketi ters kayıtla geri al (hayalet hareket kalmasın).
+                        try:
+                            cash_flows.record(-_flow, _dtc.now(_tzc.utc), "geri alma: bakiye yazılamadı")
+                        except StorageAccessError:
+                            pass
 
     with col_wallet:
         st.subheader("💰 Varlıklarım")

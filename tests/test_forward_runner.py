@@ -35,7 +35,9 @@ def test_ac35_headless_runner_records_within_two_hours_without_ui(tmp_path):
     assert done.returncode == 0, done.stderr
     # Çalışan bir Streamlit oturumu yoktur; kütüphanenin önbellek uyarısı bunu doğrular.
     assert "Traceback" not in done.stderr
-    stored = ft.get_decision("BTC-USD", "V1/ML-YOK", last)
+    (version,) = ft.versions("BTC-USD")
+    assert version.endswith("/ML-YOK/TATBIKAT")      # --now: hızlandırılmış, gerçek kayıttan ayrı sürüm
+    stored = ft.get_decision("BTC-USD", version, last)
     assert stored is not None and stored.on_time is True
     assert stored.evaluated_at == now
     assert stored.real_clock is False  # sabitlenmiş saat: yeterlilik sayacına girmez (AC87)
@@ -49,10 +51,11 @@ def test_ac35_missed_days_are_backfilled_and_marked_late(tmp_path):
     later = ft.available_at("KRIPTO", days[-1]) + timedelta(minutes=30)
     done = _run(directory, later)
     assert done.returncode == 0, done.stderr
-    statuses = {d.candle_day: ft.status_text(d) for d in ft.decisions("BTC-USD", "V1/ML-YOK")}
-    assert ft.get_decision("BTC-USD", "V1/ML-YOK", days[-4]).on_time is True
-    assert [ft.get_decision("BTC-USD", "V1/ML-YOK", d).on_time for d in days[-3:-1]] == [False, False]
-    assert ft.get_decision("BTC-USD", "V1/ML-YOK", days[-1]).on_time is True
+    (version,) = ft.versions("BTC-USD")
+    statuses = {d.candle_day: ft.status_text(d) for d in ft.decisions("BTC-USD", version)}
+    assert ft.get_decision("BTC-USD", version, days[-4]).on_time is True
+    assert [ft.get_decision("BTC-USD", version, d).on_time for d in days[-3:-1]] == [False, False]
+    assert ft.get_decision("BTC-USD", version, days[-1]).on_time is True
     assert len(statuses) == 4
 
 

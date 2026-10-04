@@ -107,9 +107,11 @@ def buy_and_hold(capital: Decimal, first_open: Decimal, last_close: Decimal,
                  quantity_step: Decimal | None, costs: CostAssumptions) -> BuyHoldResult:
     """İlk uygun açılışta maliyet sonrası alınabilen miktarla al-tut; dönem sonu sermaye değeri.
 
-    Komisyon bilinmiyorsa sıfır kabul edilmez: sonuç `is_upper_bound` ile etiketlenir.
+    Komisyon, makas ya da kayma bilinmiyorsa sıfır kabul edilmez: sonuç `is_upper_bound` ile
+    etiketlenir (R03).
     """
-    upper_bound = costs.commission_pct is None
+    upper_bound = (costs.commission_pct is None or costs.spread_bps is None
+                   or costs.slippage_bps is None)
     cash = Decimal(capital)
     price = fill_price(Decimal(first_open), "BUY", costs)
     if price is None:
