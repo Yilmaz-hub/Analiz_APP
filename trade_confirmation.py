@@ -99,6 +99,12 @@ def _portfolio_has(portfolio, event_id, key):
     return any(item.get(key) == event_id for item in portfolio.get("positions", []))
 
 
+def _active_strategy_version():
+    """Giriş anındaki aktif strateji sürümü (spec 0005 Q08 / AC77)."""
+    from strategy_candidates import active_strategy
+    return active_strategy()
+
+
 def confirm_buy(portfolio, journal, save, *, coin, symbol, quantity, price, stop,
                 executed_at, now, use_balance=True, is_limit=False, tarih=""):
     """Alışı doğrular, önce portföye, sonra günlüğe yazar.
@@ -128,6 +134,7 @@ def confirm_buy(portfolio, journal, save, *, coin, symbol, quantity, price, stop
             "Tarih": tarih or executed_at.astimezone(ISTANBUL).strftime("%Y-%m-%d"),
             "Stop": float(Decimal(str(stop))), "Gerçekleşme Zamanı": executed_at.isoformat(),
             "V1Verified": not is_limit, "JournalEventId": event_id,
+            "StrategyVersion": _active_strategy_version(),
         })
         if not save():
             return Outcome(False, "KAYIT_YAZILAMADI", event_id)

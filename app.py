@@ -617,6 +617,12 @@ if is_chart_renderable(df_view):
                 risk_ui.render_risk_panel(perf_source, st.session_state['portfolio_data'],
                                           st.session_state.get('coin_map', {}))
 
+    # --- İLERİ DÖNEM SANAL TAKİP (spec 0005 Adım 7) ---
+    with st.expander("📡 İleri Dönem Sanal Takip (ekran kapalıyken)", expanded=False):
+        import forward_ui
+        from datetime import datetime as _dt, timezone as _tz
+        forward_ui.render_forward_panel(_dt.now(_tz.utc))
+
     # --- KAĞIT TİCARET DOĞRULAMASI ---
     with st.expander("🧪 Kağıt Ticaret Doğrulaması (Canlı Sinyal Takibi)", expanded=False):
         st.info("Canlı sinyali (ML dahil) her gün kapanan mumda kaydeder ve backtest kurallarıyla "

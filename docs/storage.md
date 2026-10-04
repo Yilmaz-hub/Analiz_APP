@@ -76,3 +76,23 @@ gerçek kayıtların üzerine yazılmasına yol açıyordu — kaybın kendisi b
 ## İşlem varsayımları
 
 Sermaye, işlem tutarı, miktar adımı, makas, kayma ve komisyon `trade_settings` belgesinde varlık başına tutulur (`trade_settings.py`). Geçmiş test ve sanal takip aynı kaydı okur. Boş alan *bilinmiyor*, `0` *açıkça sıfır* demektir; negatif değer kaydedilmez ve değerlendirme başlamaz.
+
+## İleri dönem sanal takip tabloları (spec 0005, Adım 7)
+
+Belge deposundan ayrı, aynı veritabanında dört tablo (`forward_tracker.py`, ilk
+kullanımda kendiliğinden oluşur):
+
+| Tablo | Anahtar | İçerik |
+|---|---|---|
+| `forward_decisions` | (varlık, strateji sürümü, mum günü) | Günlük sanal karar, kaynak, karar zamanı, mum, varsayımlar, zamanında/sonradan, gerçek saat, piyasa koşulu |
+| `forward_revisions` | (varlık, sürüm, mum günü, yeni mum) | Sağlayıcının sonradan değiştirdiği mum; karar değişmez |
+| `forward_trades` | (varlık, sürüm, giriş günü) | Sanal kapanmış işlemler (gerçek işlemler `position_journal`'dadır) |
+| `forward_runs` | çalışma zamanı | Koşucu çalışmaları ve notları |
+
+Tekillik veritabanında zorlanır; aynı karar ikinci kez yazılırsa hata değil yok
+sayma olur (`INSERT … ON CONFLICT DO NOTHING`, SQLite ve Postgres).
+
+Koşucu (`python -m forward_runner`) GitHub Actions'ta
+(`.github/workflows/forward-tracking.yml`) çalışır ve aynı Neon veritabanına
+`ANALIZ_APP_DB_URL` **repository secret**'ı ile bağlanır; değer Streamlit
+secrets'taki `db_url` ile aynıdır.
