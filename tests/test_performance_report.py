@@ -7,6 +7,7 @@ from performance_report import (
     BULUNAMADI, GECERSIZ_ISTEK, OK,
     EquityPoint, OpenPosition, ReportFilters, ReportTrade, build_report, lookup_report,
 )
+from regime_classifier import DUSEN, YATAY, YUKSELEN
 
 D0 = date(2026, 1, 1)
 
@@ -218,3 +219,52 @@ def test_market_map_known_symbols():
     assert market_map.market_of("AAPL") == ("ABD", "USD")
     assert market_map.market_of("EURUSD=X") is None
     assert market_map.market_of("") is None
+
+
+def _regime_trade(pnl, regime, day=1, symbol="ETH-USD"):
+    market, currency = market_map.market_of(symbol)
+    return ReportTrade(symbol, market, currency, Decimal(str(pnl)), D0 + timedelta(days=day),
+                       "V1", True, regime)
+
+
+def test_ac89_regime_filter_counts_only_trades_entered_in_that_regime():
+    """AC89 — Piyasa koşulu seçilince yalnız o koşulda girilen işlemler sayılır ve beklenti onlardan hesaplanır."""
+    trades = [_regime_trade(100, YUKSELEN), _regime_trade(-40, YUKSELEN, 2), _regime_trade(500, DUSEN, 3)]
+    outcome = build_report({"ETH-USD": _series([10000, 10100, 10060, 10560])}, trades,
+                           ReportFilters(regime=YUKSELEN))
+    result = outcome.report.results["USD"]
+    assert (outcome.report.sample_count, result.closed_count, result.expectancy) == (2, 2, Decimal("30"))
+
+
+def test_ac89_regime_filter_does_not_compute_return_or_drawdown_from_a_cut_equity_curve():
+    """AC89 — Koşul filtresinde net getiri ve en büyük düşüş hesaplanamaz (kesintisiz sermaye eğrisi bölünmez)."""
+    trades = [_regime_trade(100, YUKSELEN), _regime_trade(-40, DUSEN, 2)]
+    result = build_report({"ETH-USD": _series([10000, 10100, 10060])}, trades,
+                          ReportFilters(regime=YUKSELEN)).report.results["USD"]
+    assert result.net_return_pct is None and result.max_drawdown_pct is None
+    unfiltered = build_report({"ETH-USD": _series([10000, 10100, 10060])}, trades,
+                              ReportFilters()).report.results["USD"]
+    assert unfiltered.net_return_pct is not None and unfiltered.max_drawdown_pct is not None
+
+
+def test_ac89_regime_without_trades_is_empty_not_error():
+    """AC89 — Tanımlı ama o koşulda işlemi olmayan filtre hata değil, boş sonuç ve örnek sayısı 0 verir."""
+    outcome = build_report({"ETH-USD": _series([10000, 10100])}, [_regime_trade(100, YUKSELEN)],
+                           ReportFilters(regime=YATAY))
+    assert outcome.status == OK and outcome.report.results == {} and outcome.report.sample_count == 0
+
+
+def test_ac89_unknown_regime_value_is_rejected_without_technical_text():
+    """AC89 — Tanımsız piyasa koşulu değeri doğrulama hatası olarak reddedilir ve teknik metin sızmaz."""
+    outcome = build_report({"ETH-USD": _series([10000, 10100])}, [], ReportFilters(regime="BOGA"))
+    assert outcome.status == GECERSIZ_ISTEK
+    assert "BOGA" not in outcome.reason and "piyasa koşulu" in outcome.reason.lower()
+
+
+def test_ac89_open_position_in_other_regime_does_not_mark_upper_bound():
+    """AC89 — Başka koşulda açılmış, maliyeti bilinmeyen açık pozisyon bu koşulun raporunu üst sınır yapmaz."""
+    outcome = build_report({"ETH-USD": _series([10000, 10100])}, [_regime_trade(100, YUKSELEN)],
+                           ReportFilters(regime=YUKSELEN),
+                           open_positions=[OpenPosition("ETH-USD", D0, cost_known=False,
+                                                        entry_regime=DUSEN)])
+    assert outcome.report.results["USD"].is_upper_bound is False
