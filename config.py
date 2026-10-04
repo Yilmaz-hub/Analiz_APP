@@ -2,6 +2,7 @@
 """
 ALL MAGIC NUMBERS AND TUNABLE PARAMETERS IN ONE PLACE FOR EASY MAINTENANCE AND TUNING
 """
+from decimal import Decimal
 from pathlib import Path
 
 _PROJECT_DIR = Path(__file__).resolve().parent
@@ -444,3 +445,11 @@ PATTERN_INFO: dict[str, str] = {
     "Harmonik ABCD": "Harmonik ABCD Formasyonu",
     "Harmonik Butterfly": "Harmonik Butterfly Formasyonu"
 }
+
+
+class PerformanceConfig:
+    """Spec 0005 Adım 4 — performans raporu ve dönem bölme sabitleri (Q01)."""
+    TUNING_SHARE = Decimal("0.60")   # ilk %60 ayar seçimi, kalan değerlendirme
+    MIN_HISTORY_DAYS = 250           # bunun altında "yetersiz geçmiş"
+    LOOKBACK_YEARS = 3               # mevcut ortak tarihlerde son 3 yıl
+    MARKETS = ("KRIPTO", "BIST", "ABD", "ALTIN")
