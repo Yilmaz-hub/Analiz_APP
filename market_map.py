@@ -10,6 +10,9 @@ import re
 
 _US_TICKER = re.compile(r"^[A-Z]{1,5}$")
 # Tire olmadan yazılan kripto çifti (`LINKUSD`, `HBARUSDT`): en az iki karakterlik taban.
+# Döviz ve değerli maden kodları kripto tabanı değildir (`GBPUSD` bir döviz çiftidir).
+_NON_CRYPTO_BASES = frozenset({"USD", "EUR", "GBP", "JPY", "CHF", "AUD", "CAD", "NZD", "TRY",
+                               "CNY", "SEK", "NOK", "XAU", "XAG", "XPT", "XPD"})
 _DASHLESS_CRYPTO = re.compile(r"^([A-Z0-9]{2,12}?)(USDT|USD)$")
 
 
@@ -25,7 +28,9 @@ def canonical_symbol(symbol: str) -> str:
     if not text or any(mark in text for mark in "-/=._"):
         return text
     match = _DASHLESS_CRYPTO.match(text)
-    return f"{match.group(1)}-{match.group(2)}" if match else text
+    if match is None or match.group(1) in _NON_CRYPTO_BASES:
+        return text
+    return f"{match.group(1)}-{match.group(2)}"
 
 
 def crypto_parts(symbol: str) -> tuple[str, str] | None:

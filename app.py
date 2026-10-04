@@ -749,7 +749,7 @@ if is_chart_renderable(df_view):
                 if _flow != 0:
                     # Hareket önce kaydedilir: kaydedilemezse bakiye değişmez, AC14 engeli atlanmaz.
                     try:
-                        cash_flows.record(_flow, _dtc.now(_tzc.utc), "elle bakiye güncelleme")
+                        _flow_at = cash_flows.record(_flow, _dtc.now(_tzc.utc), "elle bakiye güncelleme")
                     except StorageAccessError:
                         _flow_saved = False
                         st.error("Bakiye değiştirilmedi: nakit hareketi kaydedilemedi. "
@@ -761,9 +761,11 @@ if is_chart_renderable(df_view):
                     elif _flow != 0:
                         # Bakiye yazılamadı: kaydedilen hareketi ters kayıtla geri al (hayalet hareket kalmasın).
                         try:
-                            cash_flows.record(-_flow, _dtc.now(_tzc.utc), "geri alma: bakiye yazılamadı")
+                            cash_flows.record(-_flow, _dtc.now(_tzc.utc), "geri alma: bakiye yazılamadı",
+                                              reverses=_flow_at)
                         except StorageAccessError:
-                            pass
+                            st.warning("Nakit hareketi kaydı geri alınamadı; bu günün strateji karşılaştırması "
+                                       "dışarıdan nakit hareketi nedeniyle uygun sayılmayabilir.")
 
     with col_wallet:
         st.subheader("💰 Varlıklarım")
@@ -833,8 +835,7 @@ if is_chart_renderable(df_view):
                     target_pos = next((p for p in active_pos if p['Coin'] == s_coin), None)
                     if target_pos:
                         sell_price = st.number_input("Satış Fiyatı", value=float(curr if s_coin == sel_c else target_pos['Giriş']), key=f"sell_price:{s_coin}")
-                        st.caption("V1 SAT sinyali ve stop çıkışı pozisyonun tamamını kapatır; "
-                                   "kâr almak için bir bölümünü de satabilirsiniz.")
+                        st.caption("V1 SAT sinyali ve stop çıkışı pozisyonun tamamını kapatır.")
                         qty_key, pct_key = f"sell_qty:{s_coin}", f"sell_pct:{s_coin}"
                         msg_key = f"sell_pct_msg:{s_coin}"
                         held_qty = Decimal(str(target_pos['Adet']))
@@ -907,9 +908,13 @@ if is_chart_renderable(df_view):
                 pending_data = []
                 for item in pending_pos:
                     lp = curr if item['Coin'] == sel_c else get_live_price_for_portfolio(item['Coin'], st.session_state['coin_map'])
+                    priced = bool(lp) and lp > 0
                     pending_data.append({
-                        "Coin": item['Coin'], "Hedef Giriş": item['Giriş'], "Anlık Fiyat": lp,
-                        "Uzaklık (%)": f"%{((lp - item['Giriş']) / max(lp, 0.001)) * 100:.2f}", "Kilitli Tutar": item['Yatırım']
+                        "Coin": item['Coin'], "Hedef Giriş": item['Giriş'],
+                        "Anlık Fiyat": lp if priced else "fiyat alınamadı",
+                        "Uzaklık (%)": (f"%{((lp - item['Giriş']) / lp) * 100:.2f}" if priced
+                                        else "hesaplanamıyor"),
+                        "Kilitli Tutar": item['Yatırım']
                     })
                 st.dataframe(pd.DataFrame(pending_data), width="stretch")
                 

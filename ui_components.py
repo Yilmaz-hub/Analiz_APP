@@ -120,6 +120,10 @@ def render_asset_management(coin_map, portfolio_data, storage_ok=True):
             return
 
         positions_list = (portfolio_data or {}).get('positions', [])
+        # Ekleme sonrası bilgi, yeniden çalıştırmadan sonra da okunabilsin diye oturumda tutulur (spec 0006 AC28).
+        notice = st.session_state.pop('asset_notice', None)
+        if notice:
+            st.success(notice)
         st.info("Listeye yeni Coin, Hisse veya Emtia ekleyin.")
 
         with st.form("add_asset_form"):
@@ -133,8 +137,7 @@ def render_asset_management(coin_map, portfolio_data, storage_ok=True):
                     st.error(msg)
                 elif _persist_assets(updated):
                     st.session_state['coin_map'] = updated
-                    st.success(msg)
-                    time.sleep(0.5)
+                    st.session_state['asset_notice'] = msg
                     st.rerun()
 
         st.write("---")

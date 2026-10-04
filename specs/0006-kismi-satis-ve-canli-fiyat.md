@@ -1,7 +1,7 @@
 # Spec: 0006 — Kısmi Satış Teyidi ve Pozisyon Fiyatının Güvenilirliği
 
 > Şablon: [TEMPLATE.md](TEMPLATE.md). Rol: Analist — INTENT · CLARIFY · SPEC. Revizyon 1 (2026-10-04).
-> Durum: **ONAYLI (Revizyon 3, 2026-10-04).** Q01–Q08 Takım Yöneticisi tarafından önerildiği gibi onaylandı; uygulama TDD ile başlayabilir.
+> Durum: **ONAYLI (Revizyon 4, 2026-10-04).** Rev 4: bağımsız QA bulguları (K1–K14) — AC32–AC35 eklendi (K1, K2, K8, K9), AC09/AC18/AC28 testleri gerçek tüketici ve ekranla yeniden yazıldı; R08 "önermez" ifadesi sıkı yorumlandı (ekran kısmi satışı önermez; yönetici onayı). K10, K12, K13, K14 ayrı spec'e bırakıldı. Revizyon 3: Q01–Q08 Takım Yöneticisi tarafından önerildiği gibi onaylandı; uygulama TDD ile başlayabilir.
 > Kaynak: kullanıcının canlı uygulamada bildirdiği iki sorun (2026-10-04). Revizyon 2 (2026-10-04): B bölümü, kullanıcının "fiyat alınamadı demek çözüm değil, ekranın amacı fiyatı göstermek" itirazı ve `LINKUSD`/`HBARUSD` örnekleri üzerine kök nedenle yeniden yazıldı.
 
 ## Intent
@@ -76,6 +76,10 @@ Başarı: kullanıcı pozisyonunun herhangi bir bölümünü kayda geçirebilir,
 - [ ] **AC16 — Eski kayıt, Q06:** Tek çıkış alanlı eski bir kapanmış kayıt hatasız okunur ve aynı sonucu gösterir.
 - [ ] **AC17 — Ekran, R05:** "Kar Al / Satış Yap" ekranında yüzde kutusu ve hazır düğmeler görünür; %40 girilip onaylanınca pozisyon kalan miktarla listede kalır.
 - [ ] **AC18 — SAT uyarısı, R08:** SAT uyarısı verildiğinde ekran "tamamını sat" yönlendirmesini korur; kısmi satış kendiliğinden yapılmaz.
+- [ ] **AC32 — Kayıp sınırı, K1/R04:** Kısmi satışın zararı, pozisyon kapanmadan da dönem kayıp sınırına parça parça (kendi zamanıyla) girer; dönem başlangıcından önceki parça sayılmaz; çıkış listesi olmayan eski kayıt eskisi gibi sayılır.
+- [ ] **AC33 — Bekleyen emir fiyatı, K2/R12:** Fiyat alınamadığında bekleyen limit emir satırı "fiyat alınamadı" ve "hesaplanamıyor" der; uydurma uzaklık yüzdesi göstermez.
+- [ ] **AC34 — Döviz ve altın çiftleri, K8/R10:** `GBPUSD`, `EURUSD`, `XAUUSD` gibi döviz/altın çiftleri kripto olarak yorumlanmaz; Binance yanıt vermezse Yahoo'ya `USDT` çifti `USD` biçimiyle sorulur.
+- [ ] **AC35 — Süre bütçesi, K9/R11:** Binance adresleri yanıt vermediğinde zincir toplam süre bütçesini aşmaz (kısa bağlantı ve okuma zaman aşımı); kalan adresler denenmeden Yahoo'ya geçilir.
 ### B — Fiyat güvenilirliği
 - [ ] **AC19 — Tiresiz sembol, Q07:** İlk Binance adresi yanıt vermediğinde ve ikincisi fiyat döndürdüğünde `LINKUSD` sembollü varlığın güncel fiyatı bulunur (0 değil).
 - [ ] **AC20 — İkinci örnek, Q07:** Aynı koşulda `HBARUSD` sembollü varlığın güncel fiyatı bulunur.
@@ -104,8 +108,8 @@ Başarı: kullanıcı pozisyonunun herhangi bir bölümünü kayda geçirebilir,
 ## SCORECARD
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 3 — Rev 3: Q01–Q08 onaylandı; onaydan önce Rev 2'de B bölümü kullanıcı itirazıyla kök nedenle yeniden yazıldı |
-| Düzeltme turu sayısı | Uygulama başlamadı |
+| Spec revizyon sayısı | 4 — Rev 4: QA bulguları, AC32–AC35; Rev 3: Rev 3: Q01–Q08 onaylandı; onaydan önce Rev 2'de B bölümü kullanıcı itirazıyla kök nedenle yeniden yazıldı |
+| Düzeltme turu sayısı | 1 — bağımsız QA denetimi (K1–K14) sonrası; yeniden QA bekliyor |
 | Bulgu gerçek/gürültü oranı | Ölçülmedi |
 | Regresyon sayısı | Ölçülmedi |
 | Kaçan hata | Ölçülmedi |

@@ -45,6 +45,15 @@ def period_results(portfolio: Mapping, coin_map: Mapping[str, str],
                    started_at: datetime) -> list[tuple[str, Decimal]]:
     results = []
     for position in portfolio.get("positions", []):
+        exits = position.get("Çıkışlar")
+        if exits and position.get("Status") in ("ACTIVE", "CLOSED_CONFIRMED"):
+            # Kısmi satışlı kayıt: her parçanın sonucu kendi zamanında sayılır (spec 0006 R04).
+            entry = _number(position.get("Giriş", 0))
+            for exit_ in exits:
+                if datetime.fromisoformat(exit_["executed_at"]) >= started_at:
+                    results.append((_currency(position["Coin"], coin_map),
+                                    (_number(exit_["price"]) - entry) * _number(exit_["quantity"])))
+            continue
         closed_at = position.get("Çıkış Zamanı")
         if position.get("Status") != "CLOSED_CONFIRMED" or not closed_at:
             continue

@@ -1,3 +1,5 @@
+import time
+
 import streamlit as st
 import pandas as pd
 import requests
@@ -202,6 +204,10 @@ BINANCE_PRICE_HOSTS = (
 )
 
 
+#: Üç adres için toplam bekleme üst sınırı; ekran pozisyon sayısıyla çarpıldığı için kısa tutulur.
+BINANCE_PRICE_BUDGET_SECONDS = 5.0
+
+
 def _positive(value):
     """Sonlu ve sıfırdan büyük fiyatı döndürür; aksi halde None."""
     try:
@@ -215,9 +221,13 @@ def _binance_price(symbol):
     pair = market_map.binance_symbol(symbol)
     if pair is None:
         return None
+    started = time.monotonic()
     for host in BINANCE_PRICE_HOSTS:
+        if time.monotonic() - started >= BINANCE_PRICE_BUDGET_SECONDS:
+            break   # toplam süre aşıldı: kalan adresler denenmez, Yahoo'ya geçilir (R11)
         try:
-            r = requests.get(f"{host}/api/v3/ticker/price", params={"symbol": pair}, timeout=3)
+            r = requests.get(f"{host}/api/v3/ticker/price", params={"symbol": pair},
+                             timeout=(1.5, 2.0))
             if r.status_code == 200:
                 price = _positive(r.json().get("price"))
                 if price is not None:
@@ -234,7 +244,8 @@ def _live_price(ticker_symbol):
     if price is not None:
         return price
     try:
-        price = _positive(yf.Ticker(canonical).fast_info['last_price'])
+        yahoo_symbol = canonical[:-1] if canonical.endswith("-USDT") else canonical   # Yahoo USDT çiftini tanımaz
+        price = _positive(yf.Ticker(yahoo_symbol).fast_info['last_price'])
     except Exception as e:
         logger.debug(f"Yahoo price fetch failed for {canonical}: {e}")
         price = None
