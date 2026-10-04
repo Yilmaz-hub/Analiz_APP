@@ -182,6 +182,7 @@ def test_k8_yahoo_fallback_converts_usdt_to_usd(monkeypatch):
             self.fast_info = {"last_price": 18.4}
 
     monkeypatch.setattr(data_fetchers, "_binance_price", lambda symbol: None)
+    monkeypatch.setattr(data_fetchers, "_okx_price", lambda symbol: None)   # gerçek ağa gidilmez
     monkeypatch.setattr(data_fetchers.yf, "Ticker", _Ticker)
     assert data_fetchers._live_price("LINKUSDT") == 18.4
     assert asked == ["LINK-USD"]

@@ -96,13 +96,25 @@ def _secret_db_url():
         return None
 
 
+def normalize_db_url(url) -> str:
+    """Bağlantı adresini kurulu sürücüye uydurur (spec 0007 R01).
+
+    Neon/Postgres panelinin verdiği `postgres://` ve `postgresql://` adresleri SQLAlchemy'de
+    kurulu olmayan `psycopg2` sürücüsünü seçer ve bağlantı sessizce kopar. Sürücüsü açıkça
+    yazılmış adres ve SQLite değişmez; çevreleyen boşluk ve tırnak atılır."""
+    text = str(url).strip().strip("'\"").strip()
+    for prefix in ("postgresql://", "postgres://"):
+        if text.lower().startswith(prefix):
+            return "postgresql+psycopg://" + text[len(prefix):]
+    return text
+
+
 def db_url() -> str:
     """Kullanılacak veritabanı URL'i. Ortam değişkeni > secrets > yerel SQLite."""
-    return (
-        os.environ.get(DB_URL_ENV)
-        or _secret_db_url()
-        or f"sqlite:///{(data_dir() / 'analiz.db').as_posix()}"
-    )
+    configured = os.environ.get(DB_URL_ENV) or _secret_db_url()
+    if configured and str(configured).strip():
+        return normalize_db_url(configured)
+    return f"sqlite:///{(data_dir() / 'analiz.db').as_posix()}"
 
 
 def is_remote_backend() -> bool:
@@ -275,6 +287,9 @@ def check_access() -> tuple[bool, str]:
     try:
         ping()
     except StorageAccessError:
+        if is_remote_backend():
+            return False, ("Kayıt veritabanına bağlanılamıyor; kayıtlarınız silinmedi. Lütfen bağlantı adresini "
+                           "(db_url) ve veritabanının açık olduğunu kontrol edin; değişiklik yapılamaz.")
         return False, "Kayıtlara şu anda erişilemiyor; değişiklik yapılamaz."
     if is_remote_backend():
         return True, "Kayıtlar korunuyor."

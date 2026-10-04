@@ -186,6 +186,10 @@ def confirm_sell(portfolio, journal, save, *, position, symbol, quantity, price,
     aktif kalır, kalan miktar ürün adımında tek değerdir, stop ve giriş fiyatı değişmez
     (spec 0006 R01–R03). Her satış `Çıkışlar` listesine ayrı, kimlikli bir olay olarak
     yazılır; tam kapanışta eski tek-çıkış alanları da doldurulur (geri uyum)."""
+    # Pozisyon, değiştirdiğimiz portföyün parçası olmalı. Yazma kopup portföy geri alındıysa eski
+    # nesneyle satış nakdi artırıp pozisyonu yerinde bırakırdı (spec 0007 AC11).
+    if not any(item is position for item in portfolio.get("positions", [])):
+        return Outcome(False, "POZISYON_GUNCEL_DEGIL")
     code = validate_sell(position=position, quantity=quantity, price=price,
                          executed_at=executed_at, now=now)
     if code:

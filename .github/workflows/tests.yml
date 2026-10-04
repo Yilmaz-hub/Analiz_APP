@@ -27,3 +27,22 @@ jobs:
 
       - name: Run performance budgets (spec 0005 S7)
         run: python -m pytest tests/ -m perf -v -s
+
+  browser:
+    # Gerçek tarayıcı testi (spec 0007 AC10): Streamlit parça (fragment) davranışı AppTest ile taklit edilemez.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt playwright
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run browser tests
+        run: python -m pytest tests/ -m browser -v -s

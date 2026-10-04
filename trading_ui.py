@@ -100,6 +100,7 @@ CODE_TEXT = {
     "GELECEK_ZAMAN": "İşlem zamanı gelecekte olamaz",
     "YETERSIZ_BAKIYE": "Bakiye yetersiz",
     "MIKTAR_FAZLA": "Satış miktarı eldeki miktardan fazla olamaz",
+    "POZISYON_GUNCEL_DEGIL": "Pozisyon güncel kayıtla eşleşmiyor; sayfayı yenileyip yeniden deneyin. Hiçbir kayıt değişmedi",
     "GECERSIZ_YUZDE": "Yüzde 0'dan büyük ve en fazla 100 olmalıdır",
     "YUZDE_SIFIRA_DUSTU": "Bu yüzde, ürünün miktar adımının altında kalıyor; daha yüksek bir yüzde ya da miktar girin",
     "CIKIS_GIRISTEN_ONCE": "Çıkış zamanı girişten önce olamaz",
