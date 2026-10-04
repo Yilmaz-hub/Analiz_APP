@@ -2,6 +2,7 @@
 """
 ALL MAGIC NUMBERS AND TUNABLE PARAMETERS IN ONE PLACE FOR EASY MAINTENANCE AND TUNING
 """
+from decimal import Decimal
 from pathlib import Path
 
 _PROJECT_DIR = Path(__file__).resolve().parent
@@ -444,3 +445,22 @@ PATTERN_INFO: dict[str, str] = {
     "Harmonik ABCD": "Harmonik ABCD Formasyonu",
     "Harmonik Butterfly": "Harmonik Butterfly Formasyonu"
 }
+
+
+class PerformanceConfig:
+    """Spec 0005 Adım 4 — performans raporu ve dönem bölme sabitleri (Q01)."""
+    TUNING_SHARE = Decimal("0.60")   # ilk %60 ayar seçimi, kalan değerlendirme
+    MIN_HISTORY_DAYS = 250           # bunun altında "yetersiz geçmiş"
+    LOOKBACK_YEARS = 3               # mevcut ortak tarihlerde son 3 yıl
+    MARKETS = ("KRIPTO", "BIST", "ABD", "ALTIN")
+
+
+class ForwardConfig:
+    """Spec 0005 Adım 7 — ileri dönem sanal takip (Q06a, Q06b, Q07, O2)."""
+    ON_TIME_HOURS = 2                 # veri geldikten sonra bu süre içinde kayıt = zamanında
+    MIN_TRACKED_DAYS = 90             # Q07: zamanında izlenen gün
+    MIN_CLOSED_TRADES = 30            # Q07
+    MAX_BACKFILL_DAYS = 10            # kaçan günler bir çalışmada en fazla bu kadar tamamlanır
+    # Günlük mumun "kullanılabilir" olduğu an (UTC saat, dakika). Kripto: 00:00 UTC kesim (O2),
+    # mum ertesi gün 00:00'da kapanır. Borsalar: seans kapanışı (ABD için kış saati, geç olan).
+    SESSION_CLOSE_UTC = {"KRIPTO": (24, 0), "BIST": (15, 0), "ABD": (21, 0), "ALTIN": (21, 0)}

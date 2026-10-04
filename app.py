@@ -598,6 +598,30 @@ if is_chart_renderable(df_view):
                         with st.expander("📋 Tüm İşlemler"):
                             trades_df = pd.DataFrame(bt_results['trades'])
                             st.dataframe(trades_df, width="stretch")
+                        if view_tf == "1d":
+                            st.session_state["perf_report_source"] = {
+                                "symbol": symbol, "backtest": bt_results, "frame": df_view,
+                                "decisions": v1_decisions, "notional": trade_parsed.settings.notional,
+                                "quantity_step": trade_parsed.settings.quantity_step,
+                                "costs": trade_parsed.settings.costs,
+                            }
+            perf_source = st.session_state.get("perf_report_source")
+            if view_tf == "1d" and perf_source is not None and perf_source["symbol"] == symbol:
+                import performance_ui
+                st.divider()
+                st.subheader("📑 Güvenilir Performans Raporu")
+                performance_ui.render_report_panel(perf_source)
+                import candidate_ui
+                candidate_ui.render_candidate_panel(perf_source)
+                import risk_ui
+                risk_ui.render_risk_panel(perf_source, st.session_state['portfolio_data'],
+                                          st.session_state.get('coin_map', {}))
+
+    # --- İLERİ DÖNEM SANAL TAKİP (spec 0005 Adım 7) ---
+    with st.expander("📡 İleri Dönem Sanal Takip (ekran kapalıyken)", expanded=False):
+        import forward_ui
+        from datetime import datetime as _dt, timezone as _tz
+        forward_ui.render_forward_panel(_dt.now(_tz.utc))
 
     # --- KAĞIT TİCARET DOĞRULAMASI ---
     with st.expander("🧪 Kağıt Ticaret Doğrulaması (Canlı Sinyal Takibi)", expanded=False):
