@@ -323,3 +323,27 @@ def test_smoke_candidate_panel_evaluates_and_lists_candidates(store, monkeypatch
     assert "Kırılım (20 gün) — KRIPTO:" in captions
     assert "Geri çekilme (EMA20, %1) — KRIPTO:" in captions
     assert "Aktif strateji: V1 (mevcut strateji)" in captions
+
+
+def test_ac89_trade_is_labelled_with_regime_known_when_the_order_was_decided():
+    """AC89 — İşlem, girişe karar verildiği gündeki koşulla etiketlenir; giriş gününün kapanışı kullanılmaz."""
+    from datetime import date
+    import pandas as pd
+
+    days = [date(2026, 9, 1) + timedelta(days=i) for i in range(5)]
+    regimes = pd.Series(["YATAY", "YUKSELEN", "DUSEN", "DUSEN", "DUSEN"], index=days, dtype=object)
+    assert performance_ui.regime_at_decision(regimes, date(2026, 9, 3)) == "YUKSELEN"  # 2. günün koşulu
+    assert performance_ui.regime_at_decision(regimes, date(2026, 9, 1)) is None        # öncesi yok
+
+
+def test_ac89_screen_regime_filter_shows_classifier_version_and_not_computable_note(store, monkeypatch,
+                                                                                    processed_df):
+    """AC89 — Ekranda piyasa koşulu kutusu, sürüm etiketi ve getiri/düşüşün hesaplanamadığı notu görünür."""
+    at = _backtest_screen(store, monkeypatch, processed_df)
+    box = _perf_widget(at, at.selectbox, "Piyasa koşulu")
+    assert list(box.options) == ["Tümü", "Yükselen", "Düşen", "Yatay"]
+    at = box.set_value("Yükselen").run()
+    assert not at.exception
+    captions = " ".join(str(c.value) for c in at.caption)
+    assert "REJIM-1" in captions
+    assert "piyasa koşuluna göre hesaplanamaz" in captions
