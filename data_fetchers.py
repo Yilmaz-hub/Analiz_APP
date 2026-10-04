@@ -4,6 +4,7 @@ import requests
 import yfinance as yf
 from config import DataFetchConfig, IndicatorConfig, Constants
 from logger import logger
+import market_map
 
 # ==========================================
 # VERİ MOTORLARI (KULLANICI TARAFI YÜKLEMELERİ İÇİN)
@@ -11,7 +12,7 @@ from logger import logger
 
 @st.cache_data(ttl=DataFetchConfig.CACHE_TTL, show_spinner=False)
 def fetch_binance_simple(symbol, interval, limit=1000):
-    s_bin = symbol.replace("-", "").replace("USD", "USDT")
+    s_bin = market_map.binance_symbol(symbol) or symbol.replace("-", "")
     bmap = {"4h": "4h", "1d": "1d", "1wk": "1w"}
     b_interval = bmap.get(interval, "1d")
     base_urls = [
@@ -47,7 +48,7 @@ def fetch_binance_simple(symbol, interval, limit=1000):
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_okx_simple(symbol, interval, limit=300):
-    s_okx = symbol.replace("USD", "USDT")
+    s_okx = market_map.okx_symbol(symbol) or symbol
     # V1 daily decisions share a UTC day boundary across crypto providers.
     omap = {"4h": "4H", "1d": "1Dutc", "1wk": "1W"}
     url = "https://www.okx.com/api/v5/market/candles"
@@ -146,6 +147,7 @@ def process_data(df: pd.DataFrame, src: str):
 
 @st.cache_data(ttl=DataFetchConfig.CACHE_TTL, show_spinner=False)
 def get_market_data(source_pref, symbol, interval):
+    symbol = market_map.canonical_symbol(symbol)  # `LINKUSD` → `LINK-USD` (spec 0006)
     if symbol == "GRAM_TRY":
         df = fetch_gram_gold_calculated(interval)
         if df is not None: return process_data(df, "Hesaplamalı (Ons x Dolar)")
@@ -191,6 +193,54 @@ def get_fear_greed_index():
         logger.warning(f"Failed to fetch Fear & Greed index: {e}. Using neutral default.")
         return 50, "Neutral"
 
+# Grafikle aynı Binance adresleri, aynı sırayla (spec 0006 R09): ilk adres bazı
+# bölgelerde engelli olabilir; grafik çalışırken fiyat 0 kalmasın.
+BINANCE_PRICE_HOSTS = (
+    "https://data-api.binance.vision",
+    "https://api.binance.us",
+    "https://api.binance.com",
+)
+
+
+def _positive(value):
+    """Sonlu ve sıfırdan büyük fiyatı döndürür; aksi halde None."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number == number and number > 0 and number != float("inf") else None
+
+
+def _binance_price(symbol):
+    pair = market_map.binance_symbol(symbol)
+    if pair is None:
+        return None
+    for host in BINANCE_PRICE_HOSTS:
+        try:
+            r = requests.get(f"{host}/api/v3/ticker/price", params={"symbol": pair}, timeout=3)
+            if r.status_code == 200:
+                price = _positive(r.json().get("price"))
+                if price is not None:
+                    return price
+        except Exception as e:
+            logger.debug(f"Binance price fetch failed ({host}, {pair}): {e}")
+    return None
+
+
+def _live_price(ticker_symbol):
+    """Kaynak sırası: Binance adresleri (yalnız kripto) → Yahoo (kanonik sembolle)."""
+    canonical = market_map.canonical_symbol(ticker_symbol)
+    price = _binance_price(canonical)
+    if price is not None:
+        return price
+    try:
+        price = _positive(yf.Ticker(canonical).fast_info['last_price'])
+    except Exception as e:
+        logger.debug(f"Yahoo price fetch failed for {canonical}: {e}")
+        price = None
+    return price if price is not None else 0
+
+
 @st.cache_data(ttl=30, show_spinner=False)
 def get_live_price_for_portfolio(coin_name, coin_map):
     try:
@@ -230,18 +280,7 @@ def get_live_price_for_portfolio(coin_name, coin_map):
                 return 0
 
         if not ticker_symbol: return 0
-                    # Try Binance first to avoid Yahoo rate limits for Crypto
-        if "USD" in ticker_symbol and "XAU" not in ticker_symbol and "EUR" not in ticker_symbol:
-            try:
-                s_bin = ticker_symbol.replace("-", "").replace("USD", "USDT")
-                r = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={s_bin}", timeout=3)
-                if r.status_code == 200:
-                    return float(r.json()['price'])
-            except Exception as e:
-                logger.debug(f"Binance price fetch failed for {ticker_symbol}: {e}")
-
-        ticker = yf.Ticker(ticker_symbol)
-        return ticker.fast_info['last_price']
+        return _live_price(ticker_symbol)
     except Exception as e:
         logger.debug(f"get_live_price_for_portfolio failed for {coin_name}: {e}")
         return 0

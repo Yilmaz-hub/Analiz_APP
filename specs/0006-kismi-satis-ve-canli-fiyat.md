@@ -1,7 +1,7 @@
 # Spec: 0006 — Kısmi Satış Teyidi ve Pozisyon Fiyatının Güvenilirliği
 
 > Şablon: [TEMPLATE.md](TEMPLATE.md). Rol: Analist — INTENT · CLARIFY · SPEC. Revizyon 1 (2026-10-04).
-> Durum: **TASLAK — karar bekliyor.** Q01–Q08 onaylanmadan kod yazılmaz (AGENTS.md Altın Kural 1 ve 4).
+> Durum: **ONAYLI (Revizyon 3, 2026-10-04).** Q01–Q08 Takım Yöneticisi tarafından önerildiği gibi onaylandı; uygulama TDD ile başlayabilir.
 > Kaynak: kullanıcının canlı uygulamada bildirdiği iki sorun (2026-10-04). Revizyon 2 (2026-10-04): B bölümü, kullanıcının "fiyat alınamadı demek çözüm değil, ekranın amacı fiyatı göstermek" itirazı ve `LINKUSD`/`HBARUSD` örnekleri üzerine kök nedenle yeniden yazıldı.
 
 ## Intent
@@ -41,7 +41,7 @@ Başarı: kullanıcı pozisyonunun herhangi bir bölümünü kayda geçirebilir,
 - Terimler: **kısmi satış** — pozisyon miktarının bir bölümünün satışı, pozisyon aktif kalır; **gecikmeli fiyat** — canlı fiyat yerine kullanılan son günlük kapanış; **tam çıkış** — kalan miktarın tamamının satışı.
 - Bağımlılıklar: [0003](done/0003-islem-kararlari-ve-performans-tutarliligi.md) (satış akışı), [0004](done/0004-varlik-ve-pozisyon-kayitlarini-koruma.md) (kalan miktar durumun önündedir, G01).
 
-### CLARIFY — onay bekleyen kararlar
+### CLARIFY — kararlar (hepsi 2026-10-04'te önerildiği gibi onaylandı)
 | Karar | Soru | Öneri | Gerekçe |
 |---|---|---|---|
 | Q01 | Kısmi satış serbest mi? | Evet: 0 < miktar ≤ eldeki miktar. Tam miktar bugünkü tam çıkıştır. | Kullanıcının isteği; "ya hepsi ya hiç" kâr almayı engelliyor. Sınır dahil: tam miktar geçerlidir. |
@@ -104,7 +104,7 @@ Başarı: kullanıcı pozisyonunun herhangi bir bölümünü kayda geçirebilir,
 ## SCORECARD
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 2 — Rev 2: B bölümü kök nedenle yeniden yazıldı (kullanıcı itirazı) |
+| Spec revizyon sayısı | 3 — Rev 3: Q01–Q08 onaylandı; onaydan önce Rev 2'de B bölümü kullanıcı itirazıyla kök nedenle yeniden yazıldı |
 | Düzeltme turu sayısı | Uygulama başlamadı |
 | Bulgu gerçek/gürültü oranı | Ölçülmedi |
 | Regresyon sayısı | Ölçülmedi |

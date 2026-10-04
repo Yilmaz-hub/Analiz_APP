@@ -183,6 +183,11 @@ def reset_block_reason(positions):
     )
 
 
+LIVE_PRICE = "canlı"
+NO_PRICE = "fiyat alınamadı (maliyetle gösterildi)"
+NOT_COMPUTABLE = "hesaplanamıyor"
+
+
 def build_active_rows(active_positions, price_lookup):
     """Aktif pozisyon tablosunun satırlarını ve toplam değerini üretir.
 
@@ -202,6 +207,7 @@ def build_active_rows(active_positions, price_lookup):
             price = float(price)
         except (TypeError, ValueError):
             price = 0.0
+        priced = price > 0
         if price == 0:
             try:
                 price = float(entry)
@@ -213,10 +219,31 @@ def build_active_rows(active_positions, price_lookup):
             invested = float(item.get("Yatırım", 0.0))
         except (TypeError, ValueError):
             invested = 0.0
-        profit = value - invested
-        pct = f"%{(profit / invested) * 100:.2f}" if invested else "-"
+        if priced:
+            profit = value - invested
+            pct = f"%{(profit / invested) * 100:.2f}" if invested else "-"
+            status = LIVE_PRICE
+        else:
+            # Fiyat bilinmiyorsa kâr sıfır değil "hesaplanamıyor"dur (spec 0006 R12).
+            profit = pct = NOT_COMPUTABLE
+            status = NO_PRICE
         rows.append({
             "Coin": item.get("Coin"), "Giriş": entry, "Adet": item.get("Adet"),
             "Değer ($)": value, "Kar/Zarar ($)": profit, "Kar/Zarar (%)": pct,
+            "Fiyat": status,
         })
     return rows, total
+
+
+def unpriced_count(rows):
+    """Güncel fiyatı alınamadığı için maliyetle gösterilen satır sayısı."""
+    return sum(1 for row in rows if row.get("Fiyat") != LIVE_PRICE)
+
+
+def total_value_note(rows):
+    """Toplam değerin fiyatı alınamayan pozisyonları içerdiğini belirten açıklama; yoksa boş."""
+    count = unpriced_count(rows)
+    if not count:
+        return ""
+    return (f"Toplam değer: {count} pozisyonun fiyatı alınamadı; bu pozisyonlar maliyetiyle "
+            "hesaba katıldı.")

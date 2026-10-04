@@ -28,7 +28,7 @@ from scanner import render_opportunity_scanner
 from data_fetchers import get_live_price_for_portfolio
 from signal_engine import generate_stable_signal, generate_validated_signal, CompositeSignal, invalid_data_signal
 from market_validation import is_v1_scope, policy_for_symbol, validate_market_data
-from positions import (group_positions, build_active_rows, asset_name as position_asset_name,
+from positions import (total_value_note, group_positions, build_active_rows, asset_name as position_asset_name,
                        AKTIF as POS_AKTIF, BEKLEYEN as POS_BEKLEYEN,
                        SORUNLU as POS_SORUNLU)
 from weight_profiles import get_weights_for_symbol
@@ -824,6 +824,9 @@ if is_chart_renderable(df_view):
                     lambda coin: curr if coin == sel_c else get_live_price_for_portfolio(coin, st.session_state['coin_map']),
                 )
                 if active_data: st.dataframe(pd.DataFrame(active_data), width="stretch")
+                price_note = total_value_note(active_data)
+                if price_note:
+                    st.warning(price_note)
 
             if pending_pos:
                 st.markdown("##### ⏳ Bekleyen Limit Emirler")
