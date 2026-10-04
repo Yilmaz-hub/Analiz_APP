@@ -216,5 +216,9 @@ def save_min_notional(asset: str, amount: Decimal | None) -> None:
 
 
 def load_min_notional(asset: str) -> Decimal | None:
+    """Kayıtlı asgari tutar; kayıt yoksa ya da bozuksa (sayı değil, ≤ 0) `None`."""
     value = (storage.read_doc(_MIN_KEY) or {}).get(asset)
-    return None if value is None else Decimal(value)
+    if value is None:
+        return None
+    amount, reason = parse_min_notional(value)
+    return None if reason else amount

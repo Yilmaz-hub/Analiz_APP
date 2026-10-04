@@ -194,3 +194,53 @@ def test_ac22_each_market_is_judged_on_its_own_data(trending_df, monkeypatch):
             quantity_step=D("0.001"), costs=KNOWN, now=NOW).ok
     assert calls == [["KRIPTO"], ["KRIPTO"], ["BIST"], ["BIST"]]
     assert {e["market"] for e in sc.history()} == {"KRIPTO", "BIST"}
+
+
+# ---- QA Rev 6 bulguları (N1, N2, N4) ------------------------------------------------------------
+def test_n1_cash_flow_delta_is_decimal_exact():
+    """AC14 — Dış nakit hareketi farkı ondalık hatasız (Decimal) hesaplanır; kayan nokta artığı oluşmaz."""
+    assert cash_flows.delta(1000.1, 1000.3) == D("0.2")
+    assert cash_flows.delta(1000.3, 1000.1) == D("-0.2")
+    assert cash_flows.delta(1000.0, 1750.0) == D("750.0")
+
+
+def test_n1_fractional_balance_edit_records_exact_flow(store, monkeypatch, processed_df):
+    """AC14 — Küsuratlı elle bakiye değişikliği tam tutarla kaydedilir."""
+    from app_helpers import click, make_app
+
+    store.write_doc(store.ASSETS_KEY, {"Bitcoin (BTC)": "BTC-USD"})
+    store.write_doc(store.PORTFOLIO_KEY, {"balance": 1000.3, "positions": []})
+    at = make_app(monkeypatch, processed_df).run()
+    next(n for n in at.number_input if n.label == "Güncel USDT Bakiyesi").set_value(1000.1).run()
+    at = click(at, "Bakiyeyi Güncelle")
+    assert not at.exception
+    assert [f["delta"] for f in cash_flows.flows()] == ["-0.2"]
+
+
+def test_n2_balance_is_not_changed_when_the_cash_flow_cannot_be_recorded(store, monkeypatch, processed_df):
+    """AC14 — Nakit hareketi kaydedilemezse bakiye değişmez, kullanıcı anlaşılır uyarı görür, traceback çıkmaz."""
+    from app_helpers import click, make_app, texts
+    from storage import StorageAccessError
+
+    store.write_doc(store.ASSETS_KEY, {"Bitcoin (BTC)": "BTC-USD"})
+    store.write_doc(store.PORTFOLIO_KEY, {"balance": 1000.0, "positions": []})
+
+    def broken(*args, **kwargs):
+        raise StorageAccessError("kayıt deposu yazılamıyor")
+
+    monkeypatch.setattr(cash_flows, "record", broken)
+    at = make_app(monkeypatch, processed_df).run()
+    next(n for n in at.number_input if n.label == "Güncel USDT Bakiyesi").set_value(1750.0).run()
+    at = click(at, "Bakiyeyi Güncelle")
+    assert not at.exception
+    assert store.read_doc(store.PORTFOLIO_KEY)["balance"] == 1000.0
+    assert "nakit hareketi kaydedilemedi" in texts(at) and "StorageAccessError" not in texts(at)
+
+
+def test_n4_corrupt_minimum_notional_record_is_ignored():
+    """AC83 — Depodaki bozuk asgari tutar kaydı ekranı düşürmez; yok sayılır."""
+    import storage
+
+    storage.write_doc("asset_minimums", {"Ethereum (ETH)": "bozuk", "Solana (SOL)": "-3"})
+    assert rs.load_min_notional("Ethereum (ETH)") is None
+    assert rs.load_min_notional("Solana (SOL)") is None
