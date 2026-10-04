@@ -196,7 +196,7 @@ def test_ac10_sell_panel_is_a_streamlit_fragment():
     panel = next(node for node in ast.parse(source).body
                  if isinstance(node, ast.FunctionDef) and node.name == "sell_panel")
     assert any(ast.unparse(decorator) == "st.fragment" for decorator in panel.decorator_list)
-    assert "sell_panel(active_pos, sel_c, curr, records_writable)" in source   # panel çağrılıyor
+    assert "sell_panel(sel_c, curr, records_writable)" in source   # panel çağrılıyor
 
 
 def test_ac11_confirming_a_sale_refreshes_the_whole_page(store, monkeypatch, processed_df):
@@ -224,3 +224,109 @@ def test_ac12_price_diagnostics_are_recorded_without_technical_text(monkeypatch)
     assert lines and any("Binance" in line and "reddedildi" in line for line in lines)
     joined = " ".join(lines)
     assert "http" not in joined and "Traceback" not in joined and "Error" not in joined
+
+
+# ---- QA turu 2 bulguları (F1–F6) ---------------------------------------------------------------------------
+def _held_portfolio():
+    from datetime import datetime, timedelta, timezone
+    from decimal import Decimal
+
+    import trade_confirmation as tc
+    from position_journal import PositionJournal
+
+    now = datetime(2026, 9, 10, 12, 0, tzinfo=timezone.utc)
+    portfolio, journal = {"balance": 5000.0, "positions": []}, PositionJournal()
+    at = now - timedelta(hours=3)
+    assert tc.confirm_buy(portfolio, journal, lambda: True, coin=COIN, symbol="BTC-USD", quantity=Decimal("10"),
+                          price=Decimal("100"), stop=Decimal("90"), executed_at=at, now=now).ok
+    return tc, portfolio, journal, now, at
+
+
+def _sell_args(position, now, at):
+    from decimal import Decimal
+    return dict(position=position, symbol="BTC-USD", quantity=Decimal("4"), price=Decimal("110"),
+                executed_at=at + __import__("datetime").timedelta(hours=1), now=now)
+
+
+def test_f1_stale_position_object_cannot_be_sold_against_a_rolled_back_portfolio():
+    """AC11 — Yazma kopup portföy geri alındıktan sonra eski pozisyon nesnesiyle satış reddedilir; nakit ve pozisyon çelişmez."""
+    import copy
+
+    tc, portfolio, journal, now, at = _held_portfolio()
+    snapshot = copy.deepcopy(portfolio)
+    stale = portfolio["positions"][0]
+    assert tc.confirm_sell(portfolio, journal, lambda: False, **_sell_args(stale, now, at)).code == "KAYIT_YAZILAMADI"
+    rolled_back = copy.deepcopy(snapshot)                 # uygulamanın safe_save_portfolio geri alması
+    again = tc.confirm_sell(rolled_back, journal, lambda: True, **_sell_args(stale, now, at))
+    assert again.ok is False and again.code == "POZISYON_GUNCEL_DEGIL"
+    assert rolled_back == snapshot                          # nakit de pozisyon da değişmedi
+
+
+def test_f1_fresh_position_from_the_current_portfolio_sells_correctly_after_a_failed_attempt():
+    """AC11 — Başarısız denemeden sonra güncel portföyden çözülen pozisyonla satış tam bir kez işlenir (nakit 480 ... pozisyon 6)."""
+    import copy
+
+    import positions
+
+    tc, portfolio, journal, now, at = _held_portfolio()
+    cash_before = portfolio["balance"]
+    snapshot = copy.deepcopy(portfolio)
+    tc.confirm_sell(portfolio, journal, lambda: False, **_sell_args(portfolio["positions"][0], now, at))
+    current = copy.deepcopy(snapshot)
+    fresh = positions.active_position(current, COIN)
+    assert tc.confirm_sell(current, journal, lambda: True, **_sell_args(fresh, now, at)).ok
+    assert current["positions"][0]["Adet"] == 6.0 and current["balance"] == cash_before + 440.0
+
+
+def test_f1_sell_panel_resolves_the_position_from_session_state():
+    """AC11 — Satış paneli pozisyonu fragment argümanından değil güncel portföyden çözer."""
+    import os
+
+    source = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app.py"),
+                  encoding="utf-8").read()
+    body = source.split("def sell_panel(")[1].split("_RUN_PRICES")[0]
+    assert body.startswith("sel_c, curr, records_writable)")
+    assert "group_positions(st.session_state['portfolio_data']['positions'])" in body
+
+
+def test_f3_more_than_eight_positions_all_get_their_price(monkeypatch):
+    """AC04 — 12 pozisyonda ilk 8'i yavaş olsa bile hızlı olanlar sırada beklemez ve fiyatını alır."""
+    coins = [f"Coin{i}" for i in range(12)]
+    slow = {c: 3.0 for c in coins[:8]}
+    monkeypatch.setattr(data_fetchers, "get_live_price_for_portfolio", _slow_price(slow))
+    prices = data_fetchers.fetch_prices(coins, {c: f"{c}-USD" for c in coins}, budget=1.0)
+    assert all(prices[c] > 0 for c in coins[8:]) and all(prices[c] == 0 for c in coins[:8])
+
+
+def test_f4_source_chain_fits_inside_the_price_budget():
+    """AC09 — Binance ve OKX en kötü sürelerinin toplamı `fetch_prices` bütçesine sığar (ilk yüklemede fiyat boş kalmaz)."""
+    assert data_fetchers.BINANCE_PRICE_BUDGET_SECONDS + data_fetchers.OKX_PRICE_TIMEOUT_SECONDS \
+        <= data_fetchers.PRICE_BUDGET_SECONDS
+
+
+def test_f6_unexpected_kline_body_is_labelled_invalid_not_unreachable(monkeypatch):
+    """AC08 — Beklenmedik kline gövdesi ("yanıt yok" değil) "geçersiz yanıt" olarak etiketlenir ve çökmez."""
+    _fake_net(monkeypatch, {"ticker/price": _Reply(403, {}), "klines": _Reply(200, [])})
+    data_fetchers.PRICE_DIAGNOSTICS.clear()
+    assert data_fetchers._live_price("LINKUSD") == 0
+    assert any("Binance: geçersiz yanıt" == line for line in data_fetchers.price_diagnostics("LINKUSD"))
+
+
+def test_f5_screen_lists_price_sources_for_an_unpriced_position(store, monkeypatch, processed_df):
+    """AC12 — Fiyatı alınamayan pozisyon için ekranda "Fiyat kaynağı ayrıntısı" bölümü kaynakları gösterir; adres ve teknik metin yok."""
+    from app_helpers import make_app, texts
+
+    store.write_doc(store.ASSETS_KEY, {COIN: "BTC-USD", "Chainlink": "LINKUSD"})
+    store.write_doc(store.PORTFOLIO_KEY, {"balance": 1000.0, "positions": [{
+        "Coin": "Chainlink", "Giriş": 15.0, "Adet": 20.0, "Yatırım": 300.0, "Realized": 0.0, "Status": "ACTIVE",
+        "Tarih": "2026-09-01", "Stop": 13.0, "Gerçekleşme Zamanı": "2026-09-01T10:00:00+00:00",
+        "V1Verified": True}]})
+    at = make_app(monkeypatch, processed_df)
+    _fake_net(monkeypatch, {"ticker/price": _Reply(403, {}), "klines": _Reply(403, {}), "okx.com": _Reply(500, {})})
+    monkeypatch.setattr(data_fetchers, "get_live_price_for_portfolio",
+                        lambda coin, coin_map: data_fetchers._live_price(coin_map[coin]))
+    at.run()
+    assert not at.exception
+    shown = texts(at)
+    assert "Chainlink: Binance: reddedildi; OKX: reddedildi" in shown
+    assert "http" not in shown.split("Chainlink: Binance")[1][:80] and "Traceback" not in shown

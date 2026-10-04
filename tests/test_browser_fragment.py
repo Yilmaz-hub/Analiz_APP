@@ -20,7 +20,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CHROMIUM = os.environ.get("CHROMIUM", "/opt/pw-browsers/chromium-1194/chrome-linux/chrome")
 
 
-@pytest.mark.skipif(not os.path.exists(CHROMIUM), reason="Chromium bulunamadı (CHROMIUM ortam değişkeni)")
 def test_ac10_typing_in_the_sell_panel_does_not_recompute_the_page(tmp_path):
     """AC10 — Satış fiyatı ve yüzde yazılınca grafik verisi yeniden çağrılmaz; satış onayında sayfa bir kez tümüyle yenilenir."""
     counter = tmp_path / "calls.txt"
@@ -35,7 +34,7 @@ def test_ac10_typing_in_the_sell_panel_does_not_recompute_the_page(tmp_path):
     try:
         time.sleep(8)
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(executable_path=CHROMIUM)
+            browser = playwright.chromium.launch(executable_path=CHROMIUM if os.path.exists(CHROMIUM) else None)
             page = browser.new_page(viewport={"width": 1200, "height": 2600})
             page.goto("http://localhost:8791")
             page.wait_for_selector("text=Kar Al / Satış Yap", timeout=90000)

@@ -126,6 +126,18 @@ def classify_position(pos) -> str:
     return AKTIF if _rendered_fields_readable(pos) else SORUNLU
 
 
+def active_position(portfolio, coin):
+    """Verilen coinin **güncel** portföydeki aktif pozisyonu; yoksa `None`.
+
+    Parça (fragment) olarak çalışan ekranlar eski bir çalıştırmadan kalan nesneyi değil, portföyün
+    şimdiki halini kullanmalıdır: yazma kopup portföy geri alınırsa eski nesne artık portföyün parçası
+    değildir (spec 0007 AC11)."""
+    for pos in group_positions(portfolio.get("positions", []))[AKTIF]:
+        if asset_name(pos) == coin:
+            return pos
+    return None
+
+
 def group_positions(positions) -> dict[str, list]:
     """Kayıtları sınıflarına göre ayırır (görünürlük ve engel aynı kaynaktan)."""
     groups: dict[str, list] = {AKTIF: [], BEKLEYEN: [], KAPALI: [], SORUNLU: []}

@@ -257,7 +257,10 @@ def _binance_price(symbol):
                     if r.status_code == 451:
                         break   # bölge engeli adresin tamamı için geçerli: kline uç noktası da denenmez
                     continue
-                price = _positive(pick(r.json()))
+                try:
+                    price = _positive(pick(r.json()))
+                except (IndexError, KeyError, TypeError, ValueError, AttributeError):
+                    price = None            # beklenmedik gövde: "yanıt yok" değil "geçersiz yanıt"
                 if price is not None:
                     _note(symbol, "Binance", "alındı")
                     return price
@@ -274,7 +277,7 @@ def _okx_price(symbol):
         return None
     try:
         r = requests.get("https://www.okx.com/api/v5/market/ticker", params={"instId": instrument},
-                         headers=DataFetchConfig.HEADERS, timeout=(1.5, 2.0))
+                         headers=DataFetchConfig.HEADERS, timeout=(1.0, OKX_PRICE_TIMEOUT_SECONDS - 1.0))
         if r.status_code != 200:
             _note(symbol, "OKX", "reddedildi")
             return None
@@ -312,7 +315,9 @@ def _live_price(ticker_symbol):
 
 
 #: Bir çalıştırmada tüm pozisyon fiyatları için toplam bekleme üst sınırı (spec 0007 R03).
-PRICE_BUDGET_SECONDS = 6.0
+PRICE_BUDGET_SECONDS = 7.0
+#: OKX isteğinin en kötü süresi; Binance bütçesiyle toplamı `PRICE_BUDGET_SECONDS`'ı aşmaz.
+OKX_PRICE_TIMEOUT_SECONDS = 2.5
 
 
 def fetch_prices(coin_names, coin_map, budget=None):
@@ -338,7 +343,7 @@ def fetch_prices(coin_names, coin_map, budget=None):
             add_script_run_ctx(threading.current_thread(), context)
         return get_live_price_for_portfolio(name, coin_map)
 
-    pool = ThreadPoolExecutor(max_workers=min(8, len(names)))
+    pool = ThreadPoolExecutor(max_workers=len(names))
     futures = {name: pool.submit(job, name) for name in names}
     wait(futures.values(), timeout=PRICE_BUDGET_SECONDS if budget is None else budget)
     pool.shutdown(wait=False, cancel_futures=True)

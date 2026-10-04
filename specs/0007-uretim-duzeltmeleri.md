@@ -33,7 +33,7 @@ Uygulama yeniden başlatıldığında kayıtlar (portföy, varlıklar) bağlant�
 - [ ] **AC08 — Kline yedeği, R05:** Fiyat uç noktası hata verip kline uç noktası yanıt verirse fiyat son mumun kapanışından alınır; `LINKUSD` ve `HBARUSD` fiyat bulur.
 - [ ] **AC09 — OKX yedeği, R05:** Binance adreslerinin hiçbiri yanıt vermezse fiyat OKX'ten alınır (`LINK-USDT` biçimiyle).
 - [ ] **AC10 — Satış paneli yerel, R06:** Satış fiyatı, yüzde ya da miktar değiştirilince grafik verisi ve fiyat kaynakları yeniden çağrılmaz.
-- [ ] **AC11 — Satış sonrası yenileme, R06:** Satış onaylanınca sayfa tümüyle yenilenir (portföy tablosu, nakit ve toplam güncellenir).
+- [ ] **AC11 — Satış sonrası yenileme ve güncel pozisyon, R06:** Satış onaylanınca sayfa tümüyle yenilenir (portföy tablosu, nakit ve toplam güncellenir). Satış paneli pozisyonu her seferinde güncel portföyden çözer; kayıt yazılamayıp portföy geri alındıktan sonra eski pozisyon nesnesiyle satış **reddedilir** (nakit ve pozisyon çelişmez), güncel nesneyle yeniden deneme tam bir kez işlenir.
 - [ ] **AC12 — Kaynak ayrıntısı, R07:** Fiyatı alınamayan pozisyon için "Fiyat kaynağı ayrıntısı" bölümünde denenen kaynaklar ve sonuçları (yanıt yok / reddedildi / geçersiz) görünür; parola, adres ve teknik metin görünmez.
 
 ## Definition of Done
@@ -44,8 +44,8 @@ Uygulama yeniden başlatıldığında kayıtlar (portföy, varlıklar) bağlant�
 ## SCORECARD
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 1 |
-| Düzeltme turu sayısı | 0 |
+| Spec revizyon sayısı | 3 — Rev 2: yayın bulguları (AC07–AC12); Rev 3: QA turu 2 (AC11 güncel pozisyon, AC04 çok pozisyon, AC09 bütçe uyumu) |
+| Düzeltme turu sayısı | 1 — QA turu 2 (F1–F7) |
 | Bulgu gerçek/gürültü oranı | Ölçülmedi |
 | Regresyon sayısı | Ölçülmedi |
 | Kaçan hata | Yayında kök neden doğrulanamadı; yalnız belirtileri açıklayan zayıflıklar kapatıldı |

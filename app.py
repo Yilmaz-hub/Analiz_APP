@@ -107,13 +107,19 @@ def remember_saved_portfolio():
 
 
 @st.fragment
-def sell_panel(active_pos, sel_c, curr, records_writable):
+def sell_panel(sel_c, curr, records_writable):
     """"Kâr Al / Satış Yap" paneli (spec 0006 + spec 0007 R06).
 
     Parça (fragment) olarak çalışır: satış fiyatını, yüzdeyi ya da miktarı yazmak yalnız bu paneli
     yeniden çalıştırır; grafik, sinyal ve fiyat çağrıları yeniden hesaplanmaz. Satış onaylanınca
     `st.rerun()` sayfayı bir kez tümüyle yeniler."""
-    p_coins = list(set([p['Coin'] for p in active_pos]))
+    # Parça yeniden çalışırken argümanlar bayat kalır; pozisyonlar her seferinde güncel portföyden alınır
+    # (yazma kopup portföy geri alınmış olabilir — spec 0007 AC11).
+    active_pos = group_positions(st.session_state['portfolio_data']['positions'])[POS_AKTIF]
+    p_coins = list(dict.fromkeys(p['Coin'] for p in active_pos))
+    if not p_coins:
+        st.info("Satılacak aktif pozisyon yok.")
+        return
     s_coin = st.selectbox("Coin", p_coins, key="sell_sel")
     target_pos = next((p for p in active_pos if p['Coin'] == s_coin), None)
     if target_pos:
@@ -917,7 +923,7 @@ if is_chart_renderable(df_view):
                                 st.rerun()
                 st.markdown("##### ✅ Aktif Pozisyonlar")
                 with st.expander("💸 Kar Al / Satış Yap"):
-                    sell_panel(active_pos, sel_c, curr, records_writable)
+                    sell_panel(sel_c, curr, records_writable)
 
                 run_prices = run_position_prices()
                 active_data, total_active_value = build_active_rows(
