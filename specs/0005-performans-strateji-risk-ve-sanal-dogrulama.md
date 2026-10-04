@@ -1,7 +1,7 @@
 # Spec: 0005 — Performans, Strateji, Risk ve Sanal Doğrulama
 
-> Şablon: [TEMPLATE.md](TEMPLATE.md). **Revizyon 4 (2026-10-04):** R04'ün piyasa koşulu filtresi kesinleşti ve rapora bağlandı (AC89; yönetici onayı). **Revizyon 3 (2026-10-03) — tüm CLARIFY kararları kesinleşti:** Q01–Q08 ve uygulama planı açık noktaları O1–O4 Takım Yöneticisi tarafından karara bağlandı; ayrıntı ve sayısal değerler [Karar kaydı — Revizyon 3](#karar-kaydı--revizyon-3) bölümündedir. Revizyon 2: Adım 4 kararları (Q01 + AC88, O1, R04 rejim boyutunun Adım 5'e ertelenmesi). Revizyon 1: bağımsız QA denetimi sonrası boşluklar kapatıldı.
-> Durum: **Spec onaylı (Revizyon 3).** Adım 4 uygulandı ve QA denetimi bekliyor; Adım 5–7 uygulanabilir.
+> Şablon: [TEMPLATE.md](TEMPLATE.md). **Revizyon 5 (2026-10-04) — bağımsız QA denetimi (B1–B19) kararları:** B6 (kâr koruma adayları rapor ekranında karşılaştırılır, R13), B7 (komisyon, makas veya kayma bilinmiyorsa sonuç "üst sınır", aday ölçütü doğrulanamaz), B11 (giriş kuralı tam geçmişi görür, yalnız sonuç ölçümü diliminde başlar; AC88 yeniden yazıldı), B3 (geç oluşturulan ve hızlandırılmış gözlemlerin işlemleri sayaca girmez), B13 (kullanıcı adayı aktif strateji seçebilir, R09), AC46 kapsamı (gerçek karar üretimi ayrı kriter, AC90). Kararlar yönetici onayıyla verildi. **Revizyon 4 (2026-10-04):** R04'ün piyasa koşulu filtresi kesinleşti ve rapora bağlandı (AC89; yönetici onayı). **Revizyon 3 (2026-10-03) — tüm CLARIFY kararları kesinleşti:** Q01–Q08 ve uygulama planı açık noktaları O1–O4 Takım Yöneticisi tarafından karara bağlandı; ayrıntı ve sayısal değerler [Karar kaydı — Revizyon 3](#karar-kaydı--revizyon-3) bölümündedir. Revizyon 2: Adım 4 kararları (Q01 + AC88, O1, R04 rejim boyutunun Adım 5'e ertelenmesi). Revizyon 1: bağımsız QA denetimi sonrası boşluklar kapatıldı.
+> Durum: **Spec onaylı (Revizyon 5).** Adım 4–7 uygulandı; QA bulguları (B1–B19) düzeltiliyor ve yeniden QA denetimi bekliyor.
 > Rol: Analist. Bu belge önceki yol haritasının 4–7. adımlarını kapsar; V1 uygulama planındaki aynı numaralı teknik adımları ifade etmez.
 
 ## Intent
@@ -81,6 +81,7 @@ Tümü Takım Yöneticisi onayıyla, 2026-10-03. Değerler sonuçlar görülmede
 | Q02 — giriş adayları | **Kırılım:** yükselen gün kapanışı önceki 20 günün en yüksek kapanışının üstündeyse giriş. **Geri çekilme:** yükselen günde gün içi en düşük fiyat 20 günlük üssel ortalamanın en çok %1 üstüne kadar inmiş ve kapanış bu ortalamanın üstündeyse giriş. Her iki adayda çıkış V1 ile aynıdır (başlangıç stopu + SAT); yalnız giriş değişir (R06). Giriş ertesi günün açılışında gerçekleşir. |
 | Q05 — kâr koruma adayları | R = giriş − başlangıç stopu. **Sabit hedef:** fiyat giriş + 2R'ye ulaşınca tamamı satılır. **İz süren stop:** stop = o güne kadarki en yüksek kapanış − 2 × ATR; yalnız yukarı taşınır, başlangıç stopunun altına inmez. **Kademeli çıkış:** giriş + 1R'de pozisyonun yarısı (miktar adımına aşağı yuvarlanır) satılır, kalan V1 kurallarıyla çıkar. Seviyeler gün kapanışında hesaplanır ve ertesi günün açılışından itibaren geçerlidir (≥). Üç aday ayrı denenir, birlikte etkinleştirilmez; gerçek pozisyona uygulanmaz (R13). |
 | R04 piyasa koşulu filtresi (Rev 4) | Yukarıdaki R04 metnindeki kural: işlem girişe karar verilen günün koşuluyla etiketlenir; koşul filtresinde getiri ve düşüş hesaplanamaz. Sınıflandırıcı sürümü ekranda görünür. |
+| QA kararları (Rev 5) | B6: kâr koruma adayları rapor ekranında karşılaştırılır. B7: komisyon, makas veya kayma bilinmiyorsa "üst sınır". B11: giriş kuralı tam geçmişi görür, sonuç ölçümü dilimde başlar. B3: geç ve hızlandırılmış gözlemlerin işlemleri sayaca girmez. B13: kullanıcı adayı aktif seçer. AC46: değerlendirme bütçesi sahte V1 kararlarıyla ölçülür, gerçek karar üretimi AC90 ile ayrı. |
 | O1 | AC64/AC66 HTTP kodu yerine uygulama terimleriyle (Revizyon 2). |
 | O2 | Kripto “günlük kapanış” kesim saati **00:00 UTC**. Rejim eşikleri ve kâr koruma parametreleri yukarıdaki satırlardadır. |
 | O3 | Miktar adımı / asgari işlem tutarı varlık kaydında **isteğe bağlı alan** olarak tutulur; boşsa miktar önerilmez ve nedeni gösterilir (AC31, AC83). |
@@ -181,11 +182,28 @@ Tümü Takım Yöneticisi onayıyla, 2026-10-03. Değerler sonuçlar görülmede
 - [ ] **AC86 — Sağlayıcı bekleyişi, Q06b:** Performans raporunda sağlayıcı bekleme süresi toplam süreden ayrı gösterilir.
 - [ ] **AC87 — Hızlandırılmış test, R18:** Saat/tarih ileri alınarak üretilen gözlem ileri dönem yeterlilik sayacına katılmaz.
 
+### Ek kriterler — Revizyon 5 (bağımsız QA bulguları)
+> Parantezdeki B kodu QA bulgu raporuna atıftır. Mevcut kriterlerin testlerinin görmediği yollar bu kriterlerle kapatılır.
+- [ ] **AC90 — Koşucu bütçesi, B1/AC35:** Ekransız koşucu, ML açıkken yalnız yeni (ve kaçan) günlerin kararını hesaplar; kayıtlı günleri yeniden hesaplamaz. Bir varlığın günlük çalışması tüm geçmişin kararını yeniden üretmez; gerçek yazım anı her karar için ayrı alınır.
+- [ ] **AC91 — Koşucuda mum revizyonu, B2/AC71:** Koşucu yeniden çalıştığında sağlayıcının kayıtlı bir günün mumunu sonradan değiştirdiği görülürse karar değişmez ve `forward_revisions`'a ayrı kayıt düşer.
+- [ ] **AC92 — İşlem sayacı, B3/AC87:** Kapanmış sanal işlem sayacı yalnız zamanında ve gerçek saatle üretilmiş kararlardan oluşan işlemleri sayar; hızlandırılmış ya da geç oluşturulan gözlemin işlemi sayılmaz. Hızlandırılmış koşu, aynı günün sonradan gerçek saatle kaydedilmesini engellemez.
+- [ ] **AC93 — Gerçek nakit, B4/R10:** Risk bazlı miktar, kullanıcının gerçek nakdi ve sermayesiyle hesaplanır (portföy bakiyesi); bakiye yetmiyorsa ya da kayıt yoksa miktar önerilmez. Bilinen birim maliyet miktar formülüne girer.
+- [ ] **AC94 — Sınırı kaydetmek sıfırlamaz, B5/R11:** Açık bir kayıp dönemi varken sınır değeri yeniden kaydedildiğinde dönem başlangıcı ve sıfırlama kayıtları korunur; değer değişikliği ayrı bir kayıt olarak eklenir.
+- [ ] **AC95 — Kâr koruma karşılaştırması, B6/R13:** Backtest ekranında sabit hedef, iz süren stop ve kademeli çıkış adayları, V1 referansıyla aynı işlemler üzerinde ayrı ayrı (kapanmış işlem sayısı, toplam sonuç, işlem başına beklenti) gösterilir; gerçek pozisyona hiçbir şey yazılmaz.
+- [ ] **AC96 — Bilinmeyen maliyet, B7/R03:** Komisyon, makas veya kaymadan biri bilinmiyorsa strateji, al-tut ve rapor sonuçları "üst sınır" etiketi taşır ve aday ölçütü "doğrulanamadı" (yetersiz veri) çıkar; üç maliyet de biliniyorsa etiket yoktur.
+- [ ] **AC97 — Aynı karar, B11:** Aday değerlendirmesinin değerlendirme dilimi içindeki günler için ürettiği karar, ileri takip koşucusunun aynı gün için ürettiğiyle aynıdır.
+- [ ] **AC98 — Aday seçimi, B13/R09:** Kullanıcı "aktif yap" ile bir adayı seçebilir ve "V1'e dön" ile geri alabilir; seçim kalıcıdır, aktif sürüm değerlendirme dönemi değişse de aynı kalır, koşucu aktif sürümü izler. Seçim yapılmadıkça aktif strateji V1'dir.
+- [ ] **AC99 — Kesinti görünürlüğü, B8/AC38:** Ekran, son başarısız çalışmayı ve notunu, eksik görünen günleri ve miktar adımı yokluğu nedeniyle hesaplanamayan sanal işlemi gösterir.
+- [ ] **AC100 — Depo hatası, B9:** İleri takip tabloları okunamadığında ham veritabanı hatası kullanıcıya sızmaz; erişim uyarısı görünür ve ekranın geri kalanı çalışır.
+- [ ] **AC101 — Eşzamanlı yazım, B10/R07:** Aday geçmişine iki yazıcı aynı anda yazdığında hiçbir kayıt kaybolmaz.
+- [ ] **AC102 — Aday ayarı, B12/AC79:** Adayın `settings` değerleri kararı belirler; ayar değişince karar da değişir.
+- [ ] **AC103 — Sürüm parmak izi, B16/R18:** Strateji sürüm etiketi karar kuralı ve işlem varsayımlarının parmak izini taşır; bunlardan biri değişince yeni sürüm olur ve gözlem sayacı devralınmaz. Panelde son kararın varsayımları görünür.
+
 ### Ek kriterler — Revizyon 4 (R04 piyasa koşulu filtresi)
 - [ ] **AC89 — Piyasa koşulu filtresi, R04:** Rapor yükselen/düşen/yatay koşuluna göre süzülebilir; seçilen koşulda girişe karar verilmiş işlemler sayılır (giriş gününün kapanışı değil, bir önceki kapanmış günün koşulu kullanılır), net getiri ve en büyük düşüş "hesaplanamıyor" gösterilir, koşulda işlem yoksa hata değil boş sonuç ve örnek sayısı 0 görünür, tanımsız koşul değeri teknik metin sızdırmadan reddedilir ve sınıflandırıcı sürümü ekranda görünür.
 
 ### Ek kriterler — Revizyon 2 (Adım 4 kararları)
-- [ ] **AC88 — Ortak başlangıç, Q01:** Ayrı değerlendirme diliminin ilk tarihinden önceki fiyatlar değiştirildiğinde al-tut ve stratejinin karşılaştırma sonucu değişmez; ikisi de değerlendirme diliminin ilk uygun açılışında başlar.
+- [ ] **AC88 — Ortak başlangıç, Q01 (Rev 5):** Ayrı değerlendirme diliminden önce açılmış işlem ve dilim öncesi sonuçlar al-tut ve stratejinin karşılaştırma sonucuna girmez; ikisi de dilimin ilk uygun açılışında pozisyonsuz başlar. Giriş kuralı dilimden önceki verileri görebilir (ör. önceki 20 gün); yalnız sonuç ölçümü dilimde başlar. Aday değerlendirmesi ile ileri takip koşucusu aynı gün için aynı kararı üretir.
 
 ## Definition of Done
 - [x] Q01–Q08 kararları ve aday kuralları kesinleştirildi; bağımlı kriterler güncellendi ve spec yönetici tarafından onaylandı (Revizyon 3, 2026-10-03).
@@ -203,7 +221,7 @@ Tümü Takım Yöneticisi onayıyla, 2026-10-03. Değerler sonuçlar görülmede
 ## SCORECARD
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 4 — Rev 4: R04 piyasa koşulu filtresi (AC89); Rev 1: bağımsız QA denetimi sonrası boşluk kapatma; Rev 2: Adım 4 kararları (Q01 + AC88, O1, R04 ertelemesi); Rev 3: Q02–Q08 ve O2–O4 kesinleşti, spec onaylandı |
+| Spec revizyon sayısı | 5 — Rev 5: bağımsız QA denetimi kararları (B1–B19), AC90–AC103; Rev 4: R04 piyasa koşulu filtresi (AC89); Rev 1: bağımsız QA denetimi sonrası boşluk kapatma; Rev 2: Adım 4 kararları (Q01 + AC88, O1, R04 ertelemesi); Rev 3: Q02–Q08 ve O2–O4 kesinleşti, spec onaylandı |
 | Düzeltme turu sayısı | Adım 4 uygulaması bitti (S1+S2), QA denetimi bekliyor; Adım 5–7 başlamadı |
 | Bulgu gerçek/gürültü oranı | Revizyon 1: 35 bulgu getirildi, 35'i gerçek kabul edildi, 0 gürültü (spec denetimi; kod denetimi yapılmadı) |
 | Regresyon sayısı | Ölçülmedi |
