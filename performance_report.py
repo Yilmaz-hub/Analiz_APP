@@ -19,6 +19,8 @@ from typing import Mapping, Sequence
 import market_map
 from config import PerformanceConfig
 
+REGIMES = ("YUKSELEN", "DUSEN", "YATAY")
+
 OK = "OK"
 GECERSIZ_ISTEK = "GECERSIZ_ISTEK"
 BULUNAMADI = "BULUNAMADI"
@@ -43,6 +45,7 @@ class ReportTrade:
     closed_on: date
     strategy_version: str = "V1"
     cost_known: bool = True
+    entry_regime: str | None = None   # girişe karar verildiği günün piyasa koşulu (AC89)
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,7 @@ class OpenPosition:
     symbol: str
     opened_on: date
     cost_known: bool = True
+    entry_regime: str | None = None
 
 
 @dataclass(frozen=True)
@@ -59,6 +63,7 @@ class ReportFilters:
     symbol: str | None = None
     currency: str | None = None
     strategy_version: str | None = None
+    regime: str | None = None
     start: date | None = None
     end: date | None = None
 
@@ -89,6 +94,16 @@ class ReportOutcome:
 
 def _rejected(reason: str) -> ReportOutcome:
     return ReportOutcome(GECERSIZ_ISTEK, reason)
+
+
+def net_return(points: Sequence[EquityPoint]) -> Decimal | None:
+    """Günlük kapanış sermaye dizisinin net getirisi (%); ölçülemiyorsa `None`."""
+    return _net_return(points)
+
+
+def max_drawdown(points: Sequence[EquityPoint]) -> Decimal | None:
+    """Günlük kapanış sermaye dizisinin en büyük düşüşü (%); ölçülemiyorsa `None`."""
+    return _max_drawdown(points)
 
 
 def lookup_report(records: Mapping[str, Report], record_id: str) -> ReportOutcome:
@@ -152,6 +167,8 @@ def build_report(equity_by_symbol: Mapping[str, Sequence[EquityPoint]],
                  open_positions: Sequence[OpenPosition] = ()) -> ReportOutcome:
     if filters.market is not None and filters.market not in PerformanceConfig.MARKETS:
         return _rejected("Bilinmeyen piyasa seçildi; tanımlı piyasalardan birini seçin.")
+    if filters.regime is not None and filters.regime not in REGIMES:
+        return _rejected("Bilinmeyen piyasa koşulu seçildi; yükselen, düşen ya da yatay seçin.")
     if filters.start is not None and filters.end is not None and filters.start > filters.end:
         return _rejected("Başlangıç tarihi bitiş tarihinden sonra olamaz.")
 
@@ -162,10 +179,13 @@ def build_report(equity_by_symbol: Mapping[str, Sequence[EquityPoint]],
         and (filters.market is None or t.market == filters.market)
         and (filters.currency is None or t.currency == filters.currency)
         and (filters.strategy_version is None or t.strategy_version == filters.strategy_version)
+        and (filters.regime is None or t.entry_regime == filters.regime)
     ]
 
     by_currency_series: dict[str, list[Sequence[EquityPoint]]] = {}
     for symbol, series in equity_by_symbol.items():
+        if filters.regime is not None:
+            break  # sermaye eğrisi koşula göre bölünmez (AC89)
         if not _symbol_selected(symbol, filters):
             continue
         period = [p for p in series if _in_period(p.day, filters)]
@@ -176,12 +196,15 @@ def build_report(equity_by_symbol: Mapping[str, Sequence[EquityPoint]],
     open_missing: dict[str, int] = {}
     for position in open_positions:
         if (position.cost_known or not _symbol_selected(position.symbol, filters)
-                or (filters.end is not None and position.opened_on > filters.end)):
+                or (filters.end is not None and position.opened_on > filters.end)
+                or (filters.regime is not None and position.entry_regime != filters.regime)):
             continue
         currency = market_map.market_of(position.symbol)[1]
         open_missing[currency] = open_missing.get(currency, 0) + 1
 
     currencies = set(by_currency_series) | {t.currency for t in selected}
+    if filters.regime is not None and not selected:
+        currencies = set()
     results: dict[str, CurrencyResult] = {}
     for currency in sorted(currencies):
         points = _combine_equity(by_currency_series.get(currency, []))

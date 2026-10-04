@@ -1,6 +1,6 @@
 # Spec: 0005 — Performans, Strateji, Risk ve Sanal Doğrulama
 
-> Şablon: [TEMPLATE.md](TEMPLATE.md). **Revizyon 3 (2026-10-03) — tüm CLARIFY kararları kesinleşti:** Q01–Q08 ve uygulama planı açık noktaları O1–O4 Takım Yöneticisi tarafından karara bağlandı; ayrıntı ve sayısal değerler [Karar kaydı — Revizyon 3](#karar-kaydı--revizyon-3) bölümündedir. Revizyon 2: Adım 4 kararları (Q01 + AC88, O1, R04 rejim boyutunun Adım 5'e ertelenmesi). Revizyon 1: bağımsız QA denetimi sonrası boşluklar kapatıldı.
+> Şablon: [TEMPLATE.md](TEMPLATE.md). **Revizyon 4 (2026-10-04):** R04'ün piyasa koşulu filtresi kesinleşti ve rapora bağlandı (AC89; yönetici onayı). **Revizyon 3 (2026-10-03) — tüm CLARIFY kararları kesinleşti:** Q01–Q08 ve uygulama planı açık noktaları O1–O4 Takım Yöneticisi tarafından karara bağlandı; ayrıntı ve sayısal değerler [Karar kaydı — Revizyon 3](#karar-kaydı--revizyon-3) bölümündedir. Revizyon 2: Adım 4 kararları (Q01 + AC88, O1, R04 rejim boyutunun Adım 5'e ertelenmesi). Revizyon 1: bağımsız QA denetimi sonrası boşluklar kapatıldı.
 > Durum: **Spec onaylı (Revizyon 3).** Adım 4 uygulandı ve QA denetimi bekliyor; Adım 5–7 uygulanabilir.
 > Rol: Analist. Bu belge önceki yol haritasının 4–7. adımlarını kapsar; V1 uygulama planındaki aynı numaralı teknik adımları ifade etmez.
 
@@ -16,7 +16,7 @@ Bu çalışma en dipte alış, en tepede satış veya her AL sinyalinde kazanç 
 - **R01:** Mevcut AL→SAT yaklaşımı, V1'in stop ve bekleme kurallarıyla ayrı bir referans olarak korunmalı; aday yaklaşımlar ve al-tut aynı varlık, dönem, başlangıç sermayesi ve açıklanmış maliyet koşullarında karşılaştırılmalıdır.
 - **R02:** Rapor net getiri, sermayenin zirveden en büyük düşüşü, kapanmış işlem sayısı ve kapanmış işlem başına ortalama net sonucu göstermelidir. Açık pozisyonlar dönem sonu sermaye değerine dahil edilmeli, gerçekleşmiş sonuçtan ayrılmalıdır.
 - **R03:** Getiri dışarıdan para giriş/çıkışıyla şişirilmemeli; doğrulanamayan maliyet veya değerleme eksikleri sonucun yanında görünmelidir. Eksik maliyet sıfır kabul edilmemelidir: maliyeti bilinmeyen işlem içeren metrik **üst sınır** olarak etiketlenir, eksik maliyetli işlem sayısı yanında görünür ve sonuç temiz net sonuç gibi sunulmaz. İlgili işlemler örneklemden sessizce dışlanmaz.
-- **R04:** Sonuçlar piyasa, varlık, para birimi, dönem, strateji sürümü ve yükselen/düşen/yatay piyasa koşuluna göre süzülebilmelidir. Filtrelenmiş örnek sayısı görünmelidir. *(Rev 2: yükselen/düşen/yatay boyutu rejim sınıflandırıcısına (Q02) bağlıdır ve Adım 5'te eklenir; Adım 4 raporu bu boyut olmadan teslim edilir.)*
+- **R04:** Sonuçlar piyasa, varlık, para birimi, dönem, strateji sürümü ve yükselen/düşen/yatay piyasa koşuluna göre süzülebilmelidir. Filtrelenmiş örnek sayısı görünmelidir. **Piyasa koşulu kuralı (Rev 4):** her işlem, girişe **karar verildiği günün** koşuluyla (`REJIM-1`, giriş gününün kapanışı değil) etiketlenir; koşul seçilince kapanmış işlem sayısı, işlem başına beklenti ve örnek sayısı yalnız o koşulda girilen işlemlerden hesaplanır. Net getiri ve en büyük düşüş sermaye eğrisinden hesaplandığı için koşula göre bölünmez; koşul seçiliyken **hesaplanamıyor** gösterilir ve nedeni yazılır.
 - **R05:** Ayar seçiminde kullanılan dönem ile seçimde kullanılmamış değerlendirme dönemi ayrı gösterilmeli; sonraki bilgiler geçmiş kararları etkilememelidir.
 ### Adım 5 — Çalkantıya uygun strateji denemeleri
 - **R06:** Mevcut filtrelerin etkisi, aynı koşullarda yalnız incelenen filtrenin değiştiği karşılaştırmalarla ölçülmelidir. Kırılım ve yükseliş içi geri çekilme girişleri ayrı adaylar olarak değerlendirilebilmelidir.
@@ -80,6 +80,7 @@ Tümü Takım Yöneticisi onayıyla, 2026-10-03. Değerler sonuçlar görülmede
 | Q02 — rejim sınıflandırıcısı `REJIM-1` | Mevcut ayarlar kullanılır, yeni eşik türetilmez. **Yükselen:** kapanış 100 günlük basit ortalamanın (`RegimeConfig.MA_PERIOD`) üstünde, bu ortalamanın son 20 gündeki (`SLOPE_LOOKBACK`) değişimi pozitif ve rejim puanı ≥ 35 (`MIN_TRADEABLE_SCORE`). **Düşen:** kapanış 100 günlük ortalamanın altında ve ortalamanın son 20 gündeki değişimi negatif. **Yatay:** diğer tüm günler. Her gözlem `REJIM-1` sürüm etiketiyle yazılır (AC85). |
 | Q02 — giriş adayları | **Kırılım:** yükselen gün kapanışı önceki 20 günün en yüksek kapanışının üstündeyse giriş. **Geri çekilme:** yükselen günde gün içi en düşük fiyat 20 günlük üssel ortalamanın en çok %1 üstüne kadar inmiş ve kapanış bu ortalamanın üstündeyse giriş. Her iki adayda çıkış V1 ile aynıdır (başlangıç stopu + SAT); yalnız giriş değişir (R06). Giriş ertesi günün açılışında gerçekleşir. |
 | Q05 — kâr koruma adayları | R = giriş − başlangıç stopu. **Sabit hedef:** fiyat giriş + 2R'ye ulaşınca tamamı satılır. **İz süren stop:** stop = o güne kadarki en yüksek kapanış − 2 × ATR; yalnız yukarı taşınır, başlangıç stopunun altına inmez. **Kademeli çıkış:** giriş + 1R'de pozisyonun yarısı (miktar adımına aşağı yuvarlanır) satılır, kalan V1 kurallarıyla çıkar. Seviyeler gün kapanışında hesaplanır ve ertesi günün açılışından itibaren geçerlidir (≥). Üç aday ayrı denenir, birlikte etkinleştirilmez; gerçek pozisyona uygulanmaz (R13). |
+| R04 piyasa koşulu filtresi (Rev 4) | Yukarıdaki R04 metnindeki kural: işlem girişe karar verilen günün koşuluyla etiketlenir; koşul filtresinde getiri ve düşüş hesaplanamaz. Sınıflandırıcı sürümü ekranda görünür. |
 | O1 | AC64/AC66 HTTP kodu yerine uygulama terimleriyle (Revizyon 2). |
 | O2 | Kripto “günlük kapanış” kesim saati **00:00 UTC**. Rejim eşikleri ve kâr koruma parametreleri yukarıdaki satırlardadır. |
 | O3 | Miktar adımı / asgari işlem tutarı varlık kaydında **isteğe bağlı alan** olarak tutulur; boşsa miktar önerilmez ve nedeni gösterilir (AC31, AC83). |
@@ -180,6 +181,9 @@ Tümü Takım Yöneticisi onayıyla, 2026-10-03. Değerler sonuçlar görülmede
 - [ ] **AC86 — Sağlayıcı bekleyişi, Q06b:** Performans raporunda sağlayıcı bekleme süresi toplam süreden ayrı gösterilir.
 - [ ] **AC87 — Hızlandırılmış test, R18:** Saat/tarih ileri alınarak üretilen gözlem ileri dönem yeterlilik sayacına katılmaz.
 
+### Ek kriterler — Revizyon 4 (R04 piyasa koşulu filtresi)
+- [ ] **AC89 — Piyasa koşulu filtresi, R04:** Rapor yükselen/düşen/yatay koşuluna göre süzülebilir; seçilen koşulda girişe karar verilmiş işlemler sayılır (giriş gününün kapanışı değil, bir önceki kapanmış günün koşulu kullanılır), net getiri ve en büyük düşüş "hesaplanamıyor" gösterilir, koşulda işlem yoksa hata değil boş sonuç ve örnek sayısı 0 görünür, tanımsız koşul değeri teknik metin sızdırmadan reddedilir ve sınıflandırıcı sürümü ekranda görünür.
+
 ### Ek kriterler — Revizyon 2 (Adım 4 kararları)
 - [ ] **AC88 — Ortak başlangıç, Q01:** Ayrı değerlendirme diliminin ilk tarihinden önceki fiyatlar değiştirildiğinde al-tut ve stratejinin karşılaştırma sonucu değişmez; ikisi de değerlendirme diliminin ilk uygun açılışında başlar.
 
@@ -199,7 +203,7 @@ Tümü Takım Yöneticisi onayıyla, 2026-10-03. Değerler sonuçlar görülmede
 ## SCORECARD
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 3 — Rev 1: bağımsız QA denetimi sonrası boşluk kapatma; Rev 2: Adım 4 kararları (Q01 + AC88, O1, R04 ertelemesi); Rev 3: Q02–Q08 ve O2–O4 kesinleşti, spec onaylandı |
+| Spec revizyon sayısı | 4 — Rev 4: R04 piyasa koşulu filtresi (AC89); Rev 1: bağımsız QA denetimi sonrası boşluk kapatma; Rev 2: Adım 4 kararları (Q01 + AC88, O1, R04 ertelemesi); Rev 3: Q02–Q08 ve O2–O4 kesinleşti, spec onaylandı |
 | Düzeltme turu sayısı | Adım 4 uygulaması bitti (S1+S2), QA denetimi bekliyor; Adım 5–7 başlamadı |
 | Bulgu gerçek/gürültü oranı | Revizyon 1: 35 bulgu getirildi, 35'i gerçek kabul edildi, 0 gürültü (spec denetimi; kod denetimi yapılmadı) |
 | Regresyon sayısı | Ölçülmedi |
