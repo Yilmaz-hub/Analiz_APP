@@ -1,7 +1,7 @@
 # Spec: 0005 — Performans, Strateji, Risk ve Sanal Doğrulama
 
-> Şablon: [TEMPLATE.md](TEMPLATE.md). **Revizyon 5 (2026-10-04) — bağımsız QA denetimi (B1–B19) kararları:** B6 (kâr koruma adayları rapor ekranında karşılaştırılır, R13), B7 (komisyon, makas veya kayma bilinmiyorsa sonuç "üst sınır", aday ölçütü doğrulanamaz), B11 (giriş kuralı tam geçmişi görür, yalnız sonuç ölçümü diliminde başlar; AC88 yeniden yazıldı), B3 (geç oluşturulan ve hızlandırılmış gözlemlerin işlemleri sayaca girmez), B13 (kullanıcı adayı aktif strateji seçebilir, R09), AC46 kapsamı (gerçek karar üretimi ayrı kriter, AC90). Kararlar yönetici onayıyla verildi. **Revizyon 4 (2026-10-04):** R04'ün piyasa koşulu filtresi kesinleşti ve rapora bağlandı (AC89; yönetici onayı). **Revizyon 3 (2026-10-03) — tüm CLARIFY kararları kesinleşti:** Q01–Q08 ve uygulama planı açık noktaları O1–O4 Takım Yöneticisi tarafından karara bağlandı; ayrıntı ve sayısal değerler [Karar kaydı — Revizyon 3](#karar-kaydı--revizyon-3) bölümündedir. Revizyon 2: Adım 4 kararları (Q01 + AC88, O1, R04 rejim boyutunun Adım 5'e ertelenmesi). Revizyon 1: bağımsız QA denetimi sonrası boşluklar kapatıldı.
-> Durum: **Spec onaylı (Revizyon 5).** Adım 4–7 uygulandı; QA bulguları (B1–B19) düzeltiliyor ve yeniden QA denetimi bekliyor.
+> Şablon: [TEMPLATE.md](TEMPLATE.md). **Revizyon 6 (2026-10-04) — B13 bağlama:** Mantık katmanında kalan kriterler ürün akışına bağlandı; yeni kriter AC104. AC14 (elle bakiye değişikliği dış nakit hareketi olarak kaydedilir ve karşılaştırmayı engeller), AC15 (panelde ayar denemesi; tek ayar farkı "tek filtre etkisi" etiketi alır, çok ayar farkı almaz), AC22 (değerlendirme her piyasayı ayrı yargılar), AC57 (seçili dönemde veri yoksa rapor "yetersiz geçmiş" der), AC66 (panelde kayıt no ile arama), AC77 (açık pozisyon giriş sürümüyle yönetilir, ekranda belirtilir), AC83 (asgari işlem tutarı varlık başına girilir ve miktar hesabına bağlanır). Yönetici onayı: "B13 spece bağla, önerilen şekilde düzelt". **Revizyon 5 (2026-10-04) — bağımsız QA denetimi (B1–B19) kararları:** B6 (kâr koruma adayları rapor ekranında karşılaştırılır, R13), B7 (komisyon, makas veya kayma bilinmiyorsa sonuç "üst sınır", aday ölçütü doğrulanamaz), B11 (giriş kuralı tam geçmişi görür, yalnız sonuç ölçümü diliminde başlar; AC88 yeniden yazıldı), B3 (geç oluşturulan ve hızlandırılmış gözlemlerin işlemleri sayaca girmez), B13 (kullanıcı adayı aktif strateji seçebilir, R09), AC46 kapsamı (gerçek karar üretimi ayrı kriter, AC90). Kararlar yönetici onayıyla verildi. **Revizyon 4 (2026-10-04):** R04'ün piyasa koşulu filtresi kesinleşti ve rapora bağlandı (AC89; yönetici onayı). **Revizyon 3 (2026-10-03) — tüm CLARIFY kararları kesinleşti:** Q01–Q08 ve uygulama planı açık noktaları O1–O4 Takım Yöneticisi tarafından karara bağlandı; ayrıntı ve sayısal değerler [Karar kaydı — Revizyon 3](#karar-kaydı--revizyon-3) bölümündedir. Revizyon 2: Adım 4 kararları (Q01 + AC88, O1, R04 rejim boyutunun Adım 5'e ertelenmesi). Revizyon 1: bağımsız QA denetimi sonrası boşluklar kapatıldı.
+> Durum: **Spec onaylı (Revizyon 6).** Adım 4–7 uygulandı; QA bulguları (B1–B19) ve B13 bağlama düzeltmeleri tamam; yeniden bağımsız QA denetimi bekliyor.
 > Rol: Analist. Bu belge önceki yol haritasının 4–7. adımlarını kapsar; V1 uygulama planındaki aynı numaralı teknik adımları ifade etmez.
 
 ## Intent
@@ -182,6 +182,10 @@ Tümü Takım Yöneticisi onayıyla, 2026-10-03. Değerler sonuçlar görülmede
 - [ ] **AC86 — Sağlayıcı bekleyişi, Q06b:** Performans raporunda sağlayıcı bekleme süresi toplam süreden ayrı gösterilir.
 - [ ] **AC87 — Hızlandırılmış test, R18:** Saat/tarih ileri alınarak üretilen gözlem ileri dönem yeterlilik sayacına katılmaz.
 
+### Ek kriterler — Revizyon 6 (B13 bağlama)
+- [ ] **AC104 — Aktif aday sinyali, B13/R09:** Kullanıcı bir adayı aktif seçtiyse karar panelindeki canlı giriş sinyali o adayın kuralından gelir (çıkış V1 kurallarıyla aynıdır) ve ekran bunu belirtir; aday seçilmediyse sinyal V1'dir; aktif adayın kaydı bulunamazsa V1 kullanılır ve bu belirtilir.
+> AC14, AC15, AC22, AC57, AC66, AC77 ve AC83'ün testleri bu revizyonla ürün akışını (ekran, kayıt, rapor) sürer; yalnız saf fonksiyonu sınayan test yeterli sayılmaz. Asgari işlem tutarı (O3) varlık başına isteğe bağlı kayıttır; boşsa kontrol uygulanmaz.
+
 ### Ek kriterler — Revizyon 5 (bağımsız QA bulguları)
 > Parantezdeki B kodu QA bulgu raporuna atıftır. Mevcut kriterlerin testlerinin görmediği yollar bu kriterlerle kapatılır.
 - [ ] **AC90 — Koşucu bütçesi, B1/AC35:** Ekransız koşucu, ML açıkken yalnız yeni (ve kaçan) günlerin kararını hesaplar; kayıtlı günleri yeniden hesaplamaz. Bir varlığın günlük çalışması tüm geçmişin kararını yeniden üretmez; gerçek yazım anı her karar için ayrı alınır.
@@ -221,8 +225,8 @@ Tümü Takım Yöneticisi onayıyla, 2026-10-03. Değerler sonuçlar görülmede
 ## SCORECARD
 | Metrik | Değer |
 |--------|-------|
-| Spec revizyon sayısı | 5 — Rev 5: bağımsız QA denetimi kararları (B1–B19), AC90–AC103; Rev 4: R04 piyasa koşulu filtresi (AC89); Rev 1: bağımsız QA denetimi sonrası boşluk kapatma; Rev 2: Adım 4 kararları (Q01 + AC88, O1, R04 ertelemesi); Rev 3: Q02–Q08 ve O2–O4 kesinleşti, spec onaylandı |
-| Düzeltme turu sayısı | 1 — bağımsız QA denetimi (B1–B19) sonrası düzeltmeler; yeniden QA denetimi bekliyor |
+| Spec revizyon sayısı | 6 — Rev 6: B13 bağlama, AC104 (AC14/15/22/57/66/77/83 ürün akışına bağlandı); Rev 5: bağımsız QA denetimi kararları (B1–B19), AC90–AC103; Rev 4: R04 piyasa koşulu filtresi (AC89); Rev 1: bağımsız QA denetimi sonrası boşluk kapatma; Rev 2: Adım 4 kararları (Q01 + AC88, O1, R04 ertelemesi); Rev 3: Q02–Q08 ve O2–O4 kesinleşti, spec onaylandı |
+| Düzeltme turu sayısı | 1 — bağımsız QA denetimi (B1–B19) ve B13 bağlama sonrası düzeltmeler; yeniden QA denetimi bekliyor |
 | Bulgu gerçek/gürültü oranı | Revizyon 1: 35 bulgu getirildi, 35'i gerçek kabul edildi, 0 gürültü (spec denetimi; kod denetimi yapılmadı) |
 | Regresyon sayısı | Ölçülmedi |
 | Kaçan hata | Ölçülmedi |

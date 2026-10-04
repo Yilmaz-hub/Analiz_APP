@@ -138,8 +138,17 @@ def report_from_backtest(symbol: str, backtest: dict, filters: ReportFilters | N
     return build_report({symbol: equity}, trades, filters or ReportFilters(), open_positions)
 
 
+def period_note(asset_days, start: date, end: date) -> str:
+    """Seçili dönemde varlığın verisi yoksa "yetersiz geçmiş" nedeni; aksi halde boş (AC57)."""
+    from evaluation_window import select_period
+
+    selection = select_period(list(asset_days), start, end)
+    return selection.reason if selection.insufficient_history else ""
+
+
 def comparison_from_backtest(symbol: str, frame, decisions: dict, notional: Decimal,
-                             capital: Decimal, quantity_step, costs) -> ReportView:
+                             capital: Decimal, quantity_step, costs,
+                             external_flow_days=()) -> ReportView:
     """Strateji ile al-tut'u ayrı değerlendirme diliminde, aynı anda ve aynı sermayeyle gösterir.
 
     Q01 / AC88: ayar dilimi karşılaştırmaya girmez. İki taraf da değerlendirme diliminin ilk
@@ -162,7 +171,8 @@ def comparison_from_backtest(symbol: str, frame, decisions: dict, notional: Deci
                                       quantity_step=quantity_step, costs=costs)
     curve = result["daily_equity"]
     days = [_as_day(p["date"]) for p in curve]
-    side = EvaluationInput(capital, days[0], days[-1], days, external_cash_flow=False)
+    flow_inside = any(days[0] <= day <= days[-1] for day in external_flow_days)
+    side = EvaluationInput(capital, days[0], days[-1], days, external_cash_flow=flow_inside)
     verdict = comparable(side, side)
     if not verdict.ok:
         return ReportView(blocks=[], messages=[verdict.reason])
@@ -263,6 +273,9 @@ def render_report_panel(source: dict) -> None:
                             regime=regime)
     render_report_view(build_report_view(report_from_backtest(symbol, backtest, filters, regimes),
                                          regime))
+    note = period_note(days, start, end)
+    if note:
+        st.caption(note)
     from position_journal import PositionJournal
     from storage import StorageAccessError
 
@@ -273,4 +286,15 @@ def render_report_panel(source: dict) -> None:
         st.caption("İşlem günlüğü okunamadı; geç kayıt işareti gösterilemedi.")
     render_report_view(comparison_from_backtest(
         symbol, source["frame"], source["decisions"], source["notional"],
-        Decimal(backtest["initial_cash"]), source["quantity_step"], source["costs"]))
+        Decimal(backtest["initial_cash"]), source["quantity_step"], source["costs"],
+        external_flow_days=_external_flow_days()))
+
+
+def _external_flow_days():
+    import cash_flows
+    from storage import StorageAccessError
+
+    try:
+        return cash_flows.flow_days()
+    except StorageAccessError:
+        return []

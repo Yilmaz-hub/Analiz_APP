@@ -167,16 +167,31 @@ def judge_by_market(pairs: Mapping[str, tuple[Metrics, Metrics]],
 
 
 def record_result(candidate: Candidate, market: str, verdict: Verdict,
-                  recorded_at: datetime) -> None:
-    """Sonucu değerlendirme geçmişine ekler; başarısız sonuç da silinmez (R07, AC16)."""
+                  recorded_at: datetime, filter_effect: str | None = None) -> None:
+    """Sonucu değerlendirme geçmişine ekler; başarısız sonuç da silinmez (R07, AC16).
+
+    `filter_effect`: deneme tek ayar farkıysa ayarın adı, birden çok ayar farkıysa "COK" (AC15)."""
     entry = {"fingerprint": fingerprint(candidate), "strategy": strategy_fingerprint(candidate),
              "name": candidate.name, "market": market, "status": verdict.status,
-             "reason": verdict.reason, "recorded_at": recorded_at.isoformat()}
+             "reason": verdict.reason, "recorded_at": recorded_at.isoformat(),
+             "filter_effect": filter_effect}
     storage.update_doc(_HISTORY_KEY, lambda entries: [*(entries or []), entry])
 
 
 def history() -> list[dict]:
-    return list(_read(_HISTORY_KEY, []))
+    """Kayıtlar eklenme sırasıyla; her birine sıra numarasından türeyen kayıt no ("DK-0001") eklenir."""
+    entries = [dict(entry) for entry in _read(_HISTORY_KEY, [])]
+    for index, entry in enumerate(entries, start=1):
+        entry.setdefault("id", f"DK-{index:04d}")
+        entry.setdefault("filter_effect", None)
+    return entries
+
+
+def lookup_evaluation(record_id: str):
+    """Kayıt no ile değerlendirme kaydı; yoksa `BULUNAMADI` (AC66)."""
+    from performance_report import lookup_report
+
+    return lookup_report({entry["id"]: entry for entry in history()}, record_id.strip())
 
 
 def observation_count(candidate: Candidate) -> int:
