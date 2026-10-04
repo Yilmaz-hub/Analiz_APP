@@ -137,9 +137,13 @@ def test_y5_sell_quantity_is_compared_at_eight_decimals():
     ok = tc.validate_sell(position=position, quantity=D("0.02222222"), price=D(50000),
                           executed_at=datetime(2026, 1, 3, tzinfo=UTC), now=datetime(2026, 1, 4, tzinfo=UTC))
     assert ok is None
-    off = tc.validate_sell(position=position, quantity=D("0.02222221"), price=D(50000),
-                           executed_at=datetime(2026, 1, 3, tzinfo=UTC), now=datetime(2026, 1, 4, tzinfo=UTC))
-    assert off == "MIKTAR_POZISYONLA_ESIT_DEGIL"
+    # Spec 0006 Q01: 8 hane karşılaştırması korunur; eksik miktar kısmi satıştır, fazlası reddedilir.
+    partial = tc.validate_sell(position=position, quantity=D("0.02222221"), price=D(50000),
+                               executed_at=datetime(2026, 1, 3, tzinfo=UTC), now=datetime(2026, 1, 4, tzinfo=UTC))
+    assert partial is None
+    over = tc.validate_sell(position=position, quantity=D("0.02222223"), price=D(50000),
+                            executed_at=datetime(2026, 1, 3, tzinfo=UTC), now=datetime(2026, 1, 4, tzinfo=UTC))
+    assert over == "MIKTAR_FAZLA"
 
 
 # Y6 -----------------------------------------------------------------------------

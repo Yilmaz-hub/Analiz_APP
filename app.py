@@ -37,7 +37,9 @@ from advanced_analysis import detect_elliott_wave, analyze_ichimoku, detect_wyck
 from position_journal import PositionJournal
 from trade_decisions import Position, PositionState, Signal
 from trade_decisions import initial_stop
-from trade_confirmation import confirm_buy, confirm_sell, istanbul_to_utc, reconcile
+from trade_confirmation import (confirm_buy, confirm_sell, istanbul_to_utc, quantity_from_percent,
+                                reconcile)
+from trade_settings import known_quantity_step
 from trading_ui import (PanelInput, bars_since_loss_exit, build_decision_panel, describe_code,
                         format_decision_time, resolve_decision_time)
 import theme
@@ -794,10 +796,42 @@ if is_chart_renderable(df_view):
                     target_pos = next((p for p in active_pos if p['Coin'] == s_coin), None)
                     if target_pos:
                         sell_price = st.number_input("Satış Fiyatı", value=float(curr if s_coin == sel_c else target_pos['Giriş']), key=f"sell_price:{s_coin}")
-                        st.caption("V1 SAT sinyali ve stop çıkışı pozisyonun tamamını kapatır.")
+                        st.caption("V1 SAT sinyali ve stop çıkışı pozisyonun tamamını kapatır; "
+                                   "kâr almak için bir bölümünü de satabilirsiniz.")
+                        qty_key, pct_key = f"sell_qty:{s_coin}", f"sell_pct:{s_coin}"
+                        msg_key = f"sell_pct_msg:{s_coin}"
+                        held_qty = Decimal(str(target_pos['Adet']))
+                        try:
+                            sell_step = known_quantity_step(s_coin)
+                        except StorageAccessError:
+                            sell_step = None   # kayıtlar okunamıyor: satış zaten kapalı (records_writable)
+                        st.session_state.setdefault(qty_key, float(held_qty))
+                        st.session_state.setdefault(pct_key, 100.0)
+
+                        def apply_percent(percent=None, qty_key=qty_key, pct_key=pct_key,
+                                          msg_key=msg_key, held_qty=held_qty, sell_step=sell_step):
+                            """Yüzdeyi satılacak miktara çevirir (spec 0006 R05); callback'te çalışır."""
+                            if percent is not None:
+                                st.session_state[pct_key] = float(percent)
+                            quantity, code = quantity_from_percent(
+                                held_qty, Decimal(str(st.session_state[pct_key])), sell_step)
+                            st.session_state[msg_key] = "" if quantity is not None else describe_code(code)
+                            if quantity is not None:
+                                st.session_state[qty_key] = float(quantity)
+
+                        preset_cols = st.columns(4)
+                        for column, preset in zip(preset_cols, (25, 50, 75, 100)):
+                            column.button(f"%{preset}", key=f"sell_preset:{s_coin}:{preset}",
+                                          on_click=apply_percent, args=(preset,))
+                        st.number_input("Yüzde (%)", min_value=0.0, max_value=100.0, step=1.0,
+                                        key=pct_key, on_change=apply_percent)
+                        if st.session_state.get(msg_key):
+                            st.warning(st.session_state[msg_key])
                         sell_amt = st.number_input(
-                            "Satılan miktar (adet)", min_value=0.0, value=float(target_pos['Adet']),
-                            step=0.00000001, format="%.8f", key=f"sell_qty:{s_coin}")
+                            "Satılan miktar (adet)", min_value=0.0,
+                            step=0.00000001, format="%.8f", key=qty_key)
+                        remaining_qty = held_qty - Decimal(str(sell_amt))
+                        st.caption(f"Kalan: {format(max(remaining_qty, Decimal('0')).normalize(), 'f')} adet")
                         sell_now_tr = datetime.now(ZoneInfo("Europe/Istanbul"))
                         sell_date = st.date_input("İşlem tarihi (İstanbul)", value=sell_now_tr.date(), key="sell_date")
                         sell_time = st.time_input("İşlem saati (İstanbul)", value=sell_now_tr.time().replace(microsecond=0), key="sell_time")
@@ -813,7 +847,10 @@ if is_chart_renderable(df_view):
                                 now=datetime.now(timezone.utc),
                             )
                             if outcome.ok:
-                                st.session_state[f'flat_confirmed:{s_coin}'] = True
+                                if target_pos.get('Status') == 'CLOSED_CONFIRMED':
+                                    st.session_state[f'flat_confirmed:{s_coin}'] = True
+                                for stale in (qty_key, pct_key, msg_key):
+                                    st.session_state.pop(stale, None)
                                 st.success("Satış gerçekleşti!")
                                 st.rerun()
                             elif outcome.code != "KAYIT_YAZILAMADI":

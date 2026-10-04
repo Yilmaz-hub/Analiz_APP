@@ -13,7 +13,7 @@ eder. Bu modül formun arkasındaki kuralları tek yerde tutar:
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from storage import StorageAccessError
@@ -71,7 +71,10 @@ def validate_buy(*, quantity, price, stop, executed_at, now, balance=None):
 
 
 def validate_sell(*, position, quantity, price, executed_at, now):
-    """Satış teyidinin geçersizlik kodu; V1'de satış pozisyonun tamamını kapatır (R03)."""
+    """Satış teyidinin geçersizlik kodu; geçerliyse None.
+
+    Eldeki miktarın bir bölümü ya da tamamı satılabilir (spec 0006 Q01); fazlası reddedilir.
+    Tam çıkış yönlendirmesi (V1 SAT / stop) ekranda ayrıca korunur."""
     quantity, price = _decimal(quantity), _decimal(price)
     if quantity is None or quantity <= 0:
         return "GECERSIZ_MIKTAR"
@@ -83,12 +86,31 @@ def validate_sell(*, position, quantity, price, executed_at, now):
     # bu yüzden karşılaştırma 8 haneye yuvarlanarak yapılır (Y5).
     step = Decimal("0.00000001")
     held = _decimal(position.get("Adet"))
-    if held is None or quantity.quantize(step) != held.quantize(step):
-        return "MIKTAR_POZISYONLA_ESIT_DEGIL"
+    if held is None or quantity.quantize(step) > held.quantize(step):
+        return "MIKTAR_FAZLA"
     entry = position.get("Gerçekleşme Zamanı")
     if entry and executed_at < datetime.fromisoformat(entry):
         return "CIKIS_GIRISTEN_ONCE"
     return None
+
+
+def quantity_from_percent(held, percent, step=None):
+    """Yüzdeyi satılacak miktara çevirir: `(miktar, "")` ya da `(None, hata kodu)`.
+
+    Miktar ürün adımına **aşağı** yuvarlanır (adım bilinmiyorsa 8 hane); sıfıra düşen
+    yüzde reddedilir. %100 eldeki miktarın tamamıdır ve adıma bölünmez (spec 0006 R05).
+    """
+    held, percent = _decimal(held), _decimal(percent)
+    if held is None or held <= 0 or percent is None or not (Decimal("0") < percent <= Decimal("100")):
+        return None, "GECERSIZ_YUZDE"
+    if percent == 100:
+        return held, ""
+    unit = _decimal(step) if step is not None else None
+    unit = unit if unit is not None and unit > 0 else Decimal("0.00000001")
+    quantity = ((held * percent / Decimal("100")) / unit).to_integral_value(rounding=ROUND_FLOOR) * unit
+    if quantity <= 0:
+        return None, "YUZDE_SIFIRA_DUSTU"
+    return quantity, ""
 
 
 def _journal_has(journal, event_id):
@@ -97,6 +119,14 @@ def _journal_has(journal, event_id):
 
 def _portfolio_has(portfolio, event_id, key):
     return any(item.get(key) == event_id for item in portfolio.get("positions", []))
+
+
+def _exit_recorded(portfolio, event_id):
+    """Satış daha önce portföye yazıldı mı (tek çıkış alanı ya da çıkış listesi)."""
+    return any(
+        item.get("JournalExitEventId") == event_id
+        or any(exit_.get("event_id") == event_id for exit_ in item.get("Çıkışlar", []))
+        for item in portfolio.get("positions", []))
 
 
 def _active_strategy_version():
@@ -150,27 +180,43 @@ def confirm_buy(portfolio, journal, save, *, coin, symbol, quantity, price, stop
 
 def confirm_sell(portfolio, journal, save, *, position, symbol, quantity, price,
                  executed_at, now):
-    """Satışı doğrular; pozisyonu önce portföyde kapatır, sonra günlüğe yazar."""
+    """Satışı doğrular; önce portföye, sonra günlüğe yazar.
+
+    Eldeki miktarın tamamı satılırsa pozisyon kapanır; bir bölümü satılırsa pozisyon
+    aktif kalır, kalan miktar ürün adımında tek değerdir, stop ve giriş fiyatı değişmez
+    (spec 0006 R01–R03). Her satış `Çıkışlar` listesine ayrı, kimlikli bir olay olarak
+    yazılır; tam kapanışta eski tek-çıkış alanları da doldurulur (geri uyum)."""
     code = validate_sell(position=position, quantity=quantity, price=price,
                          executed_at=executed_at, now=now)
     if code:
         return Outcome(False, code)
     quantity, price = Decimal(str(quantity)), Decimal(str(price))
     event_id = make_event_id(symbol, "SELL", quantity, price, executed_at)
-    if _portfolio_has(portfolio, event_id, "JournalExitEventId"):
+    if _exit_recorded(portfolio, event_id):
         return Outcome(False, "TEKRAR_TEYIT", event_id)
+
+    step = Decimal("0.00000001")
+    held = Decimal(str(position.get("Adet"))).quantize(step)
+    remaining = held - quantity.quantize(step)
+    is_full = remaining <= 0
 
     proceeds = quantity * price
     cost_basis = Decimal(str(position.get("Giriş", 0.0))) * quantity
     portfolio["balance"] = float(Decimal(str(portfolio.get("balance", 0.0))) + proceeds)
-    position["Adet"] = 0.0
     position["Yatırım"] = float(Decimal(str(position.get("Yatırım", 0.0))) - cost_basis)
     position["Realized"] = float(Decimal(str(position.get("Realized", 0.0))) + proceeds - cost_basis)
-    position["Status"] = "CLOSED_CONFIRMED"
-    position["Gerçekleşen Çıkış"] = float(price)
-    position["Çıkış Adedi"] = float(quantity)
-    position["Çıkış Zamanı"] = executed_at.isoformat()
-    position["JournalExitEventId"] = event_id
+    exits = position.setdefault("Çıkışlar", [])
+    exits.append({"event_id": event_id, "quantity": _plain(quantity), "price": _plain(price),
+                  "executed_at": executed_at.isoformat()})
+    if is_full:
+        position["Adet"] = 0.0
+        position["Status"] = "CLOSED_CONFIRMED"
+        position["Gerçekleşen Çıkış"] = float(price)
+        position["Çıkış Adedi"] = float(sum((Decimal(item["quantity"]) for item in exits), Decimal("0")))
+        position["Çıkış Zamanı"] = executed_at.isoformat()
+        position["JournalExitEventId"] = event_id
+    else:
+        position["Adet"] = float(remaining)
     if not save():
         return Outcome(False, "KAYIT_YAZILAMADI", event_id)
 
@@ -196,14 +242,31 @@ def reconcile(portfolio, journal, coin_map):
             continue
         symbol = coin_map.get(item.get("Coin"), item.get("Coin"))
         buy_id = item.get("JournalEventId")
+        exits = item.get("Çıkışlar")
+        if exits:
+            # Kısmi satışlı kayıt: alınan miktar = satılanlar + kalan (spec 0006 Q06).
+            sold = sum((Decimal(str(e["quantity"])) for e in exits), Decimal("0"))
+            remaining = _decimal(item.get("Adet")) or Decimal("0")
+            bought_quantity = sold + (remaining if item.get("Status") == "ACTIVE" else Decimal("0"))
+        else:
+            bought_quantity = item.get("Çıkış Adedi", item.get("Adet"))
         if buy_id and not _journal_has(journal, buy_id) and item.get("Gerçekleşme Zamanı"):
-            quantity = item.get("Çıkış Adedi", item.get("Adet"))
+            quantity = bought_quantity
             if _decimal(quantity) and _decimal(quantity) > 0:
                 journal.confirm_trade(
                     buy_id, "BUY", Decimal(str(quantity)), Decimal(str(item["Giriş"])),
                     datetime.fromisoformat(item["Gerçekleşme Zamanı"]),
                     datetime.now(timezone.utc), fee=None, symbol=symbol)
                 completed += 1
+        if exits:
+            for exit_ in exits:
+                if not _journal_has(journal, exit_["event_id"]):
+                    journal.confirm_trade(
+                        exit_["event_id"], "SELL", Decimal(str(exit_["quantity"])),
+                        Decimal(str(exit_["price"])), datetime.fromisoformat(exit_["executed_at"]),
+                        datetime.now(timezone.utc), fee=None, symbol=symbol)
+                    completed += 1
+            continue
         exit_id = item.get("JournalExitEventId")
         if exit_id and not _journal_has(journal, exit_id):
             journal.confirm_trade(

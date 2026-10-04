@@ -75,7 +75,7 @@ class PositionJournal:
         if side == "BUY":
             self.positions[trade.symbol] = RealPosition(quantity, price, executed_at)
         elif side == "SELL":
-            self.positions.pop(trade.symbol, None)
+            self._apply_sell(trade)
         self.position = self.positions.get("")
         self._save_or_restore(snapshot)
         return True
@@ -158,5 +158,13 @@ class PositionJournal:
             if trade.side == "BUY":
                 self.positions[trade.symbol] = RealPosition(trade.quantity, trade.price, trade.executed_at)
             elif trade.side == "SELL":
-                self.positions.pop(trade.symbol, None)
+                self._apply_sell(trade)
         self.position = self.positions.get("")
+
+    def _apply_sell(self, trade):
+        """Satış kalan miktarı düşürür; pozisyon ancak tamamı satılınca kapanır (spec 0006 R06)."""
+        held = self.positions.get(trade.symbol)
+        if held is not None and trade.quantity < held.quantity:
+            self.positions[trade.symbol] = replace(held, quantity=held.quantity - trade.quantity)
+        else:
+            self.positions.pop(trade.symbol, None)
