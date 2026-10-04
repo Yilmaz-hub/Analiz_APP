@@ -13,14 +13,17 @@ zorlanır; eşzamanlı ikinci yazım hata değil yok sayma üretir (R17, AC70).
 """
 from __future__ import annotations
 
+import functools
 import json
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Iterable, Mapping
 
+import market_map
 import storage
 from config import ForwardConfig
+from logger import logger
 from regime_classifier import DUSEN, YATAY, YUKSELEN
 
 REFERENCE_VERSION = "V1"
@@ -70,12 +73,30 @@ class Sufficiency:
     missing: list[str]
 
 
+def _guard(function):
+    """Veritabanı/dosya hatalarını `StorageAccessError`'a çevirir; ham SQL kullanıcıya sızmaz (AC100)."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    @functools.wraps(function)
+    def wrapper(*args, **kwargs):
+        try:
+            return function(*args, **kwargs)
+        except storage.StorageAccessError:
+            raise
+        except (SQLAlchemyError, OSError) as exc:
+            logger.error(f"Forward tracker storage error ({function.__name__}): {exc}")
+            raise storage.StorageAccessError("İleri takip kayıtlarına erişilemedi.") from exc
+
+    return wrapper
+
+
 def _engine():
     engine = storage.get_engine()
     ensure_tables(engine)
     return engine
 
 
+@_guard
 def ensure_tables(engine=None) -> None:
     from sqlalchemy import text
 
@@ -97,6 +118,7 @@ def is_on_time(market: str, candle_day: date, evaluated_at: datetime) -> bool:
     return evaluated_at <= deadline
 
 
+@_guard
 def record(decision: ForwardDecision) -> bool:
     """Kararı yazar; kayıt zaten varsa yok sayar (revizyonu ayrıca işaretler). Yazıldıysa True."""
     from sqlalchemy import text
@@ -137,6 +159,7 @@ def _from_row(row) -> ForwardDecision:
         real_clock=bool(row.real_clock), regime=row.regime, regime_version=row.regime_version)
 
 
+@_guard
 def decisions(asset: str, version: str) -> list[ForwardDecision]:
     from sqlalchemy import text
 
@@ -145,6 +168,27 @@ def decisions(asset: str, version: str) -> list[ForwardDecision]:
             "SELECT * FROM forward_decisions WHERE asset = :a AND strategy_version = :v "
             "ORDER BY candle_day"), {"a": asset, "v": version}).fetchall()
     return [_from_row(row) for row in rows]
+
+
+@_guard
+def versions(asset: str) -> list[str]:
+    """Varlık için kayıtlı strateji sürümü etiketleri."""
+    from sqlalchemy import text
+
+    with _engine().connect() as conn:
+        rows = conn.execute(text("SELECT DISTINCT strategy_version FROM forward_decisions "
+                                 "WHERE asset = :a ORDER BY strategy_version"), {"a": asset}).fetchall()
+    return [row[0] for row in rows]
+
+
+@_guard
+def tracked_pairs() -> list[tuple[str, str]]:
+    from sqlalchemy import text
+
+    with _engine().connect() as conn:
+        rows = conn.execute(text("SELECT DISTINCT asset, strategy_version FROM forward_decisions "
+                                 "ORDER BY asset, strategy_version")).fetchall()
+    return [(row.asset, row.strategy_version) for row in rows]
 
 
 def get_decision(asset: str, version: str, candle_day: date) -> ForwardDecision | None:
@@ -161,6 +205,7 @@ def status_text(decision: ForwardDecision) -> str:
     return "zamanında" if decision.on_time else "sonradan oluşturuldu"
 
 
+@_guard
 def revisions(asset: str, version: str) -> list[dict]:
     from sqlalchemy import text
 
@@ -183,6 +228,7 @@ def regimes_seen(asset: str, version: str) -> set[str]:
     return {d.regime for d in _counted(asset, version) if d.regime}
 
 
+@_guard
 def save_trades(asset: str, version: str, trades: Iterable[Mapping]) -> None:
     from sqlalchemy import text
 
@@ -195,13 +241,31 @@ def save_trades(asset: str, version: str, trades: Iterable[Mapping]) -> None:
                  "exit": trade["exit_day"].isoformat(), "pnl": str(trade["pnl"])})
 
 
+@_guard
 def closed_trades(asset: str, version: str) -> int:
+    """Yalnız zamanında ve gerçek saatle üretilmiş kararlardan oluşan sanal işlemleri sayar.
+
+    Bir işlemin kararları: girişe karar verilen gün (girişten önceki son kayıtlı gün) ile
+    çıkış günü arasındaki tüm kayıtlı kararlar. Hepsi sayılan karar değilse işlem sayılmaz
+    (geç oluşturulan ya da hızlandırılmış gözlem yeterlilik sayacına girmez; AC87, AC92)."""
     from sqlalchemy import text
 
+    stored = decisions(asset, version)
+    all_days = [d.candle_day for d in stored]
+    counted = {d.candle_day for d in stored if d.on_time and d.real_clock}
     with _engine().connect() as conn:
-        return conn.execute(text(
-            "SELECT COUNT(*) FROM forward_trades WHERE asset = :a AND strategy_version = :v"),
-            {"a": asset, "v": version}).scalar_one()
+        rows = conn.execute(text(
+            "SELECT entry_day, exit_day FROM forward_trades WHERE asset = :a AND strategy_version = :v"),
+            {"a": asset, "v": version}).fetchall()
+    total = 0
+    for entry_text, exit_text in rows:
+        entry, exit_ = date.fromisoformat(entry_text), date.fromisoformat(exit_text)
+        earlier = [day for day in all_days if day < entry]
+        start_day = earlier[-1] if earlier else entry
+        window = [day for day in all_days if start_day <= day <= exit_]
+        if window and all(day in counted for day in window):
+            total += 1
+    return total
 
 
 def sufficiency(days: int, trades: int, regimes: set[str]) -> Sufficiency:
@@ -217,11 +281,39 @@ def sufficiency(days: int, trades: int, regimes: set[str]) -> Sufficiency:
     return Sufficiency(not missing, missing)
 
 
+def missing_days(asset: str, version: str) -> list[date]:
+    """İlk ve son kayıtlı gün arasında kaydı olmayan günler (kripto her gün, diğerleri hafta içi).
+
+    Resmi tatiller eksik görünebilir; bu bir uyarıdır, kesin hüküm değildir."""
+    days = sorted(d.candle_day for d in decisions(asset, version))
+    if len(days) < 2:
+        return []
+    info = market_map.market_of(asset)
+    every_day = info is not None and info[0] == "KRIPTO"
+    present, missing, cursor = set(days), [], days[0]
+    while cursor <= days[-1]:
+        if cursor not in present and (every_day or cursor.weekday() < 5):
+            missing.append(cursor)
+        cursor += timedelta(days=1)
+    return missing
+
+
+@_guard
+def recent_runs(limit: int = 3) -> list[dict]:
+    from sqlalchemy import text
+
+    with _engine().connect() as conn:
+        rows = conn.execute(text("SELECT run_at, ok, note FROM forward_runs ORDER BY run_at DESC LIMIT :n"),
+                            {"n": limit}).fetchall()
+    return [{"run_at": datetime.fromisoformat(r.run_at), "ok": bool(r.ok), "note": r.note} for r in rows]
+
+
 def assess(asset: str, version: str) -> Sufficiency:
     return sufficiency(tracked_days(asset, version), closed_trades(asset, version),
                        regimes_seen(asset, version))
 
 
+@_guard
 def record_run(run_at: datetime, ok: bool, note: str) -> None:
     from sqlalchemy import text
 
@@ -231,6 +323,7 @@ def record_run(run_at: datetime, ok: bool, note: str) -> None:
                      {"r": run_at.isoformat(), "o": int(ok), "n": note})
 
 
+@_guard
 def last_successful_run() -> datetime | None:
     from sqlalchemy import text
 

@@ -110,3 +110,24 @@ def test_ac86_provider_wait_is_reported_apart_from_compute(store):
     assert report.recorded
     assert report.provider_seconds >= 0.5                     # bekleyiş sağlayıcıya yazıldı
     assert report.compute_seconds <= wall - 0.5 + 0.05        # hesaplama süresine karışmadı
+
+
+def test_ac90_runner_with_ml_on_stays_within_the_workflow_budget(store):
+    """AC90 — ML açıkken koşucunun bir varlık için yeni günü işlemesi, 20 varlığın 60 dakikalık iş sınırına sığar."""
+    import forward_runner
+    import forward_tracker as ft
+    from data_fetchers import process_data
+
+    raw = make_ohlcv()
+    raw.index = raw.index.tz_localize("UTC")
+    frame, _ = process_data(raw, "fixture")
+    now = ft.available_at("KRIPTO", frame.index[-1].date()) + timedelta(minutes=5)
+
+    started = time.perf_counter()
+    report = forward_runner.run(now, real_clock=False, fetch=lambda symbol: (frame, "fixture"),
+                                include_ml=True, symbols=["BTC-USD"])
+    elapsed = time.perf_counter() - started
+    print(f"\nAC90 ML açık, 1 varlık, ilk koşu: {elapsed:.1f} sn · 20 varlık tahmini {elapsed * 20 / 60:.1f} dk "
+          f"· {_environment()}")
+    assert report.recorded
+    assert elapsed * 20 <= 3600          # 20 varlık × tek varlık süresi iş zaman aşımının (60 dk) altında

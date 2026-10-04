@@ -121,7 +121,8 @@ def report_from_backtest(symbol: str, backtest: dict, filters: ReportFilters | N
         return ReportOutcome(GECERSIZ_ISTEK, "Bu varlığın piyasası tanınmıyor; rapor üretilemedi.")
     market, currency = info
     equity = [EquityPoint(_as_day(p["date"]), Decimal(p["equity"])) for p in backtest["daily_equity"]]
-    cost_known = bool(backtest.get("net_verified"))
+    cost_known = bool(backtest.get("net_verified") and backtest.get("spread_known", True)
+                      and backtest.get("slippage_known", True))
     def entry_regime(entry_at):
         return None if regimes is None else regime_at_decision(regimes, _as_day(entry_at))
 
@@ -173,6 +174,9 @@ def comparison_from_backtest(symbol: str, frame, decisions: dict, notional: Deci
             f"Al-tut referansı hesaplanamadı: {describe_code(hold.reason)}"])
     strategy_final = Decimal(curve[-1]["equity"])
     suffix = " (üst sınır)" if hold.is_upper_bound else ""
+    strategy_costs_known = bool(result.get("net_verified") and result.get("spread_known", True)
+                                and result.get("slippage_known", True))
+    strategy_suffix = "" if strategy_costs_known else " (üst sınır)"
     notes = [
         f"Değerlendirme dilimi {days[0]} – {days[-1]}; ayar dilimi sonuca girmez. İki taraf da "
         f"{_as_day(window.index[1])} açılışında başlar.",
@@ -184,7 +188,7 @@ def comparison_from_backtest(symbol: str, frame, decisions: dict, notional: Deci
     block = MetricBlock(
         title="Strateji ve Al-Tut (değerlendirme dilimi)",
         metrics=[
-            ("Strateji son sermaye", _money(strategy_final, currency)),
+            ("Strateji son sermaye", _money(strategy_final, currency) + strategy_suffix),
             ("Al-tut son sermaye", _money(hold.final_equity, currency) + suffix),
             ("Al-tut kalıntı nakit", _money(hold.leftover_cash, currency)),
         ],
@@ -195,6 +199,18 @@ def comparison_from_backtest(symbol: str, frame, decisions: dict, notional: Deci
 
 def _as_day(value) -> date:
     return value.date() if hasattr(value, "date") else value
+
+
+def late_record_notes(journal_trades, symbol: str, start: date, end: date) -> list[str]:
+    """Kapanmış döneme sonradan kaydedilen gerçek işlem varsa "geç kayıtla güncellendi" notu (Q08, AC76)."""
+    import forward_tracker as ft
+
+    rows = [{"executed_at": trade.executed_at, "recorded_at": trade.recorded_at}
+            for trade in journal_trades if trade.symbol == symbol]
+    if ft.period_flag(rows, start, end) != ft.LATE_FLAG:
+        return []
+    return ["Bu dönem geç kayıtla güncellendi: dönem kapandıktan sonra geriye dönük gerçek işlem "
+            "kaydedildi; ileri dönem yeterlilik sayacı bundan etkilenmez."]
 
 
 def render_report_view(view: ReportView) -> None:
@@ -247,6 +263,14 @@ def render_report_panel(source: dict) -> None:
                             regime=regime)
     render_report_view(build_report_view(report_from_backtest(symbol, backtest, filters, regimes),
                                          regime))
+    from position_journal import PositionJournal
+    from storage import StorageAccessError
+
+    try:
+        for note in late_record_notes(PositionJournal().trades, symbol, start, end):
+            st.caption(note)
+    except StorageAccessError:
+        st.caption("İşlem günlüğü okunamadı; geç kayıt işareti gösterilemedi.")
     render_report_view(comparison_from_backtest(
         symbol, source["frame"], source["decisions"], source["notional"],
         Decimal(backtest["initial_cash"]), source["quantity_step"], source["costs"]))

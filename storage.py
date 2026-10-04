@@ -181,6 +181,47 @@ def read_doc(key: str):
         raise StorageAccessError("Kayıtlar okunamadı.") from exc
 
 
+def update_doc(key: str, mutator, *, retries: int = 60):
+    """Oku-değiştir-yaz'ı eşzamanlı yazıma karşı güvenli yapar (spec 0005 Rev 5, AC101).
+
+    `mutator(mevcut_belge_ya_da_None)` yeni belgeyi döndürür. Yazma, okunan içeriğin hâlâ
+    aynı olduğu koşuluyla yapılır (karşılaştır-ve-değiştir); başka bir yazıcı araya girdiyse
+    mutator yeni içerikle yeniden çalıştırılır. SQLite ve Postgres'te aynı SQL çalışır."""
+    import random
+
+    from sqlalchemy import text
+
+    engine = get_engine()
+    for attempt in range(retries):
+        try:
+            with engine.begin() as conn:
+                row = conn.execute(
+                    text(f"SELECT payload FROM {_TABLE} WHERE doc_key = :k"), {"k": key}).fetchone()
+                old = None if row is None else row[0]
+                updated = mutator(None if old is None else json.loads(old))
+                params = {"k": key, "p": json.dumps(updated, ensure_ascii=False),
+                          "u": time.strftime("%Y-%m-%d %H:%M:%S"), "old": old}
+                if old is None:
+                    changed = conn.execute(text(
+                        f"INSERT INTO {_TABLE} (doc_key, payload, updated_at) VALUES (:k, :p, :u) "
+                        "ON CONFLICT (doc_key) DO NOTHING"), params).rowcount
+                else:
+                    changed = conn.execute(text(
+                        f"UPDATE {_TABLE} SET payload = :p, updated_at = :u "
+                        "WHERE doc_key = :k AND payload = :old"), params).rowcount
+            if changed == 1:
+                return updated
+        except StorageAccessError:
+            raise
+        except (ValueError, TypeError):
+            raise
+        except Exception as exc:
+            logger.error(f"Storage update error ({key}): {exc}")
+            raise StorageAccessError("Kayıtlar yazılamadı.") from exc
+        time.sleep(random.uniform(0.001, 0.02) * (attempt + 1))
+    raise StorageAccessError("Kayıtlar yazılamadı (eşzamanlı değişiklik).")
+
+
 def write_doc(key: str, payload) -> None:
     """Belgeyi tek satırlık upsert ile yazar.
 

@@ -60,6 +60,7 @@ class Metrics:
     max_drawdown_pct: Decimal | None
     expectancy: Decimal | None
     closed_count: int
+    costs_known: bool = True   # komisyon, makas ve kayma bilinmiyorsa sonuç "üst sınır"dır (R03)
 
 
 @dataclass(frozen=True)
@@ -83,10 +84,24 @@ def _definition(candidate: Candidate) -> dict:
     return body
 
 
-def fingerprint(candidate: Candidate) -> str:
-    canonical = json.dumps(_definition(candidate), sort_keys=True, ensure_ascii=False,
-                           separators=(",", ":"))
+def _digest(body: dict) -> str:
+    canonical = json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def fingerprint(candidate: Candidate) -> str:
+    """Ön kayıt parmak izi: kurallar, ayarlar **ve** değerlendirme dönemi (R07, AC69)."""
+    return _digest(_definition(candidate))
+
+
+def strategy_fingerprint(candidate: Candidate) -> str:
+    """Strateji sürümü: kurallar ve ayarlar; değerlendirme dönemi sürümü değiştirmez.
+
+    Aktif strateji ve gözlem sayacı buna bağlıdır; dönem her gün kayarken sürüm sabit kalır."""
+    body = _definition(candidate)
+    body.pop("period_start", None)
+    body.pop("period_end", None)
+    return _digest(body)
 
 
 def is_approved(candidate: Candidate) -> bool:
@@ -102,11 +117,14 @@ def _read(key: str, default):
 def preregister(candidate: Candidate, registered_at: datetime) -> str:
     """Adayı sonuç görülmeden kaydeder; parmak izini döndürür. Var olan kayıt değişmez."""
     key = fingerprint(candidate)
-    registry = _read(_REGISTRY_KEY, {})
-    if key not in registry:
-        registry[key] = {"name": candidate.name, "definition": _definition(candidate),
-                         "registered_at": registered_at.isoformat()}
-        storage.write_doc(_REGISTRY_KEY, registry)
+
+    def add(registry):
+        registry = dict(registry or {})
+        registry.setdefault(key, {"name": candidate.name, "definition": _definition(candidate),
+                                  "registered_at": registered_at.isoformat()})
+        return registry
+
+    storage.update_doc(_REGISTRY_KEY, add)
     return key
 
 
@@ -120,6 +138,9 @@ def start_run(candidate: Candidate) -> RunPermit:
 def judge(candidate: Metrics, reference: Metrics, approved: bool = True) -> Verdict:
     if not approved:
         return Verdict(DENEME, "Giriş veya çıkış kuralı onaylı değil; sonuç yalnız denemedir.")
+    if not candidate.costs_known or not reference.costs_known:
+        return Verdict(YETERSIZ_VERI, "Komisyon, makas ya da kayma bilinmiyor; sonuçlar üst sınırdır "
+                                      "ve tercih ölçütü doğrulanamaz. Maliyetleri girin.")
     if candidate.closed_count < MIN_CLOSED_TRADES:
         return Verdict(YETERSIZ_VERI, f"Kapanmış işlem {candidate.closed_count}; en az "
                                       f"{MIN_CLOSED_TRADES} gerekir.")
@@ -148,11 +169,10 @@ def judge_by_market(pairs: Mapping[str, tuple[Metrics, Metrics]],
 def record_result(candidate: Candidate, market: str, verdict: Verdict,
                   recorded_at: datetime) -> None:
     """Sonucu değerlendirme geçmişine ekler; başarısız sonuç da silinmez (R07, AC16)."""
-    entries = _read(_HISTORY_KEY, [])
-    entries.append({"fingerprint": fingerprint(candidate), "name": candidate.name,
-                    "market": market, "status": verdict.status, "reason": verdict.reason,
-                    "recorded_at": recorded_at.isoformat()})
-    storage.write_doc(_HISTORY_KEY, entries)
+    entry = {"fingerprint": fingerprint(candidate), "strategy": strategy_fingerprint(candidate),
+             "name": candidate.name, "market": market, "status": verdict.status,
+             "reason": verdict.reason, "recorded_at": recorded_at.isoformat()}
+    storage.update_doc(_HISTORY_KEY, lambda entries: [*(entries or []), entry])
 
 
 def history() -> list[dict]:
@@ -160,8 +180,9 @@ def history() -> list[dict]:
 
 
 def observation_count(candidate: Candidate) -> int:
-    key = fingerprint(candidate)
-    return sum(1 for entry in history() if entry["fingerprint"] == key)
+    """Aynı strateji sürümünün gözlem sayısı; ayar değişince yeni sürüm sıfırdan başlar (AC79)."""
+    key = strategy_fingerprint(candidate)
+    return sum(1 for entry in history() if entry.get("strategy", entry["fingerprint"]) == key)
 
 
 def active_strategy() -> str:
@@ -170,8 +191,8 @@ def active_strategy() -> str:
 
 def choose_active_strategy(candidate: Candidate | None) -> None:
     """Yalnız kullanıcının açık seçimiyle çağrılır; `None` mevcut V1'e döner."""
-    value = REFERENCE_STRATEGY if candidate is None else fingerprint(candidate)
-    storage.write_doc(_ACTIVE_KEY, {"strategy": value})
+    value = REFERENCE_STRATEGY if candidate is None else strategy_fingerprint(candidate)
+    storage.update_doc(_ACTIVE_KEY, lambda _: {"strategy": value})
 
 
 def single_filter_effect(first: Candidate, second: Candidate) -> str | None:
@@ -196,19 +217,32 @@ def default_candidates(market: str, period_start: date | None,
 
 
 def load_candidate(key: str) -> Candidate | None:
-    """Ön kayıttaki tanımdan adayı geri kurar (koşucu, aktif aday sürümünü izlerken)."""
+    """Ön kayıttaki tanımdan adayı geri kurar."""
     entry = _read(_REGISTRY_KEY, {}).get(key)
     if entry is None:
         return None
+    return _from_entry(entry)
+
+
+def _from_entry(entry: dict) -> Candidate:
     body = dict(entry["definition"])
     for name in ("period_start", "period_end"):
         body[name] = None if body[name] is None else date.fromisoformat(body[name])
     return Candidate(name=entry["name"], **body)
 
 
-def registered_name(key: str) -> str | None:
-    entry = _read(_REGISTRY_KEY, {}).get(key)
-    return None if entry is None else entry["name"]
+def find_by_strategy(strategy_key: str) -> Candidate | None:
+    """Strateji sürümüne (`strategy_fingerprint`) uyan, en son ön kaydedilen aday (koşucu bunu izler)."""
+    matches = [entry for entry in _read(_REGISTRY_KEY, {}).values()
+               if strategy_fingerprint(_from_entry(entry)) == strategy_key]
+    if not matches:
+        return None
+    return _from_entry(max(matches, key=lambda entry: entry["registered_at"]))
+
+
+def registered_name(strategy_key: str) -> str | None:
+    found = find_by_strategy(strategy_key)
+    return None if found is None else found.name
 
 
 def metrics_from_backtest(backtest: dict) -> Metrics:
@@ -222,6 +256,8 @@ def metrics_from_backtest(backtest: dict) -> Metrics:
         max_drawdown_pct=max_drawdown(points),
         expectancy=(sum(pnls, Decimal("0")) / len(pnls)) if pnls else None,
         closed_count=len(pnls),
+        costs_known=bool(backtest.get("net_verified") and backtest.get("spread_known", True)
+                         and backtest.get("slippage_known", True)),
     )
 
 
@@ -229,17 +265,19 @@ def _day(value) -> date:
     return value.date() if hasattr(value, "date") else value
 
 
-def candidate_decisions(frame, v1_decisions: Mapping, candidate: Candidate, regimes, *,
-                        lookback: int = 20, ema_span: int = 20,
-                        tolerance_pct: Decimal = Decimal("1")) -> dict:
+def candidate_decisions(frame, v1_decisions: Mapping, candidate: Candidate, regimes) -> dict:
     """Aday giriş kararları; çıkış V1 ile aynıdır (V1'in SAT kararları korunur, R06).
 
-    Girişler yalnız yükselen piyasa gününde üretilir (Q02). Her gün yalnız o güne
-    kadarki veriyi kullanır.
-    """
+    Parametreler adayın `settings` değerlerinden okunur (`lookback`, `ema`, `tolerance_pct`);
+    ayar değişince karar da değişir (AC102). Girişler yalnız yükselen piyasa gününde üretilir
+    (Q02). Her gün yalnız o güne kadarki veriyi kullanır."""
+    settings = dict(candidate.settings)
+    lookback = int(settings.get("lookback", 20))
+    ema_span = int(settings.get("ema", 20))
+    tolerance = Decimal(str(settings.get("tolerance_pct", "1")))
     close = frame["Close"]
     ema = close.ewm(span=ema_span, adjust=False).mean()
-    factor = Decimal("1") + Decimal(tolerance_pct) / 100
+    factor = Decimal("1") + tolerance / 100
     decisions = {}
     for position, day in enumerate(frame.index):
         if v1_decisions.get(day) == "SAT":

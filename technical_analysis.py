@@ -1058,7 +1058,7 @@ def run_v1_strategy_backtest(df, decisions, *, initial_cash, trade_notional,
     }
 
 
-def build_v1_decisions(df, *, weights=None, include_ml=True):
+def build_v1_decisions(df, *, weights=None, include_ml=True, only_last=None):
     """Produce point-in-time daily decisions with every required component.
 
     Her barın kararı, ekranın o barda vereceği kararla aynıdır (R06 / QA Y3):
@@ -1067,7 +1067,11 @@ def build_v1_decisions(df, *, weights=None, include_ml=True):
     skorları bir kez hesaplanıp yeniden kullanılır.
 
     Hesaplanamayan zorunlu bileşeni olan bar nötr puanla doldurulmaz: karar
-    "BILESEN_YOK" olur ve yeni AL/SAT üretmez (spec 0003 AK03 / AC120)."""
+    "BILESEN_YOK" olur ve yeni AL/SAT üretmez (spec 0003 AK03 / AC120).
+
+    `only_last=N` yalnız son N barın kararını üretir (ileri takip koşucusu yeni günleri
+    hesaplar; ML'li tam geçmiş her gün yeniden hesaplanmaz, spec 0005 AC90). Üretilen
+    kararlar tam hesaptakilerle birebir aynıdır."""
     from signal_engine import _compute_bar_score, replay_stable_state
     from config import DecisionEngineConfig as cfg
 
@@ -1081,7 +1085,8 @@ def build_v1_decisions(df, *, weights=None, include_ml=True):
         return plain[position]
 
     decisions = {}
-    for index in range(199, len(df)):
+    first_index = 199 if only_last is None else max(199, len(df) - int(only_last))
+    for index in range(first_index, len(df)):
         final = plain_score(index) if not include_ml else _compute_bar_score(
             df.iloc[:index + 1], "1d", include_ml=True, weights=weights)
         if final is None:
