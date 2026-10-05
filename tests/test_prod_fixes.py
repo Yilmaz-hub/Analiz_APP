@@ -4,6 +4,7 @@ import time
 import pytest
 
 import data_fetchers
+import forward_tracker as ft
 import storage
 
 COIN = "Bitcoin (BTC)"
@@ -105,7 +106,7 @@ def test_ac06_stop_alerts_use_the_given_prices_without_new_network_calls(monkeyp
         raise AssertionError("fiyat kaynağı çağrılmamalıydı")
 
     monkeypatch.setattr(data_fetchers, "get_live_price_for_portfolio", boom)
-    portfolio = {"positions": [{"Coin": COIN, "Status": "ACTIVE", "Stop": 95.0, "Adet": 1, "Giriş": 100}]}
+    portfolio = {"positions": [{"Coin": COIN, "Status": "ACTIVE", "Stop": 95.0, "Adet": 1, "Giriş": 100, "Yatırım": 100.0, "Realized": 0.0}]}
     _, alerts = check_active_positions_auto_close(portfolio, {COIN: "BTC-USD"}, prices={COIN: 90.0})
     assert [a["coin"] for a in alerts] == [COIN] and alerts[0]["observed_price"] == 90.0
 
@@ -330,3 +331,152 @@ def test_f5_screen_lists_price_sources_for_an_unpriced_position(store, monkeypat
     shown = texts(at)
     assert "Chainlink: Binance: reddedildi; OKX: reddedildi" in shown
     assert "http" not in shown.split("Chainlink: Binance")[1][:80] and "Traceback" not in shown
+
+
+# ---- Spec 0009: eski kayıtlar da fiyatlanır, ağır paneller portföyden sonra gelir -------------------------
+def _legacy_portfolio(store):
+    store.write_doc(store.ASSETS_KEY, {COIN: "BTC-USD", "link": "LINKUSD", "Hbar": "HBARUSD", "Eski": "ETH-USD"})
+    base = {"Adet": 20.0, "Giriş": 10.0, "Yatırım": 200.0, "Realized": 0.0, "Tarih": "2026-09-01", "Stop": 8.0}
+    no_status = {**base, "Coin": "link"}                                           # eski kayıt: Status alanı yok
+    odd_status = {**base, "Coin": "Hbar", "Status": "CLOSED_CONFIRMED"}             # kalan miktarı var → aktif sayılır
+    store.write_doc(store.PORTFOLIO_KEY, {"balance": 1000.0, "positions": [no_status, odd_status]})
+
+
+def test_ac09_legacy_positions_without_status_are_priced(store, monkeypatch, processed_df):
+    """AC09 — Status alanı olmayan ya da kalan miktarı olan eski kayıtlar da fiyat kaynağına sorulur ve fiyatlanır."""
+    from app_helpers import make_app
+
+    _legacy_portfolio(store)
+    at = make_app(monkeypatch, processed_df)
+    asked = []
+    monkeypatch.setattr(data_fetchers, "get_live_price_for_portfolio",
+                        lambda coin, coin_map: asked.append(coin) or 18.0)
+    at.run()
+    assert not at.exception
+    assert {"link", "Hbar"} <= set(asked)
+    table = next(f.value for f in at.dataframe if "Fiyat" in f.value.columns)
+    assert set(table["Fiyat"]) == {"canlı"}
+
+
+def test_ac09_every_row_of_the_positions_table_is_asked_for_a_price(store, monkeypatch, processed_df):
+    """AC09 — Pozisyon tablosundaki her satır için fiyat sorulur; tabloya girip de sorulmayan satır olamaz."""
+    from app_helpers import make_app
+
+    _legacy_portfolio(store)
+    at = make_app(monkeypatch, processed_df)
+    asked = []
+    monkeypatch.setattr(data_fetchers, "get_live_price_for_portfolio",
+                        lambda coin, coin_map: asked.append(coin) or 0)
+    at.run()
+    table = next(f.value for f in at.dataframe if "Fiyat" in f.value.columns)
+    assert set(table["Coin"]) <= set(asked) | {COIN}
+
+
+def _flat(node):
+    """Öğe ağacını ekrandaki sırayla düz listeye çevirir (expander içi dahil)."""
+    for child in node.children.values():
+        yield child
+        if hasattr(child, "children"):
+            yield from _flat(child)
+
+
+def test_ac10_portfolio_section_is_rendered_before_the_heavy_forward_panel(store, monkeypatch, processed_df):
+    """AC10 — Portföy tablosu, ileri takip anahtarından önce çizilir; ağır panel portföyü beklemez."""
+    from app_helpers import make_app
+
+    _legacy_portfolio(store)
+    at = make_app(monkeypatch, processed_df)
+    monkeypatch.setattr(data_fetchers, "get_live_price_for_portfolio", lambda coin, coin_map: 18.0)
+    at.run()
+    assert not at.exception
+    order = list(_flat(at.main))
+    table = next(i for i, e in enumerate(order)
+                 if e.type == "dataframe" and "Fiyat" in e.value.columns)
+    toggle = next(i for i, e in enumerate(order) if e.type == "toggle" and e.key == "forward_show")
+    assert table < toggle
+
+
+def test_ac12_unknown_asset_name_is_shown_as_unpriced_with_a_reason(store, monkeypatch, processed_df):
+    """AC12 — Varlık listesinde olmayan pozisyon "fiyat alınamadı" görünür ve nedeni (varlık bulunamadı) yazılır."""
+    from app_helpers import make_app, texts
+
+    store.write_doc(store.ASSETS_KEY, {COIN: "BTC-USD"})
+    store.write_doc(store.PORTFOLIO_KEY, {"balance": 1000.0, "positions": [{
+        "Coin": "Silinmis", "Giriş": 15.0, "Adet": 20.0, "Yatırım": 300.0, "Realized": 0.0, "Status": "ACTIVE",
+        "Tarih": "2026-09-01", "Stop": 13.0}]})
+    at = make_app(monkeypatch, processed_df)
+    monkeypatch.setattr(data_fetchers, "get_live_price_for_portfolio", lambda coin, coin_map: 0)
+    at.run()
+    assert not at.exception
+    table = next(f.value for f in at.dataframe if "Fiyat" in f.value.columns)
+    assert list(table["Fiyat"]) == ["fiyat alınamadı (maliyetle gösterildi)"]
+    assert "varlık listesinde bulunamadı" in texts(at)
+
+
+def test_ac12_paper_update_gets_the_selected_assets_real_symbol_when_rows_are_unpriced(store, monkeypatch,
+                                                                                         processed_df):
+    """AC12 — Fiyatı alınamayan satır varken "Bugünü Kaydet" seçili varlığın gerçek sembolüyle çalışır (değişken gölgelenmez)."""
+    import paper_trading
+    from app_helpers import make_app
+
+    _legacy_portfolio(store)
+    at = make_app(monkeypatch, processed_df)
+    monkeypatch.setattr(data_fetchers, "get_live_price_for_portfolio", lambda coin, coin_map: 0)
+    seen = {}
+
+    def fake_update(selection, *args, **kwargs):
+        seen.update(selection)
+        return {"errors": [], "new_rows": 0, "assets": 1}
+
+    monkeypatch.setattr(paper_trading, "run_paper_update", fake_update)
+    at.run()
+    next(b for b in at.button if "Bugünü Kaydet" in b.label).click().run()
+    assert not at.exception
+    assert seen == {COIN: "BTC-USD"}
+
+
+# ---- Spec 0009 R05/R06: aynı sınıflandırıcı stop uyarısında ve risk toplamlarında ----------------
+def test_ac13_stop_alert_covers_legacy_positions_without_status():
+    """AC13 — Status alanı olmayan eski kayıt da stop uyarısına girer."""
+    import portfolio
+
+    legacy = {"Coin": "link", "Giriş": 10.0, "Adet": 20.0, "Yatırım": 200.0, "Realized": 0.0, "Stop": 8.0}
+    _, alerts = portfolio.check_active_positions_auto_close({"positions": [legacy]}, {}, prices={"link": 7.0})
+    assert [a["coin"] for a in alerts] == ["link"]
+
+
+def test_ac14_risk_totals_count_legacy_positions_without_status():
+    """AC14 — Eski kayıt hem toplam maruziyet kontrolünde hem açık risk hesabında sayılır."""
+    import portfolio
+    import risk_ui
+
+    legacy = {"Coin": "link", "Giriş": 10.0, "Adet": 20.0, "Yatırım": 200.0, "Realized": 0.0, "Stop": 8.0}
+    assert len(risk_ui._active({"positions": [legacy]})) == 1
+    equity_with, _ = portfolio.validate_portfolio_risk(0, 1000.0, [legacy])
+    assert equity_with is True
+    ok_big, _ = portfolio.validate_portfolio_risk(1000.0 * 10, 1000.0, [legacy])
+    assert ok_big is False
+
+
+def test_ac11_forward_panel_shows_a_bounded_number_of_pairs(monkeypatch):
+    """AC11 — İleri takip paneli en çok 6 varlık-sürüm çifti için ayrıntı sorgular; kalanı için sayı notu gösterir."""
+    from datetime import datetime, timezone
+
+    import forward_ui
+
+    pairs = [(f"Varlık{i}", "V1") for i in range(10)]
+    assessed = []
+
+    class _Verdict:
+        sufficient, missing = True, ()
+
+    monkeypatch.setattr(ft, "recent_runs", lambda n=1: [])
+    monkeypatch.setattr(ft, "last_successful_run", lambda: None)
+    monkeypatch.setattr(ft, "tracked_pairs", lambda: pairs)
+    monkeypatch.setattr(ft, "assess", lambda asset, version: assessed.append(asset) or _Verdict())
+    monkeypatch.setattr(ft, "missing_days", lambda asset, version: [])
+    monkeypatch.setattr(ft, "decisions", lambda asset, version: [])
+    monkeypatch.setattr(ft, "revisions", lambda asset, version: [])
+    view = forward_ui.build_forward_view(datetime.now(timezone.utc))
+    assert len(assessed) == forward_ui.MAX_PAIRS == 6
+    assert any("4 çift daha" in line for line in view.lines)

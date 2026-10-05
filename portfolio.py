@@ -54,13 +54,14 @@ def validate_portfolio_risk(new_investment, current_balance, open_positions):
     """
     Kelly Criterion ve maksimum pozisyon büyüklüğü kontrolü
     """
-    total_equity = current_balance + sum([p.get('Yatırım', 0) for p in open_positions if p.get('Status') == 'ACTIVE'])
+    active = positions_module.group_positions(open_positions)[positions_module.AKTIF]
+    total_equity = current_balance + sum([p.get('Yatırım', 0) for p in active])
 
     if new_investment > total_equity * RiskConfig.MAX_POSITION_SIZE:
         pct = int(RiskConfig.MAX_POSITION_SIZE * 100)
         return False, f"⚠️ Tek pozisyon toplam varlığın %{pct}'sini aşamaz!"
 
-    total_exposure = sum([p.get('Yatırım', 0) for p in open_positions if p.get('Status') == 'ACTIVE']) + new_investment
+    total_exposure = sum([p.get('Yatırım', 0) for p in active]) + new_investment
     if total_exposure > total_equity * RiskConfig.MAX_TOTAL_EXPOSURE:
         pct = int(RiskConfig.MAX_TOTAL_EXPOSURE * 100)
         return False, f"⚠️ Toplam açık pozisyon %{pct}'yi geçemez!"
@@ -82,23 +83,23 @@ def check_active_positions_auto_close(portfolio_data, coin_map, prices=None):
     from data_fetchers import get_live_price_for_portfolio
     
     # `prices` verilirse (coin adı → fiyat) ek ağ çağrısı yapılmaz (spec 0007 R04).
-    for pos in portfolio_data["positions"]:
-        if pos.get("Status") == "ACTIVE":
-            coin_name = pos.get("Coin")
-            # Arayüz stopu "Stop" anahtarıyla yazar; eski kayıtlar "SL" kullanır (Q2).
-            sl = pos.get("Stop") or pos.get("SL")
-            
-            live_price = (prices.get(coin_name) or 0) if prices is not None \
-                else get_live_price_for_portfolio(coin_name, coin_map)
-            
-            if live_price > 0:
-                if sl and live_price <= sl:
-                    closed_trades.append({
-                        'coin': coin_name,
-                        'type': 'STOP_TEMASI_TEYIT_BEKLIYOR',
-                        'observed_price': live_price,
-                        'stop': sl,
-                    })
+    active = positions_module.group_positions(portfolio_data["positions"])[positions_module.AKTIF]
+    for pos in active:
+        coin_name = pos.get("Coin")
+        # Arayüz stopu "Stop" anahtarıyla yazar; eski kayıtlar "SL" kullanır (Q2).
+        sl = pos.get("Stop") or pos.get("SL")
+        
+        live_price = (prices.get(coin_name) or 0) if prices is not None \
+            else get_live_price_for_portfolio(coin_name, coin_map)
+        
+        if live_price > 0:
+            if sl and live_price <= sl:
+                closed_trades.append({
+                    'coin': coin_name,
+                    'type': 'STOP_TEMASI_TEYIT_BEKLIYOR',
+                    'observed_price': live_price,
+                    'stop': sl,
+                })
 
     return closed_count, closed_trades
 

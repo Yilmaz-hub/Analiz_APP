@@ -13,6 +13,8 @@ import forward_tracker as ft
 
 STALE_AFTER = timedelta(days=2)
 RECENT = 5
+#: Ayrıntısı gösterilen en çok varlık-sürüm çifti (her çift birkaç sorgu; uzak veritabanında saniyeler tutar).
+MAX_PAIRS = 6
 
 
 @dataclass(frozen=True)
@@ -58,7 +60,8 @@ def render_forward_status(now: datetime) -> None:
 
 def build_forward_view(now: datetime) -> ForwardView:
     lines = build_forward_status(now)
-    for asset, version in ft.tracked_pairs():
+    pairs = ft.tracked_pairs()
+    for asset, version in pairs[:MAX_PAIRS]:
         verdict = ft.assess(asset, version)
         status = "yeterli kanıt" if verdict.sufficient else "yetersiz kanıt"
         detail = "" if verdict.sufficient else " (" + ", ".join(verdict.missing) + ")"
@@ -77,6 +80,8 @@ def build_forward_view(now: datetime) -> ForwardView:
             lines.append(f"Son kararın varsayımları — {shown}")
         for revision in ft.revisions(asset, version):
             lines.append(f"{revision['candle_day']}: mum sağlayıcıda revize edildi; karar değişmedi.")
+    if len(pairs) > MAX_PAIRS:
+        lines.append(f"… {len(pairs) - MAX_PAIRS} çift daha izleniyor; ayrıntı yalnız ilk {MAX_PAIRS} çift için gösterilir.")
     lines.append("Sanal takip gerçek işlem değildir; geçmiş sonuç gelecekteki kazanç olasılığı değildir.")
     return ForwardView(lines)
 

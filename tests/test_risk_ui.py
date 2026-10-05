@@ -15,7 +15,7 @@ def _portfolio(*positions):
 
 
 def _open(coin="Ethereum (ETH)", entry=100.0, qty=10.0, stop=90.0):
-    return {"Coin": coin, "Giriş": entry, "Adet": qty, "Stop": stop, "Status": "ACTIVE",
+    return {"Coin": coin, "Giriş": entry, "Adet": qty, "Yatırım": entry * qty, "Stop": stop, "Status": "ACTIVE",
             "Gerçekleşme Zamanı": NOW.isoformat()}
 
 
@@ -77,3 +77,13 @@ def test_ac74_mixed_currency_losses_are_explained_in_panel():
     rs.set_loss_limit(D("500"), "USD", datetime(2026, 10, 1, tzinfo=timezone.utc))
     text = _view(_portfolio(_closed(realized=-10.0), _closed(coin="Türk Hava Yolları", realized=-10.0)))
     assert "kayıp sınırı doğrulanamadı" in text
+
+
+def test_ac14_legacy_position_without_stop_does_not_crash_the_risk_panel():
+    """AC14 — Stop alanı olmayan eski kayıt risk panelini çökertmez; SL anahtarı okunur, stop yoksa "stop bilinmiyor" yazar."""
+    legacy = {"Coin": "Ethereum (ETH)", "Giriş": 10.0, "Adet": 20.0, "Yatırım": 200.0}
+    with_sl = {**legacy, "SL": 8.0}
+    assert risk_ui.open_risks(_portfolio(legacy), COINS) == []
+    assert len(risk_ui.open_risks(_portfolio(with_sl), COINS)) == 1
+    assert "stop bilinmiyor" in _view(_portfolio(legacy))
+    assert "stop 8" in _view(_portfolio(with_sl))

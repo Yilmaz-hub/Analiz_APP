@@ -32,13 +32,19 @@ def _number(value) -> Decimal:
 
 
 def _active(portfolio: Mapping) -> list[Mapping]:
-    return [p for p in portfolio.get("positions", []) if p.get("Status") == "ACTIVE"]
+    from positions import AKTIF, group_positions
+    return group_positions(portfolio.get("positions", []))[AKTIF]
+
+
+def _stop(position: Mapping):
+    """Stop fiyatı; arayüz "Stop", eski kayıtlar "SL" yazar. Yoksa None (stop bilinmiyor)."""
+    return position.get("Stop") or position.get("SL")
 
 
 def open_risks(portfolio: Mapping, coin_map: Mapping[str, str]) -> list[tuple[str, Decimal]]:
     return [(_currency(p["Coin"], coin_map),
-             rs.position_risk(_number(p["Giriş"]), _number(p["Stop"]), _number(p["Adet"])))
-            for p in _active(portfolio)]
+             rs.position_risk(_number(p["Giriş"]), _number(_stop(p)), _number(p["Adet"])))
+            for p in _active(portfolio) if _stop(p)]
 
 
 def period_results(portfolio: Mapping, coin_map: Mapping[str, str],
@@ -150,8 +156,9 @@ def build_risk_view(portfolio: Mapping, coin_map: Mapping[str, str], *,
 
     for position in _active(portfolio):
         signal = signals.get(position["Coin"], "—")
-        lines.append(f"{position['Coin']}: stop {_number(position['Stop']).normalize():f} · "
-                     f"son uyarı {signal}")
+        stop = _stop(position)
+        stop_text = f"stop {_number(stop).normalize():f}" if stop else "stop bilinmiyor (açık riske girmedi)"
+        lines.append(f"{position['Coin']}: {stop_text} · son uyarı {signal}")
     return RiskView(lines)
 
 

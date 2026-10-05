@@ -194,7 +194,10 @@ def run_position_prices():
     varlıkta canlı fiyata bakar. Alınamayan fiyat 0'dır ve ekranda "fiyat alınamadı" görünür."""
     if 'prices' not in _RUN_PRICES:
         positions = (st.session_state.get('portfolio_data') or {}).get('positions', [])
-        coins = [p['Coin'] for p in positions if p.get('Status') in ('ACTIVE', 'PENDING')]
+        # Tabloya giren her kayıt fiyatlanır: aktiflik yorumu tek sınıflandırıcıdan gelir (Status alanı olmayan
+        # eski kayıtlar ve kalan miktarı olan kayıtlar dahil — spec 0009 AC09).
+        groups = group_positions(positions)
+        coins = list(dict.fromkeys(p['Coin'] for p in groups[POS_AKTIF] + groups[POS_BEKLEYEN]))
         _RUN_PRICES['prices'] = fetch_prices(coins, st.session_state.get('coin_map', {}))
     return _RUN_PRICES['prices']
 
@@ -730,56 +733,6 @@ if is_chart_renderable(df_view):
                 protection_ui.render_protection_panel(
                     perf_source, (_market_of(perf_source["symbol"]) or ("", "USD"))[1])
 
-    # --- İLERİ DÖNEM SANAL TAKİP (spec 0005 Adım 7) ---
-    with st.expander("📡 İleri Dönem Sanal Takip (ekran kapalıyken)", expanded=False):
-        import forward_ui
-        from datetime import datetime as _dt, timezone as _tz
-        # Koşucunun sağlığı (son çalışma, bayatlık) iki ucuz sorguyla her zaman görünür (spec 0008 AC04);
-        # ayrıntı, "göster" denmeden hesaplanmaz: uzak veritabanında her ekran çalıştırması gecikir (R02).
-        forward_ui.render_forward_status(_dt.now(_tz.utc))
-        if st.toggle("Sanal takip durumunu göster", key="forward_show"):
-            forward_ui.render_forward_panel(_dt.now(_tz.utc))
-
-    # --- KAĞIT TİCARET DOĞRULAMASI ---
-    with st.expander("🧪 Kağıt Ticaret Doğrulaması (Canlı Sinyal Takibi)", expanded=False):
-        st.info("Canlı sinyali (ML dahil) her gün kapanan mumda kaydeder ve backtest kurallarıyla "
-                "sanal işlem yapar. Birkaç hafta sonra gerçek davranış ile backtest beklentisi "
-                "karşılaştırılır. Günlük otomatik görev kuruluysa buton sadece kontrol içindir.")
-        from paper_trading import run_paper_update, paper_report
-        st.caption("Sermaye, tutar, adım ve maliyetler yukarıdaki **İşlem varsayımları** panelinden gelir.")
-        if st.button("📸 Bugünü Kaydet / Güncelle", disabled=not trade_parsed.ok):
-            pp_bar = st.progress(0.0)
-            pp_txt = st.empty()
-            paper_selection = {sel_c: symbol}
-            paper_costs = trade_parsed.settings.costs
-            paper_settings = {sel_c: {
-                "capital": trade_parsed.capital,
-                "trade_notional": trade_parsed.settings.notional,
-                "quantity_step": trade_parsed.settings.quantity_step,
-                "spread_bps": paper_costs.spread_bps,
-                "slippage_bps": paper_costs.slippage_bps,
-                "commission_pct": paper_costs.commission_pct,
-                "currency": paper_currency,
-            }}
-            status = run_paper_update(
-                paper_selection, src_pref, paper_settings=paper_settings,
-                progress_callback=lambda p, n: (
-                    pp_bar.progress(min(1.0, p)), pp_txt.text(f"Kaydediliyor: {n}")
-                ),
-            )
-            pp_bar.empty(); pp_txt.empty()
-            if status["errors"]:
-                st.warning(f"{status['new_rows']} yeni kayıt. Güncellenemeyen: {', '.join(status['errors'])}")
-            else:
-                st.success(f"{status['new_rows']} yeni kayıt eklendi ({status['assets']} varlık).")
-        paper_df, paper_totals = paper_report()
-        if len(paper_df):
-            st.dataframe(paper_df, width="stretch", hide_index=True)
-            st.caption(f"Başlangıç: {paper_totals['başlangıç']} | Ort. getiri: %{paper_totals['toplam_getiri_pct']} "
-                       f"| Al&Tut: %{paper_totals['al_tut_pct']} | Toplam kayıt: {paper_totals['kayıt']}")
-        else:
-            st.caption("Henüz kayıt yok — ilk kaydı almak için butona basın.")
-
     # --- AI PİYASA TARAYICI ---
     render_opportunity_scanner(st.session_state['coin_map'], src_pref, intervals)
 
@@ -942,9 +895,13 @@ if is_chart_renderable(df_view):
                         from data_fetchers import price_diagnostics
                         for row in active_data:
                             if str(row.get("Fiyat", "")).startswith("fiyat alınamadı"):
-                                details = price_diagnostics(st.session_state['coin_map'].get(row["Coin"], ""))
-                                st.caption(f"{row['Coin']}: " + ("; ".join(details) if details
-                                                                 else "kaynaklara henüz sorulmadı"))
+                                row_symbol = st.session_state['coin_map'].get(row["Coin"], "")
+                                details = price_diagnostics(row_symbol)
+                                if not row_symbol:
+                                    note = "varlık listesinde bulunamadı (varlık adı değişmiş ya da silinmiş olabilir)"
+                                else:
+                                    note = "; ".join(details) if details else "kaynaklara henüz sorulmadı"
+                                st.caption(f"{row['Coin']}: {note}")
 
             if pending_pos:
                 st.markdown("##### ⏳ Bekleyen Limit Emirler")
@@ -1012,6 +969,58 @@ if is_chart_renderable(df_view):
         else:
             st.info("Portföy boş.")
             st.metric("Mevcut Bakiye", f"${current_balance:,.2f}")
+    # --- AĞIR PANELLER PORTFÖYDEN SONRA (spec 0009 AC10) ---
+    # İleri takip ve kağıt ticaret ayrıntıları kayıt deposuna çok sorgu atar; portföy bunları beklemesin.
+    # --- İLERİ DÖNEM SANAL TAKİP (spec 0005 Adım 7) ---
+    with st.expander("📡 İleri Dönem Sanal Takip (ekran kapalıyken)", expanded=False):
+        import forward_ui
+        from datetime import datetime as _dt, timezone as _tz
+        # Koşucunun sağlığı (son çalışma, bayatlık) iki ucuz sorguyla her zaman görünür (spec 0008 AC04);
+        # ayrıntı, "göster" denmeden hesaplanmaz: uzak veritabanında her ekran çalıştırması gecikir (R02).
+        forward_ui.render_forward_status(_dt.now(_tz.utc))
+        if st.toggle("Sanal takip durumunu göster", key="forward_show"):
+            forward_ui.render_forward_panel(_dt.now(_tz.utc))
+
+    # --- KAĞIT TİCARET DOĞRULAMASI ---
+    with st.expander("🧪 Kağıt Ticaret Doğrulaması (Canlı Sinyal Takibi)", expanded=False):
+        st.info("Canlı sinyali (ML dahil) her gün kapanan mumda kaydeder ve backtest kurallarıyla "
+                "sanal işlem yapar. Birkaç hafta sonra gerçek davranış ile backtest beklentisi "
+                "karşılaştırılır. Günlük otomatik görev kuruluysa buton sadece kontrol içindir.")
+        from paper_trading import run_paper_update, paper_report
+        st.caption("Sermaye, tutar, adım ve maliyetler yukarıdaki **İşlem varsayımları** panelinden gelir.")
+        if st.button("📸 Bugünü Kaydet / Güncelle", disabled=not trade_parsed.ok):
+            pp_bar = st.progress(0.0)
+            pp_txt = st.empty()
+            paper_selection = {sel_c: symbol}
+            paper_costs = trade_parsed.settings.costs
+            paper_settings = {sel_c: {
+                "capital": trade_parsed.capital,
+                "trade_notional": trade_parsed.settings.notional,
+                "quantity_step": trade_parsed.settings.quantity_step,
+                "spread_bps": paper_costs.spread_bps,
+                "slippage_bps": paper_costs.slippage_bps,
+                "commission_pct": paper_costs.commission_pct,
+                "currency": paper_currency,
+            }}
+            status = run_paper_update(
+                paper_selection, src_pref, paper_settings=paper_settings,
+                progress_callback=lambda p, n: (
+                    pp_bar.progress(min(1.0, p)), pp_txt.text(f"Kaydediliyor: {n}")
+                ),
+            )
+            pp_bar.empty(); pp_txt.empty()
+            if status["errors"]:
+                st.warning(f"{status['new_rows']} yeni kayıt. Güncellenemeyen: {', '.join(status['errors'])}")
+            else:
+                st.success(f"{status['new_rows']} yeni kayıt eklendi ({status['assets']} varlık).")
+        paper_df, paper_totals = paper_report()
+        if len(paper_df):
+            st.dataframe(paper_df, width="stretch", hide_index=True)
+            st.caption(f"Başlangıç: {paper_totals['başlangıç']} | Ort. getiri: %{paper_totals['toplam_getiri_pct']} "
+                       f"| Al&Tut: %{paper_totals['al_tut_pct']} | Toplam kayıt: {paper_totals['kayıt']}")
+        else:
+            st.caption("Henüz kayıt yok — ilk kaydı almak için butona basın.")
+
 else:
     # Boş durum (enstrümanda veri yok) ile hata durumu (ağ/işleme hatası)
     # ayrı gösterilir; kopan bağlantı boş enstrüman sanılmasın (spec 0001).
