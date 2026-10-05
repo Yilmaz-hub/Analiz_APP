@@ -20,8 +20,8 @@ def test_total_exposure_exceeding_limit_is_rejected():
     # (MAX_POSITION_SIZE=0.4 -> 400), so this isolates the exposure check:
     # 750 + 100 = 850 > MAX_TOTAL_EXPOSURE(0.8) * 1000 = 800.
     existing = [
-        {"Yatırım": 375, "Status": "ACTIVE"},
-        {"Yatırım": 375, "Status": "ACTIVE"},
+        {"Coin": "A", "Yatırım": 375, "Status": "ACTIVE", "Adet": 37.5, "Giriş": 10.0, "Realized": 0.0},
+        {"Coin": "B", "Yatırım": 375, "Status": "ACTIVE", "Adet": 37.5, "Giriş": 10.0, "Realized": 0.0},
     ]
     ok, msg = validate_portfolio_risk(100, 250, existing)
     assert ok is False

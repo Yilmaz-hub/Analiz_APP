@@ -32,7 +32,8 @@ def _number(value) -> Decimal:
 
 
 def _active(portfolio: Mapping) -> list[Mapping]:
-    return [p for p in portfolio.get("positions", []) if p.get("Status") == "ACTIVE"]
+    from positions import AKTIF, group_positions
+    return group_positions(portfolio.get("positions", []))[AKTIF]
 
 
 def open_risks(portfolio: Mapping, coin_map: Mapping[str, str]) -> list[tuple[str, Decimal]]:

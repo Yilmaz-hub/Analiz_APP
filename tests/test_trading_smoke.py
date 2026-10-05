@@ -48,7 +48,7 @@ def test_portfolio_stop_touch_is_alert_only(monkeypatch):
 
     portfolio = {"balance": 0, "positions": [{
         "Coin": "ETH", "Status": "ACTIVE", "SL": 90, "TP": 120,
-        "Giris": 100, "Miktar": 1, "Yatırım": 100,
+        "Giriş": 100, "Adet": 1, "Yatırım": 100, "Realized": 0.0,
     }]}
     monkeypatch.setattr(data_fetchers, "get_live_price_for_portfolio", lambda *args: 80)
 

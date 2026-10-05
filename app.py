@@ -895,9 +895,9 @@ if is_chart_renderable(df_view):
                         from data_fetchers import price_diagnostics
                         for row in active_data:
                             if str(row.get("Fiyat", "")).startswith("fiyat alınamadı"):
-                                symbol = st.session_state['coin_map'].get(row["Coin"], "")
-                                details = price_diagnostics(symbol)
-                                if not symbol:
+                                row_symbol = st.session_state['coin_map'].get(row["Coin"], "")
+                                details = price_diagnostics(row_symbol)
+                                if not row_symbol:
                                     note = "varlık listesinde bulunamadı (varlık adı değişmiş ya da silinmiş olabilir)"
                                 else:
                                     note = "; ".join(details) if details else "kaynaklara henüz sorulmadı"

@@ -15,7 +15,7 @@ def _portfolio(*positions):
 
 
 def _open(coin="Ethereum (ETH)", entry=100.0, qty=10.0, stop=90.0):
-    return {"Coin": coin, "Giriş": entry, "Adet": qty, "Stop": stop, "Status": "ACTIVE",
+    return {"Coin": coin, "Giriş": entry, "Adet": qty, "Yatırım": entry * qty, "Stop": stop, "Status": "ACTIVE",
             "Gerçekleşme Zamanı": NOW.isoformat()}
 
 

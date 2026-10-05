@@ -15,12 +15,15 @@ Tabloda gösterilen her pozisyonun fiyatı gerçekten sorulsun; portföy, ağır
 - **R02:** Fiyatı alınamayan pozisyon için ayrıntı, varlık adı varlık listesinde yoksa bunu söyler (adı değişmiş ya da silinmiş olabilir).
 - **R03:** Portföy ve cüzdan bölümü, ileri takip ve kağıt ticaret panellerinden önce çizilir.
 - **R04:** İleri takip paneli ayrıntıyı en çok 6 varlık-sürüm çifti için sorgular; kalanı için sayıyı belirtir.
+- **R05:** Stop uyarısı ve risk toplamları (toplam maruziyet, açık risk) da aynı tek sınıflandırıcıyı kullanır; `Status` alanı olmayan eski kayıtlar dışarıda kalmaz.
 
 ## Acceptance Criteria
 - [ ] **AC09 — Eski kayıtlar fiyatlanır, R01:** `Status` alanı olmayan ya da kalan miktarı olan kaydın fiyatı sorulur ve tabloda "canlı" görünür; tabloya giren hiçbir satır fiyat sorulmadan kalmaz.
 - [ ] **AC10 — Portföy önce, R03:** Ana betikte portföy bölümü, ileri takip ve kağıt ticaret panellerinden önce gelir.
 - [ ] **AC11 — Çift sınırı, R04:** İleri takip paneli ayrıntı sorgusunu en çok 6 çift için yapar; fazlası için "N çift daha" notu gösterilir.
 - [ ] **AC12 — Eksik varlık notu, R02:** Fiyatı alınamayan satırın adı varlık listesinde yoksa kaynak ayrıntısı bunu açıkça söyler.
+- [ ] **AC13 — Stop uyarısı eski kayıtta, R05:** `Status` alanı olmayan kayıt stop uyarısına girer.
+- [ ] **AC14 — Risk toplamı eski kayıtta, R05:** `Status` alanı olmayan kayıt toplam maruziyette ve açık riskte sayılır.
 
 ## Definition of Done
 - [ ] Testler yeşil (tam suite + `-m perf` + `-m browser`)
