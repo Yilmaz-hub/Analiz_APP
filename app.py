@@ -650,7 +650,7 @@ if is_chart_renderable(df_view):
 
     # --- İŞLEM VARSAYIMLARI (geçmiş test + sanal takip ortak) ---
     paper_currency = "TRY" if symbol.endswith(".IS") or symbol == "GRAM_TRY" else "USD/USDT"
-    trade_parsed = render_trade_settings(sel_c, symbol, paper_currency, records_writable)
+    trade_parsed = render_trade_settings(sel_c, symbol, paper_currency, records_writable, price=curr)
 
     # --- BACKTEST ---
     if df_view is not None:

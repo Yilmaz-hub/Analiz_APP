@@ -109,3 +109,17 @@ def save_raw(asset, values):
     document = storage.read_doc(storage.TRADE_SETTINGS_KEY) or {}
     document[asset] = to_raw(values)
     storage.write_doc(storage.TRADE_SETTINGS_KEY, document)
+
+
+def step_cost(settings, price):
+    """Bir adım miktarın güncel fiyatla tutarı; adım ya da fiyat bilinmiyorsa None (spec 0013)."""
+    if settings is None or settings.quantity_step is None or not price or price <= 0:
+        return None
+    return settings.quantity_step * Decimal(str(price))
+
+
+def step_exceeds_notional(settings, price):
+    """Tek adım bile işlem tutarını aşıyorsa tutarı döner (hiç alım yapılamaz); aksi halde None."""
+    cost = step_cost(settings, price)
+    return cost if cost is not None and cost > settings.notional else None
+

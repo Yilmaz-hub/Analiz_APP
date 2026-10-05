@@ -176,7 +176,7 @@ def render_asset_management(coin_map, portfolio_data, storage_ok=True):
                 time.sleep(0.5)
                 st.rerun()
 
-def render_trade_settings(asset_name, symbol, currency, writable=True):
+def render_trade_settings(asset_name, symbol, currency, writable=True, price=None):
     """Tek "İşlem varsayımları" paneli (spec 0003, Q7).
 
     Geçmiş test ve sanal takip aynı değeri kullanır; kalıcı depoda saklanır.
@@ -192,7 +192,7 @@ def render_trade_settings(asset_name, symbol, currency, writable=True):
     fields = (
         ("capital", f"Başlangıç sermayesi ({currency})", trade_settings.DEFAULT_CAPITAL),
         ("notional", f"İşlem tutarı ({currency})", trade_settings.DEFAULT_NOTIONAL),
-        ("quantity_step", "Adet/lot adımı (boş = bilinmiyor)", ""),
+        ("quantity_step", "Adet/lot adımı: en küçük alınabilir miktar (ör. ETH 0.001; boş = bilinmiyor)", ""),
         ("spread_bps", "Makas, baz puan (boş = bilinmiyor, 0 = sıfır)", ""),
         ("slippage_bps", "Kayma, baz puan (boş = bilinmiyor, 0 = sıfır)", ""),
         ("commission_pct", "Komisyon, % (boş = bilinmiyor, 0 = sıfır)", ""),
@@ -222,6 +222,11 @@ def render_trade_settings(asset_name, symbol, currency, writable=True):
                 st.caption("Bilinmeyen: " + ", ".join(unknown) + " — ilgili etki hesaplanmadı.")
             if parsed.settings.quantity_step is None:
                 st.caption("Adet/lot adımı bilinmediği için alım yapılmaz; bilgiyi girince işlem açılır.")
+            blocked = trade_settings.step_exceeds_notional(parsed.settings, price)
+            if blocked is not None:
+                st.warning(f"Adet/lot adımı ({parsed.settings.quantity_step.normalize():f}) × güncel fiyat = "
+                           f"{blocked:,.2f} {currency}; işlem tutarını ({parsed.settings.notional:,.0f}) aşıyor, bu ayarla "
+                           "hiç alım yapılamaz. Adım, kaç adet alınacağı değil, en küçük alınabilir miktardır.")
         if st.button("💾 Varsayımları Kaydet", key=f"ts:{symbol}:save",
                      disabled=not (parsed.ok and writable and load_ok)):
             try:
