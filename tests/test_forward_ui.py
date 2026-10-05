@@ -59,11 +59,11 @@ USER_NOTE = "; ".join(
 
 
 def test_ac01_friendly_time_is_istanbul_local_and_relative():
-    """AC01 — `friendly_time` İstanbul saatiyle "5 Eki 08:52 (3 saat önce)" üretir."""
+    """AC01 — `friendly_time` İstanbul saatiyle "5 Eki 08:52 · 3 saat önce" üretir."""
     moment = datetime(2026, 10, 5, 5, 52, tzinfo=timezone.utc)            # İstanbul +3 → 08:52
-    assert forward_ui.friendly_time(moment, moment + timedelta(hours=3)) == "5 Eki 08:52 (3 saat önce)"
-    assert forward_ui.friendly_time(moment, moment + timedelta(minutes=10)).endswith("(az önce)")
-    assert forward_ui.friendly_time(moment, moment + timedelta(days=2)).endswith("(2 gün önce)")
+    assert forward_ui.friendly_time(moment, moment + timedelta(hours=3)) == "5 Eki 08:52 · 3 saat önce"
+    assert forward_ui.friendly_time(moment, moment + timedelta(minutes=10)).endswith("· az önce")
+    assert forward_ui.friendly_time(moment, moment + timedelta(days=2)).endswith("· 2 gün önce")
 
 
 def test_ac02_status_view_covers_never_ok_stale_and_failed():
@@ -133,3 +133,33 @@ def test_ac06_screen_is_readable_not_a_wall_of_text(store, monkeypatch, processe
     app = next(t for t in app.toggle if t.label == "Ayrıntıları göster (takibi açıp kapatmaz)").set_value(True).run()
     table = next(f.value for f in app.dataframe if "Son karar" in f.value.columns)
     assert list(table["Varlık"]) == ["BTC-USD"]
+
+
+def test_ac03_each_missing_settings_note_is_split_per_asset_without_leftovers():
+    """AC03 — Not, "SEMBOL:" başlarında bölünür: "sanal işlem hesaplanmadı" artığı oluşmaz, başarısız çalışma uyarısına yapışmaz."""
+    now = datetime(2026, 10, 5, 12, tzinfo=timezone.utc)
+    ft.record_run(now, False, USER_NOTE + "; BTC-USD: veri alınamadı (Binance).")
+    view = forward_ui.build_status_view(now)
+    failed = next(text for level, text in view.headline if level == "warn")
+    assert "sanal işlem hesaplanmadı" not in failed and "veri alınamadı" in failed
+    assert "sanal işlem hesaplanmadı" not in " ".join(view.details)
+
+
+def test_ac01_friendly_time_accepts_naive_datetimes_and_has_no_nested_parentheses():
+    """AC01 — Saat dilimsiz zaman UTC sayılır (TypeError yok); biçim iç içe parantez üretmez."""
+    naive = datetime(2026, 10, 5, 12, 0)
+    text = forward_ui.friendly_time(naive, datetime(2026, 10, 5, 12, 30, tzinfo=timezone.utc))
+    assert "(" not in text and text.startswith("5 Eki 15:00")
+
+
+def test_ac04_two_versions_of_one_asset_are_told_apart():
+    """AC04 — Aynı varlığın iki strateji sürümü tabloda ve seçimde ayrı etiket alır; ayrıntı doğru sürümü açar."""
+    at = ft.available_at("KRIPTO", D0) + timedelta(minutes=20)
+    for version in ("V1", "V1~aday"):
+        ft.record(ft.ForwardDecision(
+            asset="BTC-USD", strategy_version=version, candle_day=D0, decision="AL", source="Binance",
+            evaluated_at=at, candle={"close": "100"}, on_time=True, real_clock=True,
+            regime="YUKSELEN", regime_version="R1"))
+    rows = forward_ui.build_summary_rows()
+    assert [r["Varlık"] for r in rows] == ["BTC-USD (V1)", "BTC-USD (V1~aday)"]
+    assert [r["_version"] for r in rows] == ["V1", "V1~aday"]

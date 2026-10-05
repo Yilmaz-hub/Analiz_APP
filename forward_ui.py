@@ -6,6 +6,7 @@ Kayıtlar `forward_tracker` tablolarından okunur; burası yalnız gösterim sat
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -55,8 +56,14 @@ EXPLAIN = ("Takip bu ekrandan açılıp kapanmaz: GitHub görevi günde 3 kez (k
 DISCLAIMER = "Sanal takip gerçek işlem değildir; geçmiş sonuç gelecekteki kazanç olasılığı değildir."
 
 
+def _aware(moment: datetime) -> datetime:
+    """Saat dilimi olmayan zaman UTC sayılır (depo UTC yazar)."""
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
+
+
 def friendly_time(moment: datetime, now: datetime) -> str:
-    """`5 Eki 08:52 (3 saat önce)` biçimi; İstanbul saati (spec 0012)."""
+    """`5 Eki 08:52 · 3 saat önce` biçimi; İstanbul saati (spec 0012). İç içe parantez üretmez."""
+    moment, now = _aware(moment), _aware(now)
     local = moment.astimezone(ISTANBUL)
     age = now - moment
     if age < timedelta(hours=1):
@@ -65,7 +72,7 @@ def friendly_time(moment: datetime, now: datetime) -> str:
         ago = f"{int(age.total_seconds() // 3600)} saat önce"
     else:
         ago = f"{age.days} gün önce"
-    return f"{local.day} {_MONTHS[local.month - 1]} {local:%H:%M} ({ago})"
+    return f"{local.day} {_MONTHS[local.month - 1]} {local:%H:%M} · {ago}"
 
 
 @dataclass(frozen=True)
@@ -79,7 +86,9 @@ class StatusView:
 def _split_note(note: str) -> tuple[list[str], list[str]]:
     """Koşucu notunu (`;` ile birleşik) iki gruba ayırır: eksik varsayım olan semboller ve diğer notlar."""
     missing, others = [], []
-    for part in (p.strip() for p in note.split(";")):
+    # Not "SEMBOL: ...; ..." biçiminde birleştirilmiş cümlelerdir; yalnız yeni "SEMBOL:" başında bölünür,
+    # böylece bir notun kendi içindeki ";" (… eksik; sanal işlem hesaplanmadı.) parçalanmaz.
+    for part in (p.strip() for p in re.split(r";\s+(?=[A-Za-z0-9_.=/\-]+:\s)", note)):
         if not part:
             continue
         if _MISSING_SETTINGS in part:
@@ -175,21 +184,22 @@ def _short_day(day) -> str:
 def build_summary_rows(pairs=None) -> list[dict]:
     """Varlık başına tek satır: son karar, birikim sayaçları ve durum (spec 0012)."""
     rows = []
-    for asset, version in (pairs if pairs is not None else ft.tracked_pairs())[:MAX_PAIRS]:
+    shown = (pairs if pairs is not None else ft.tracked_pairs())[:MAX_PAIRS]
+    for asset, version in shown:
         decided = ft.decisions(asset, version)
         verdict = ft.assess(asset, version)
         counted = [d for d in decided if d.on_time and d.real_clock]
         regimes = {d.regime for d in counted if d.regime}
         last = decided[-1] if decided else None
         rows.append({
-            "Varlık": asset,
+            "Varlık": asset if sum(a == asset for a, _ in shown) == 1 else f"{asset} ({version})",
             "Son karar": f"{_DECISION_ICON.get(last.decision, last.decision)} · {_short_day(last.candle_day)}"
                          if last else "—",
             "Gün": f"{len(counted)} / {ForwardConfig.MIN_TRACKED_DAYS}",
             "İşlem": f"{ft.closed_trades(asset, version)} / {ForwardConfig.MIN_CLOSED_TRADES}",
             "Koşul": f"{len(regimes)} / 3",
             "Durum": "✅ Yeterli kanıt" if verdict.sufficient else "⏳ Birikiyor",
-            "_version": version,
+            "_asset": asset, "_version": version,
         })
     return rows
 
@@ -228,7 +238,7 @@ def render_forward_panel(now: datetime) -> None:
             st.info("Henüz kayıtlı karar yok. İlk karar, zamanlanmış görev çalışınca burada görünür.")
             st.caption(DISCLAIMER)
             return
-        st.dataframe(pd.DataFrame([{k: v for k, v in r.items() if k != "_version"} for r in rows]),
+        st.dataframe(pd.DataFrame([{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]),
                      width="stretch", hide_index=True)
         st.caption("Gün: izlenen gün · İşlem: kapanmış sanal işlem · Koşul: görülen piyasa koşulu "
                    "(yükselen / düşen / yatay). Soldaki sayı birikeni, sağdaki hedefi gösterir.")
@@ -236,8 +246,9 @@ def render_forward_panel(now: datetime) -> None:
             st.caption(f"{len(pairs) - MAX_PAIRS} varlık daha izleniyor; tabloda ilk {MAX_PAIRS} gösterilir.")
         names = [r["Varlık"] for r in rows]
         picked = st.selectbox("Ayrıntı için varlık seçin", names, key="forward_detail_asset")
-        version = next(r["_version"] for r in rows if r["Varlık"] == picked)
-        detail = build_detail(picked, version)
+        chosen = next(r for r in rows if r["Varlık"] == picked)
+        asset, version = chosen["_asset"], chosen["_version"]
+        detail = build_detail(asset, version)
     except StorageAccessError:
         st.warning("İleri takip kayıtları okunamadı; kayıt deposu erişimini kontrol edin.")
         return
