@@ -7,9 +7,11 @@ Kayıtlar `forward_tracker` tablolarından okunur; burası yalnız gösterim sat
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import forward_tracker as ft
+from config import ForwardConfig
 
 STALE_AFTER = timedelta(days=2)
 RECENT = 5
@@ -44,18 +46,94 @@ def build_forward_status(now: datetime) -> list[str]:
     return lines
 
 
+ISTANBUL = ZoneInfo("Europe/Istanbul")
+_MONTHS = ("Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara")
+_MISSING_SETTINGS = "miktar adımı/varsayımlar eksik"
+EXPLAIN = ("Her gün mum kapanınca stratejinin kararı (AL / BEKLE / SAT) kaydedilir; ekran kapalıyken de "
+           "GitHub görevi çalışır. Yeterince gün ve işlem birikince sanal sonuç değerlendirilir.")
+DISCLAIMER = "Sanal takip gerçek işlem değildir; geçmiş sonuç gelecekteki kazanç olasılığı değildir."
+
+
+def friendly_time(moment: datetime, now: datetime) -> str:
+    """`5 Eki 08:52 (3 saat önce)` biçimi; İstanbul saati (spec 0012)."""
+    local = moment.astimezone(ISTANBUL)
+    age = now - moment
+    if age < timedelta(hours=1):
+        ago = "az önce"
+    elif age < timedelta(days=1):
+        ago = f"{int(age.total_seconds() // 3600)} saat önce"
+    else:
+        ago = f"{age.days} gün önce"
+    return f"{local.day} {_MONTHS[local.month - 1]} {local:%H:%M} ({ago})"
+
+
+@dataclass(frozen=True)
+class StatusView:
+    """Üstte görünen kısa durum: her satır (düzey, metin); düzey `ok`/`warn`/`info`."""
+    headline: list[tuple[str, str]]
+    notice: str            # ör. "9 varlıkta işlem varsayımı eksik …"; yoksa boş
+    details: list[str]     # "Ayrıntı" bölümünde listelenenler
+
+
+def _split_note(note: str) -> tuple[list[str], list[str]]:
+    """Koşucu notunu (`;` ile birleşik) iki gruba ayırır: eksik varsayım olan semboller ve diğer notlar."""
+    missing, others = [], []
+    for part in (p.strip() for p in note.split(";")):
+        if not part:
+            continue
+        if _MISSING_SETTINGS in part:
+            missing.append(part.split(":")[0].strip())
+        else:
+            others.append(part.rstrip("."))
+    return missing, others
+
+
+def build_status_view(now: datetime) -> StatusView:
+    runs = ft.recent_runs(1)
+    last = ft.last_successful_run()
+    headline: list[tuple[str, str]] = []
+    if last is None:
+        headline.append(("info", "Takip henüz çalışmadı. İlk çalışma zamanlanmış görevle gerçekleşir."))
+    elif now - last > STALE_AFTER:
+        headline.append(("warn", f"Takip 2 günden uzun süredir çalışmadı (son: {friendly_time(last, now)}); "
+                                 "durmuş olabilir."))
+    else:
+        headline.append(("ok", f"Takip çalışıyor · son başarılı çalışma: {friendly_time(last, now)}"))
+    notice, details = "", []
+    if runs:
+        latest = runs[0]
+        missing, others = _split_note(latest["note"]) if latest["note"] != "tamam" else ([], [])
+        if not latest["ok"]:
+            when = friendly_time(latest["run_at"], now)
+            headline.append(("warn", f"Son çalışma başarısız ({when}): {'; '.join(others) or latest['note']}"))
+            others = []
+        if missing:
+            notice = (f"{len(missing)} varlıkta işlem varsayımı (miktar adımı) girilmemiş: bu varlıklar için "
+                      "sanal kâr/zarar hesaplanmıyor; kararlar yine kaydediliyor.")
+            details.append("Varsayımı eksik: " + ", ".join(missing))
+        details.extend(others)
+    return StatusView(headline, notice, details)
+
+
 def render_forward_status(now: datetime) -> None:
     import streamlit as st
 
     from storage import StorageAccessError
 
     try:
-        lines = build_forward_status(now)
+        view = build_status_view(now)
     except StorageAccessError:
         st.warning("İleri takip kayıtları okunamadı; kayıt deposu erişimini kontrol edin.")
         return
-    for line in lines:
-        (st.warning if line.startswith("Uyarı") else st.caption)(line)
+    for level, text in view.headline:
+        {"ok": st.success, "warn": st.warning}.get(level, st.info)(text)
+    st.caption(EXPLAIN)
+    if view.notice:
+        st.caption("ℹ️ " + view.notice)
+    if view.details:
+        with st.expander("Son çalışma ayrıntısı"):
+            for line in view.details:
+                st.caption(line)
 
 
 def build_forward_view(now: datetime) -> ForwardView:
@@ -86,15 +164,89 @@ def build_forward_view(now: datetime) -> ForwardView:
     return ForwardView(lines)
 
 
+_DECISION_ICON = {"AL": "🟢 AL", "SAT": "🔴 SAT", "BEKLE": "⚪ BEKLE"}
+
+
+def _short_day(day) -> str:
+    return f"{day.day} {_MONTHS[day.month - 1]}"
+
+
+def build_summary_rows(pairs=None) -> list[dict]:
+    """Varlık başına tek satır: son karar, birikim sayaçları ve durum (spec 0012)."""
+    rows = []
+    for asset, version in (pairs if pairs is not None else ft.tracked_pairs())[:MAX_PAIRS]:
+        decided = ft.decisions(asset, version)
+        verdict = ft.assess(asset, version)
+        counted = [d for d in decided if d.on_time and d.real_clock]
+        regimes = {d.regime for d in counted if d.regime}
+        last = decided[-1] if decided else None
+        rows.append({
+            "Varlık": asset,
+            "Son karar": f"{_DECISION_ICON.get(last.decision, last.decision)} · {_short_day(last.candle_day)}"
+                         if last else "—",
+            "Gün": f"{len(counted)} / {ForwardConfig.MIN_TRACKED_DAYS}",
+            "İşlem": f"{ft.closed_trades(asset, version)} / {ForwardConfig.MIN_CLOSED_TRADES}",
+            "Koşul": f"{len(regimes)} / 3",
+            "Durum": "✅ Yeterli kanıt" if verdict.sufficient else "⏳ Birikiyor",
+            "_version": version,
+        })
+    return rows
+
+
+def build_detail(asset: str, version: str) -> dict:
+    """Seçilen varlığın ayrıntısı: son kararlar, kayıtlı varsayımlar, uyarılar."""
+    decided = ft.decisions(asset, version)
+    recent = decided[-RECENT:]
+    decisions_table = [{"Gün": d.candle_day.isoformat(), "Karar": _DECISION_ICON.get(d.decision, d.decision),
+                        "Kayıt": ft.status_text(d), "Kaynak": d.source} for d in reversed(recent)]
+    assumptions = []
+    if recent and recent[-1].assumptions:
+        assumptions = [{"Varsayım": key, "Değer": ("girilmedi" if value == "bilinmiyor" else value)}
+                       for key, value in recent[-1].assumptions.items()]
+    warnings = []
+    gaps = ft.missing_days(asset, version)
+    if gaps:
+        warnings.append(f"Eksik görünen gün: {len(gaps)} (ilki {gaps[0]}; resmi tatiller de eksik görünebilir).")
+    for revision in ft.revisions(asset, version):
+        warnings.append(f"{revision['candle_day']}: mum sağlayıcıda revize edildi; karar değişmedi.")
+    verdict = ft.assess(asset, version)
+    return {"decisions": decisions_table, "assumptions": assumptions, "warnings": warnings,
+            "missing": [] if verdict.sufficient else list(verdict.missing)}
+
+
 def render_forward_panel(now: datetime) -> None:
+    import pandas as pd
     import streamlit as st
 
     from storage import StorageAccessError
 
     try:
-        view = build_forward_view(now)
+        pairs = ft.tracked_pairs()
+        rows = build_summary_rows(pairs)
+        if not rows:
+            st.info("Henüz kayıtlı karar yok. İlk karar, zamanlanmış görev çalışınca burada görünür.")
+            st.caption(DISCLAIMER)
+            return
+        st.dataframe(pd.DataFrame([{k: v for k, v in r.items() if k != "_version"} for r in rows]),
+                     width="stretch", hide_index=True)
+        st.caption("Gün: izlenen gün · İşlem: kapanmış sanal işlem · Koşul: görülen piyasa koşulu "
+                   "(yükselen / düşen / yatay). Soldaki sayı birikeni, sağdaki hedefi gösterir.")
+        if len(pairs) > MAX_PAIRS:
+            st.caption(f"{len(pairs) - MAX_PAIRS} varlık daha izleniyor; tabloda ilk {MAX_PAIRS} gösterilir.")
+        names = [r["Varlık"] for r in rows]
+        picked = st.selectbox("Ayrıntı için varlık seçin", names, key="forward_detail_asset")
+        version = next(r["_version"] for r in rows if r["Varlık"] == picked)
+        detail = build_detail(picked, version)
     except StorageAccessError:
         st.warning("İleri takip kayıtları okunamadı; kayıt deposu erişimini kontrol edin.")
         return
-    for line in view.lines:
-        (st.warning if line.startswith("Uyarı") else st.caption)(line)
+    st.markdown(f"**{picked} · son {RECENT} karar**")
+    st.dataframe(pd.DataFrame(detail["decisions"]), width="stretch", hide_index=True)
+    if detail["missing"]:
+        st.caption("Değerlendirme için eksik: " + ", ".join(detail["missing"]) + ".")
+    for line in detail["warnings"]:
+        st.caption("⚠️ " + line)
+    if detail["assumptions"]:
+        with st.expander("Son kararın varsayımları"):
+            st.dataframe(pd.DataFrame(detail["assumptions"]), width="stretch", hide_index=True)
+    st.caption(DISCLAIMER)
