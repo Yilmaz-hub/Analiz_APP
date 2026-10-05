@@ -91,8 +91,14 @@ def _guard(function):
 
 
 def _engine():
+    """Depo bağlantısı; tablolar süreç başına bir kez oluşturulur (spec 0008 R01).
+
+    Her çağrıda 12 `CREATE TABLE IF NOT EXISTS` göndermek, uzak veritabanında (Neon) her ekran
+    çalıştırmasına gidiş-dönüş süresi kadar saniye ekliyordu."""
     engine = storage.get_engine()
-    ensure_tables(engine)
+    if not getattr(engine, "_forward_tables_ready", False):
+        ensure_tables(engine)
+        engine._forward_tables_ready = True
     return engine
 
 
