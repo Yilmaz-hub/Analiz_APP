@@ -140,3 +140,37 @@ def resolve_name(coin_map: dict, name):
 
     loose = [key for key, symbol in coin_map.items() if wanted in tokens(key, symbol)]
     return loose[0] if len(loose) == 1 else None
+
+
+# Yaygın kripto adları: kod yazılınca "Ad (KOD)" biçiminde öneri için (spec 0011). Liste kapalıdır;
+# bilinmeyen kod için ad uydurulmaz.
+KNOWN_NAMES = {
+    "BTC": "Bitcoin", "ETH": "Ethereum", "SOL": "Solana", "XRP": "Ripple", "AVAX": "Avax",
+    "DOGE": "Dogecoin", "PEPE": "Pepe", "LINK": "Chainlink", "HBAR": "Hedera", "ADA": "Cardano",
+    "BNB": "BNB", "DOT": "Polkadot", "MATIC": "Polygon", "LTC": "Litecoin", "TRX": "Tron",
+    "SHIB": "Shiba Inu", "UNI": "Uniswap", "ATOM": "Cosmos", "XLM": "Stellar", "NEAR": "Near",
+    "APT": "Aptos", "ARB": "Arbitrum", "OP": "Optimism", "SUI": "Sui", "INJ": "Injective",
+    "FIL": "Filecoin", "AAVE": "Aave", "ETC": "Ethereum Classic", "BCH": "Bitcoin Cash",
+    "ALGO": "Algorand", "VET": "VeChain", "ICP": "Internet Computer", "TON": "Toncoin",
+    "RUNE": "THORChain", "FET": "Fetch.ai", "RNDR": "Render", "SEI": "Sei", "TIA": "Celestia",
+}
+
+
+def suggest_name(coin_map: dict, symbol):
+    """Yahoo kodundan görünen ad önerisi; öneri yoksa ya da zaten listedeyse None (spec 0011).
+
+    Önce listedeki/varsayılandaki aynı sembolün adı, sonra bilinen kripto adı (`Chainlink (LINK)`)."""
+    text = str(symbol or "").strip()
+    if not text:
+        return None
+    canonical = market_map.canonical_symbol(text)
+    for source in (coin_map, DEFAULT_COIN_MAP):
+        for key, value in source.items():
+            if market_map.canonical_symbol(value) == canonical:
+                return None if key in coin_map else key
+    base = canonical.split("-")[0] if canonical.endswith("-USD") else ""
+    name = KNOWN_NAMES.get(base)
+    if name is None:
+        return None
+    suggestion = f"{name} ({base})" if name.upper() != base else base
+    return None if suggestion in coin_map else suggestion
