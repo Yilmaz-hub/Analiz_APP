@@ -100,7 +100,7 @@ Tümü Takım Yöneticisi onayıyla, 2026-10-03. Değerler sonuçlar görülmede
 - [ ] **AC08 — Filtre:** ETH ve BIST işlemleri içeren raporda ETH seçildiğinde metrikler yalnız ETH işlemleriyle hesaplanır.
 - [ ] **AC09 — Geçersiz tarih:** Başlangıcı bitişinden sonra olan dönem reddedilir ve açıklama gösterilir.
 - [ ] **AC10 — Para birimi:** 100 TL ve 100 USD sonuç içeren rapor bunları 200 tutarında tek parasal toplam olarak göstermez.
-- [ ] **AC11 — Eşit karşılaştırma:** Başlangıç sermayesi veya dönemi **tam eşit olmayan** iki değerlendirme karşılaştırıldığında (ör. 10.000 ile 10.000,01) eşit koşullarda karşılaştırılamadığı görünür ve tek üstünlük sonucu yayımlanmaz.
+- [ ] **AC11 — Eşit karşılaştırma:** Başlangıç sermayesi veya dönemi **tam eşit olmayan** iki değerlendirme karşılaştırıldığında (ör. 10.000 ile 10.000,01) eşit koşullarda karşılaştırılamadığı görünür ve tek üstünlük sonucu yayımlanmaz. **Kapsam (kapanış kararı, 2026-10-05):** bu kriter mantık katmanında (`evaluation_window.comparable`) sağlanır; üründe strateji ile al-tut karşılaştırması her zaman aynı sermaye ve aynı dönemle koşturulduğu için eşitsiz girdi ekranda oluşamaz. İki varlığı ya da farklı sermayeleri karşılaştıran ekran bu spec'in kapsamı dışındadır; gerekirse ayrı spec ister.
 - [ ] **AC12 — Gelecek verisi:** Bir karar tarihinden sonraki fiyatlar değiştirildiğinde o tarihin kararı değişmez.
 - [ ] **AC13 — Ayrılmış dönem, Q01:** 100 uygun tarih içeren örnekte ilk 60 tarih ayar seçimine, kalan 40 tarih ayrı değerlendirmeye atanır.
 - [ ] **AC14 — Nakit hareketi, Q01:** Değerlendirme döneminde dışarıdan para yatırılmışsa önerilen ilk kapsamda strateji getiri karşılaştırması uygun sayılmaz.
@@ -149,7 +149,7 @@ Tümü Takım Yöneticisi onayıyla, 2026-10-03. Değerler sonuçlar görülmede
 - [ ] **AC53 — Bölünmeyen ayrım, Q01:** 7 uygun tarihte ayar seçimine 4, ayrı değerlendirmeye 3 tarih atanır.
 - [ ] **AC54 — Yetersiz geçmiş eşiği, Q01:** 249 uygun tarih içeren dönem “yetersiz geçmiş” olarak işaretlenir ve yeterli kanıt sayılmaz.
 - [ ] **AC55 — Tek günlük dönem, S05:** Başlangıcı bitişine eşit dönem reddedilmez; sonuç o günün verisiyle üretilir.
-- [ ] **AC56 — Ortak tarih yok, S05:** Karşılaştırılan iki varlığın ortak işlem tarihi yoksa karşılaştırma yapılmaz ve nedeni gösterilir.
+- [ ] **AC56 — Ortak tarih yok, S05:** Karşılaştırılan iki varlığın ortak işlem tarihi yoksa karşılaştırma yapılmaz ve nedeni gösterilir. **Kapsam (kapanış kararı, 2026-10-05):** AC11'deki gibi mantık katmanında sağlanır; ürün tek varlığın stratejisini kendi al-tut'uyla karşılaştırır, iki varlıklı karşılaştırma ekranı yoktur.
 - [ ] **AC57 — Veri öncesi dönem, S05:** Tümü varlığın ilk verisinden önce olan dönem için metrik üretilmez, “yetersiz geçmiş” görünür.
 - [ ] **AC58 — Ölçek altı oran, Q04:** Yüzde ölçeğinde sıfıra yuvarlanan risk oranı girdisi (ör. %0,001) reddedilir.
 - [ ] **AC59 — Geçerlilik anı, S07:** Fiyat teması stop yükseltmesinin geçerlilik anıyla tam aynı zamanda gerçekleştiğinde temas yeni stopa dahil sayılır.
@@ -230,3 +230,8 @@ Tümü Takım Yöneticisi onayıyla, 2026-10-03. Değerler sonuçlar görülmede
 | Bulgu gerçek/gürültü oranı | Revizyon 1: 35 bulgu getirildi, 35'i gerçek kabul edildi, 0 gürültü (spec denetimi; kod denetimi yapılmadı) |
 | Regresyon sayısı | Ölçülmedi |
 | Kaçan hata | Ölçülmedi |
+
+## Kapanış notları (2026-10-05)
+- **Merge yöntemi:** `docs/git.md` squash-merge kuralını yazar; bu spec'in PR'ları (#15, #17–#19, #21) ve spec 0006'nın #20'si **merge commit** ile `main`'e alındı. Geri alınamaz (history silinmez); sapma Takım Yöneticisi'nin bilgisiyle kayda geçti. Spec 0007 (#22) ve sonrası squash ile alınır. Depo ayarında yalnız squash merge açık bırakılması Takım Yöneticisi'nin eylemidir.
+- **Defter biçimi:** Deftere yazılan `Adet`, `Realized`, `Yatırım`, `balance` JSON `float` olarak durur; ayrıntı ve karar [conventions.md](../docs/conventions.md#finansal-defter-kayıt-biçimi-istisnası)'ndedir.
+- **Ayrı spec bekleyenler:** iki varlıklı karşılaştırma ekranı; defter alanlarının `Decimal`/metne taşınması (yedekli göç).
