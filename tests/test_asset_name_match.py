@@ -17,7 +17,7 @@ def test_ac02_short_name_resolves_to_the_unique_asset_containing_it():
 
 def test_ac03_ambiguous_or_unknown_names_are_not_guessed():
     """AC03 — Birden fazla aday ya da hiç aday yoksa tahmin edilmez (None)."""
-    two = {"Link A": "LINK-USD", "Link B": "LINKB-USD"}
+    two = {"Link A (LINK)": "LINK-USD", "Link B (LINK)": "LINK-USDT"}
     assert assets.resolve_name(two, "link") is None
     assert assets.resolve_name(MAP, "Silinmis") is None
     assert assets.resolve_name(MAP, "") is None and assets.resolve_name(MAP, None) is None
@@ -107,3 +107,23 @@ def test_ac08_screen_offers_the_suggested_name_and_fills_it(store, monkeypatch, 
     assert any("Önerilen ad: **Chainlink (LINK)**" in c.value for c in at.sidebar.caption)
     next(b for b in at.button if b.label == "Öneriyi kullan").click().run()
     assert next(t for t in at.text_input if t.label.startswith("Görünen")).value == "Chainlink (LINK)"
+
+
+# ---- QA bulguları (PR #26) -----------------------------------------------------------------------
+def test_ac03_single_word_of_a_longer_name_never_matches():
+    """AC03 — Çok sözcüklü adın tek sözcüğü eşleşme sayılmaz: `ethereum`↔ETC, `bitcoin`↔BCH, `usd`/`eur`↔EUR/USD yok."""
+    only_etc = {"Ethereum Classic (ETC)": "ETC-USD"}
+    assert assets.resolve_name(only_etc, "ethereum") is None
+    assert assets.resolve_name({"Bitcoin Cash (BCH)": "BCH-USD"}, "bitcoin") is None
+    pair = {"EUR/USD": "EURUSD=X"}
+    assert assets.resolve_name(pair, "usd") is None and assets.resolve_name(pair, "eur") is None
+    assert assets.resolve_name(only_etc, "etc") == "Ethereum Classic (ETC)"       # tam kod eşleşir
+
+
+def test_ac06_risk_currency_and_sell_symbol_use_the_positions_own_symbol():
+    """AC06 — Risk paneli para birimi ve satış sembolü, kaydın `Sembol` alanını (varlık listeden silinmiş olsa da) kullanır."""
+    import risk_ui
+
+    pos = {"Coin": "Silinmis", "Sembol": "THYAO.IS", "Giriş": 10.0, "Adet": 2.0, "Yatırım": 20.0, "Stop": 8.0}
+    (currency, _), = risk_ui.open_risks({"positions": [pos]}, {})
+    assert currency == "TRY"

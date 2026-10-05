@@ -168,7 +168,7 @@ def sell_panel(sel_c, curr, records_writable):
             outcome = confirm_sell(
                 st.session_state['portfolio_data'], st.session_state['position_journal'],
                 safe_save_portfolio, position=target_pos,
-                symbol=st.session_state['coin_map'].get(s_coin, s_coin),
+                symbol=target_pos.get('Sembol') or st.session_state['coin_map'].get(s_coin, s_coin),
                 quantity=sell_amt, price=sell_price,
                 executed_at=istanbul_to_utc(sell_date, sell_time),
                 now=datetime.now(timezone.utc),

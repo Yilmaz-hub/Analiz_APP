@@ -119,8 +119,9 @@ def resolve_name(coin_map: dict, name):
     """Pozisyondaki varlık adına karşılık gelen listedeki adı bulur; yoksa None (spec 0010).
 
     Sırayla: birebir; büyük/küçük harf ve boşluktan bağımsız; adın listedeki bir varlığın
-    adındaki sözcüklerden biri ya da sembolünün tabanı olması (`link` → `Chainlink (LINK)` /
-    `LINK-USD`). Birden fazla aday varsa tahmin edilmez (None)."""
+    adındaki parantez içi kod ya da sembolünün tabanı olması (`link` → `Chainlink (LINK)` /
+    `LINK-USD`). Çok sözcüklü adın tek sözcüğüyle eşleşme yoktur (`ethereum` ≠ `Ethereum Classic (ETC)`).
+    Birden fazla aday varsa tahmin edilmez (None)."""
     if not isinstance(name, str) or not name.strip():
         return None
     if name in coin_map:
@@ -132,13 +133,15 @@ def resolve_name(coin_map: dict, name):
     if exact:
         return None
 
-    def tokens(key, symbol):
+    def codes(key, symbol):
+        """Yalnız tam kod eşleşmeleri: parantez içindeki kod ve sembolün tabanı (tek sözcük eşleşmesi yok)."""
         import re
-        words = re.findall(r"[^\W_]+", str(key).casefold())
-        base = re.split(r"[-/=._]", str(symbol).strip().casefold())[0] if symbol else ""
-        return set(words) | ({base} if base else set())
+        found = {part.casefold() for part in re.findall(r"\(([^)]+)\)", str(key))}
+        if symbol:
+            found.add(re.split(r"[-/=._]", str(symbol).strip().casefold())[0])
+        return found
 
-    loose = [key for key, symbol in coin_map.items() if wanted in tokens(key, symbol)]
+    loose = [key for key, symbol in coin_map.items() if wanted in codes(key, symbol)]
     return loose[0] if len(loose) == 1 else None
 
 
