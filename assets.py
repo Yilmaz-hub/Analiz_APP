@@ -113,3 +113,30 @@ def reset_assets(assets: dict, portfolio_positions, confirmed: bool):
         )
 
     return True, "Liste varsayılana döndürüldü.", default_assets()
+
+
+def resolve_name(coin_map: dict, name):
+    """Pozisyondaki varlık adına karşılık gelen listedeki adı bulur; yoksa None (spec 0010).
+
+    Sırayla: birebir; büyük/küçük harf ve boşluktan bağımsız; adın listedeki bir varlığın
+    adındaki sözcüklerden biri ya da sembolünün tabanı olması (`link` → `Chainlink (LINK)` /
+    `LINK-USD`). Birden fazla aday varsa tahmin edilmez (None)."""
+    if not isinstance(name, str) or not name.strip():
+        return None
+    if name in coin_map:
+        return name
+    wanted = name.strip().casefold()
+    exact = [key for key in coin_map if str(key).strip().casefold() == wanted]
+    if len(exact) == 1:
+        return exact[0]
+    if exact:
+        return None
+
+    def tokens(key, symbol):
+        import re
+        words = re.findall(r"[^\W_]+", str(key).casefold())
+        base = re.split(r"[-/=._]", str(symbol).strip().casefold())[0] if symbol else ""
+        return set(words) | ({base} if base else set())
+
+    loose = [key for key, symbol in coin_map.items() if wanted in tokens(key, symbol)]
+    return loose[0] if len(loose) == 1 else None
