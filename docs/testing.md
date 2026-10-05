@@ -41,7 +41,7 @@
   işaretli testler normal koşudan çıkarılır; spec 0005 S7). Ölçüm ortamı (Python sürümü, işlemci,
   çekirdek) test çıktısına yazılır; kanıt `docs/evidence/` altında tutulur.
 - Gerçek tarayıcı testleri (`tests/test_browser_fragment.py`, işaret `browser`) normal koşudan çıkarılır;
-  `python -m pytest tests/ -m browser -v` ile ayrı koşulur (Playwright ve Chromium gerekir, yoksa atlanır).
+  `python -m pytest tests/ -m browser -v` ile ayrı koşulur (Playwright ve Chromium gerekir; Playwright kurulu değilse atlanır, Chromium bulunamazsa test düşer).
   Streamlit parça (fragment) davranışı `AppTest` ile taklit edilemediği için yalnız burada sınanır.
 - Ekransız ileri takip koşucusu `.github/workflows/forward-tracking.yml` ile zamanlanır
   (`python -m forward_runner`); `ANALIZ_APP_DB_URL` repository secret'ı gerekir (`storage.md`).

@@ -4,15 +4,23 @@
 
 ## Para = decimal (mutlak kural)
 
-- Tüm para ve yüzde alanları **`decimal.Decimal`**. `float` **yasak** (aşağıdaki V1 istisnası hariç).
-- `Decimal` değerler `str` olarak saklanır (belge deposunda JSON'a `float` olarak yazılmaz) ve
+- Tüm para ve yüzde alanları **`decimal.Decimal`**. `float` **yasak** (aşağıdaki V1 analitik istisnası ve finansal defter kayıt biçimi istisnası hariç).
+- Yeni alanlarda `Decimal` değerler `str` olarak saklanır (belge deposunda JSON'a `float` olarak yazılmaz; mevcut defter alanları için aşağıdaki istisna geçerlidir) ve
   `Decimal(str(değer))` ile okunur; sabit ölçek gerektiğinde `quantize` kullanılır
   (para için iki ondalık, yüzde için iki ondalık).
 - Para değeri para birimi bilgisiyle taşınır; yuvarlama tek noktada, açıkça yapılır.
 
 ## V1 analitik ara hesap istisnası
 
-İşlem tutarlılığı feature'ı için onaylı istisna: mevcut gösterge/ML kütüphanelerinin yalnız analitik ara hesaplarında kayan nokta kullanılabilir. Analitik fiyat/ATR çıktısı finansal hesaba geçerken ondalık gösterimi üzerinden decimal'e dönüştürülür; fiyat adımı yuvarlaması bundan sonra uygulanır. Dönüşüm hassasiyet kazandırmış sayılmaz. İşlem fiyatı, stop, miktar, tutar, komisyon, bakiye ve getiri/yüzde hesapları decimal kalır; finansal defter bu istisnaya dahil değildir. Sunum yuvarlaması hesap girdisi olamaz.
+İşlem tutarlılığı feature'ı için onaylı istisna: mevcut gösterge/ML kütüphanelerinin yalnız analitik ara hesaplarında kayan nokta kullanılabilir. Analitik fiyat/ATR çıktısı finansal hesaba geçerken ondalık gösterimi üzerinden decimal'e dönüştürülür; fiyat adımı yuvarlaması bundan sonra uygulanır. Dönüşüm hassasiyet kazandırmış sayılmaz. İşlem fiyatı, stop, miktar, tutar, komisyon, bakiye ve getiri/yüzde hesapları decimal kalır; finansal defter bu istisnaya dahil değildir (defterin kayıt biçimi için aşağıdaki ayrı istisnaya bakın). Sunum yuvarlaması hesap girdisi olamaz.
+
+## Finansal defter kayıt biçimi istisnası
+
+Karar (Takım Yöneticisi, 2026-10-05): portföy defterinde (`portfolio` belgesi) `Adet`, `Realized`, `Yatırım`,
+`Çıkış Adedi` ve `balance` alanları spec 0003'ten beri JSON `float` olarak saklanır; yayındaki gerçek kayıtlar bu
+biçimdedir. **Hesap `Decimal` ile yapılır**: kayıttan okunan değer `Decimal(str(değer))` ile alınır, sonuç yazılırken
+`float`'a çevrilir. Yeni eklenen alanlar (ör. `Çıkışlar` listesi) `str`/`Decimal` metni olarak yazılır. Defter
+alanlarının `Decimal`/metne taşınması, yayındaki kayıtlara dokunan bir göçtür; yedek ve ayrı spec olmadan yapılmaz.
 
 ## Adlandırma
 

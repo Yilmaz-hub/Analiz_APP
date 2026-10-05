@@ -30,7 +30,7 @@ feat(catalog): sayfalama endpoint'i [plan 0001/3]
 ## PR Şartları
 
 - **PR şablonu** doldurulur (spec atıfı, kabul kriterleri, kanıt/ekran görüntüsü).
-- **Yeşil pipeline zorunlu** (lint + build + testler).
+- **Yeşil pipeline zorunlu** (CI: `pytest` ve `browser` işleri; bu depoda ayrı bir lint adımı yoktur).
 - En az bir onay: mesajı/PR'ı üye hazırlar, **Takım Yöneticisi onaylar**.
 
 ## Merge

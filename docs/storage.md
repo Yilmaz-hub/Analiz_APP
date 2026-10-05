@@ -49,6 +49,11 @@ Streamlit secrets'a yazmak yeterlidir:
 db_url = "postgresql+psycopg://kullanici:parola@host/veritabani?sslmode=require"
 ```
 
+Neon'un panelden verdiği `postgresql://…` ve `postgres://…` adresleri olduğu gibi yapıştırılabilir:
+uygulama bunları kurulu sürücüye (`postgresql+psycopg://…`) kendiliğinden çevirir; çevreleyen boşluk ve tırnak
+atılır, sürücüsü açıkça yazılmış adres ve SQLite değişmez (`storage.normalize_db_url`, spec 0007 R01).
+Bağlanılamazsa kenar çubuğu "kayıtlarınız silinmedi, bağlantı adresini kontrol edin" der.
+
 Sürücü `requirements.txt` içindedir (`psycopg[binary]`). Tablo ilk açılışta
 kendiliğinden oluşur.
 

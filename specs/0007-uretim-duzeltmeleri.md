@@ -1,7 +1,7 @@
 # Spec: 0007 — Yayın Ortamı Düzeltmeleri (kayıt bağlantısı ve fiyat bekleme süresi)
 
 > Şablon: [TEMPLATE.md](TEMPLATE.md). Rol: Analist. Revizyon 1 (2026-10-04).
-> Durum: **TASLAK — acil düzeltme.** Kaynak: Takım Yöneticisi'nin yayındaki bildirimi (2026-10-04): "kâr al kısmında yüzde yazdım, fiyatlar bozuldu; yeniden başlattım, portföy gelmiyor; backtest ve ileri sanal takip 2–3 kez yazılmış". Yayın günlüklerine erişilemediği için kök neden kesin değildir; bu spec, **gözlemlenen belirtileri açıklayan iki doğrulanabilir zayıflığı** kapatır. Kesin neden, düzeltmeden sonra yayında doğrulanır (AP-05).
+> Durum: **UYGULANDI — QA kabul (3 tur); yayında doğrulama bekliyor.** (Eski durum: taslak, acil düzeltme.) Kaynak: Takım Yöneticisi'nin yayındaki bildirimi (2026-10-04): "kâr al kısmında yüzde yazdım, fiyatlar bozuldu; yeniden başlattım, portföy gelmiyor; backtest ve ileri sanal takip 2–3 kez yazılmış". Yayın günlüklerine erişilemediği için kök neden kesin değildir; bu spec, **gözlemlenen belirtileri açıklayan iki doğrulanabilir zayıflığı** kapatır. Kesin neden, düzeltmeden sonra yayında doğrulanır (AP-05).
 > **Revizyon 2 (2026-10-04) — kullanıcının yayın bulguları:** kayıt durumu "korunuyor" (kayıt bağlantısı sağlam); kâr al ekranında satış fiyatını yazınca ekran uzun süre kararıyor, yüzde yazınca yine; `LINK` ve `HBAR` kâr/zarar hâlâ "hesaplanamıyor" (0006'ya rağmen). Grafik aynı varlıklar için çalışıyor. Gözlem: grafik istekleri tarayıcı kimliği (`User-Agent`) gönderirken 0006'da eklenen fiyat istekleri göndermiyordu.
 
 ## Intent
