@@ -177,6 +177,9 @@ def process_asset(name: str, symbol: str, frame, source: str, *, now: datetime, 
     if not parsed.ok or parsed.settings.quantity_step is None:
         report.notes.append(f"{symbol}: miktar adımı/varsayımlar eksik; sanal işlem hesaplanmadı.")
     elif tracked:
+        from trade_settings import step_exceeds_notional
+        if step_exceeds_notional(parsed.settings, float(frame["Close"].iloc[-1])) is not None:
+            report.notes.append(f"{symbol}: adet adımı × fiyat işlem tutarını aşıyor; hiç alım yapılamaz.")
         first = tracked[0].candle_day
         window = frame[[_day(ts) >= first for ts in frame.index]]
         tracked_days = {d.candle_day: d.decision for d in tracked}
