@@ -12,7 +12,7 @@
 Ekran üç soruyu cevaplasın: **Çalışıyor mu? Ne kaydediyor? Benden bir şey bekleniyor mu?** Ayrıntı isteğe bağlı olsun.
 
 ## Requirements
-- **R01 — Durum:** Üstte tek satır durum: çalışıyor (yeşil) / durmuş olabilir (uyarı) / henüz çalışmadı (bilgi). Zaman İstanbul saatiyle ve "3 saat önce" biçiminde yazılır; ham ISO gösterilmez. Başarısız son çalışma ayrı uyarıdır.
+- **R01 — Durum:** Üstte tek satır durum: çalışıyor (yeşil) / durmuş olabilir (uyarı) / henüz çalışmadı (bilgi). Zaman İstanbul saatiyle ve "3 saat önce" biçiminde (iç içe parantez yok) yazılır; ham ISO gösterilmez. Başarısız son çalışma ayrı uyarıdır.
 - **R02 — Açıklama:** Özelliğin ne yaptığı tek cümlede yazılır (her gün mum kapanınca AL/BEKLE/SAT kaydedilir; yeterli gün ve işlem birikince sanal sonuç değerlendirilir).
 - **R03 — Not gruplama:** Koşucu notundaki "miktar adımı/varsayımlar eksik" satırları tek özet cümlede toplanır (kaç varlık, ne anlama geliyor, ne yapmalı: işlem varsayımlarını girmek); ayrıntı katlanır bölümdedir. Veri alınamadı gibi diğer notlar kaybolmaz.
 - **R04 — Tablo:** Ayrıntı açıldığında varlık başına **tek satırlık** tablo: son karar (AL/BEKLE/SAT + gün), izlenen gün, kapanmış işlem, piyasa koşulu (3 üzerinden), durum (Yeterli kanıt / Birikiyor).
@@ -20,7 +20,7 @@ Ekran üç soruyu cevaplasın: **Çalışıyor mu? Ne kaydediyor? Benden bir şe
 - **R06:** Hesap ve kayıt mantığı değişmez; yalnız gösterim. `build_forward_view` (düz satır üretici) eski testler için korunur.
 
 ## Acceptance Criteria
-- [ ] **AC01 — Zaman biçimi, R01:** `friendly_time` İstanbul saatiyle "5 Eki 08:52 (3 saat önce)" üretir.
+- [ ] **AC01 — Zaman biçimi, R01:** `friendly_time` İstanbul saatiyle "5 Eki 08:52 · 3 saat önce" üretir.
 - [ ] **AC02 — Durum satırı, R01:** Hiç çalışmadıysa bilgi; 2 günden eskiyse uyarı; sağlıklıysa "Takip çalışıyor"; başarısız son çalışma ayrı uyarı verir.
 - [ ] **AC03 — Not gruplama, R03:** 11 varlığın eksik-varsayım notu tek özet cümle ve tek ayrıntı satırı olur; `veri alınamadı` gibi diğer notlar ayrıntıda korunur.
 - [ ] **AC04 — Özet tablo, R04:** Her varlık-sürüm çifti için bir satır; sayaçlar doğru; en çok `MAX_PAIRS` satır.
