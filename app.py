@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from config import PATTERN_INFO, UIConfig, FileConfig, DataFetchConfig
 import storage
 from storage import StorageAccessError
-from assets import load_assets, save_assets
+from assets import load_assets, save_assets, resolve_name
 from logger import logger
 
 # === YENİ MODÜLLERDEN IMPORTLAR ===
@@ -168,7 +168,7 @@ def sell_panel(sel_c, curr, records_writable):
             outcome = confirm_sell(
                 st.session_state['portfolio_data'], st.session_state['position_journal'],
                 safe_save_portfolio, position=target_pos,
-                symbol=st.session_state['coin_map'].get(s_coin, s_coin),
+                symbol=target_pos.get('Sembol') or st.session_state['coin_map'].get(s_coin, s_coin),
                 quantity=sell_amt, price=sell_price,
                 executed_at=istanbul_to_utc(sell_date, sell_time),
                 now=datetime.now(timezone.utc),
@@ -187,6 +187,24 @@ def sell_panel(sel_c, curr, records_writable):
 _RUN_PRICES = {}    # betik her çalıştırmada baştan işlendiği için bu sözlük çalıştırma başına tazedir
 
 
+def position_coin_map(positions):
+    """Pozisyondaki ad -> sembol. Önce kaydın kendi `Sembol` alanı (varlık listeden silinse ya da yeniden
+    adlandırılsa da fiyat gelir), yoksa ad listedeki varlığa eşlenir (spec 0010/0011); eşleşme yoksa ad
+    haritada olmaz ve satır "bulunamadı" der."""
+    coin_map = st.session_state.get('coin_map', {})
+    resolved = {}
+    for pos in positions:
+        coin = pos['Coin']
+        own = pos.get('Sembol')
+        if isinstance(own, str) and own.strip():
+            resolved.setdefault(coin, own.strip())
+            continue
+        key = resolve_name(coin_map, coin)
+        if key is not None:
+            resolved.setdefault(coin, coin_map[key])
+    return resolved
+
+
 def run_position_prices():
     """Bu çalıştırmada tüm pozisyon fiyatları: eşzamanlı ve süre bütçeli (spec 0007 R03/R04).
 
@@ -197,8 +215,9 @@ def run_position_prices():
         # Tabloya giren her kayıt fiyatlanır: aktiflik yorumu tek sınıflandırıcıdan gelir (Status alanı olmayan
         # eski kayıtlar ve kalan miktarı olan kayıtlar dahil — spec 0009 AC09).
         groups = group_positions(positions)
-        coins = list(dict.fromkeys(p['Coin'] for p in groups[POS_AKTIF] + groups[POS_BEKLEYEN]))
-        _RUN_PRICES['prices'] = fetch_prices(coins, st.session_state.get('coin_map', {}))
+        listed = groups[POS_AKTIF] + groups[POS_BEKLEYEN]
+        coins = list(dict.fromkeys(p['Coin'] for p in listed))
+        _RUN_PRICES['prices'] = fetch_prices(coins, position_coin_map(listed))
     return _RUN_PRICES['prices']
 
 
@@ -895,7 +914,8 @@ if is_chart_renderable(df_view):
                         from data_fetchers import price_diagnostics
                         for row in active_data:
                             if str(row.get("Fiyat", "")).startswith("fiyat alınamadı"):
-                                row_symbol = st.session_state['coin_map'].get(row["Coin"], "")
+                                row_symbol = position_coin_map(
+                                    [p for p in active_pos if p['Coin'] == row["Coin"]]).get(row["Coin"], "")
                                 details = price_diagnostics(row_symbol)
                                 if not row_symbol:
                                     note = "varlık listesinde bulunamadı (varlık adı değişmiş ya da silinmiş olabilir)"

@@ -22,8 +22,9 @@ class RiskView:
     lines: list[str]
 
 
-def _currency(coin: str, coin_map: Mapping[str, str]) -> str:
-    info = market_map.market_of(coin_map.get(coin, ""))
+def _currency(coin: str, coin_map: Mapping[str, str], symbol: str | None = None) -> str:
+    """Para birimi; kaydın kendi `Sembol` alanı varsa o, yoksa varlık listesindeki sembol (spec 0011)."""
+    info = market_map.market_of(symbol or coin_map.get(coin, ""))
     return _UNKNOWN if info is None else info[1]
 
 
@@ -42,7 +43,7 @@ def _stop(position: Mapping):
 
 
 def open_risks(portfolio: Mapping, coin_map: Mapping[str, str]) -> list[tuple[str, Decimal]]:
-    return [(_currency(p["Coin"], coin_map),
+    return [(_currency(p["Coin"], coin_map, p.get("Sembol")),
              rs.position_risk(_number(p["Giriş"]), _number(_stop(p)), _number(p["Adet"])))
             for p in _active(portfolio) if _stop(p)]
 
@@ -57,14 +58,14 @@ def period_results(portfolio: Mapping, coin_map: Mapping[str, str],
             entry = _number(position.get("Giriş", 0))
             for exit_ in exits:
                 if datetime.fromisoformat(exit_["executed_at"]) >= started_at:
-                    results.append((_currency(position["Coin"], coin_map),
+                    results.append((_currency(position["Coin"], coin_map, position.get("Sembol")),
                                     (_number(exit_["price"]) - entry) * _number(exit_["quantity"])))
             continue
         closed_at = position.get("Çıkış Zamanı")
         if position.get("Status") != "CLOSED_CONFIRMED" or not closed_at:
             continue
         if datetime.fromisoformat(closed_at) >= started_at:
-            results.append((_currency(position["Coin"], coin_map), _number(position.get("Realized", 0))))
+            results.append((_currency(position["Coin"], coin_map, position.get("Sembol")), _number(position.get("Realized", 0))))
     return results
 
 

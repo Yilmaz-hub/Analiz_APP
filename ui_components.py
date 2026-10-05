@@ -126,19 +126,25 @@ def render_asset_management(coin_map, portfolio_data, storage_ok=True):
             st.success(notice)
         st.info("Listeye yeni Coin, Hisse veya Emtia ekleyin.")
 
-        with st.form("add_asset_form"):
-            new_name = st.text_input("Görünen İsim (Örn: Pound)")
-            new_symbol = st.text_input("Yahoo Kodu (Örn: GBPUSD=X)")
-            submitted = st.form_submit_button("Listeye Ekle")
+        new_name = st.text_input("Görünen İsim (Örn: Pound)", key="asset_new_name")
+        new_symbol = st.text_input("Yahoo Kodu (Örn: GBPUSD=X)", key="asset_new_symbol")
+        # Kod yazılınca ad önerilir (spec 0011): listedeki "Bitcoin (BTC)" biçimiyle tutarlı görünüm.
+        suggestion = assets.suggest_name(coin_map, new_symbol)
+        if suggestion and new_name.strip() != suggestion:
+            st.caption(f"Önerilen ad: **{suggestion}**")
+            st.button("Öneriyi kullan", key="asset_use_suggestion",
+                      on_click=lambda: st.session_state.update(asset_new_name=suggestion))
 
-            if submitted:
-                ok, msg, updated = assets.add_asset(coin_map, new_name, new_symbol)
-                if not ok:
-                    st.error(msg)
-                elif _persist_assets(updated):
-                    st.session_state['coin_map'] = updated
-                    st.session_state['asset_notice'] = msg
-                    st.rerun()
+        if st.button("Listeye Ekle"):
+            ok, msg, updated = assets.add_asset(coin_map, new_name, new_symbol)
+            if not ok:
+                st.error(msg)
+            elif _persist_assets(updated):
+                st.session_state['coin_map'] = updated
+                st.session_state['asset_notice'] = msg
+                st.session_state.pop('asset_new_name', None)
+                st.session_state.pop('asset_new_symbol', None)
+                st.rerun()
 
         st.write("---")
         names = list(coin_map.keys())

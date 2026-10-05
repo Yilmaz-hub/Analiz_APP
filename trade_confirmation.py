@@ -163,7 +163,7 @@ def confirm_buy(portfolio, journal, save, *, coin, symbol, quantity, price, stop
             "Realized": 0.0, "Status": "PENDING" if is_limit else "ACTIVE",
             "Tarih": tarih or executed_at.astimezone(ISTANBUL).strftime("%Y-%m-%d"),
             "Stop": float(Decimal(str(stop))), "Gerçekleşme Zamanı": executed_at.isoformat(),
-            "V1Verified": not is_limit, "JournalEventId": event_id,
+            "V1Verified": not is_limit, "JournalEventId": event_id, "Sembol": symbol,
             "StrategyVersion": _active_strategy_version(),
         })
         if not save():
