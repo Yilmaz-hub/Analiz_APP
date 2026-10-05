@@ -113,13 +113,18 @@ def save_raw(asset, values):
 
 def step_cost(settings, price):
     """Bir adım miktarın güncel fiyatla tutarı; adım ya da fiyat bilinmiyorsa None (spec 0013)."""
-    if settings is None or settings.quantity_step is None or not price or price <= 0:
+    if settings is None or settings.quantity_step is None or not price:
         return None
-    return settings.quantity_step * Decimal(str(price))
+    try:
+        value = Decimal(str(price))
+    except InvalidOperation:
+        return None
+    if not value.is_finite() or value <= 0:      # NaN/inf (bozuk son mum) uyarı üretmez, koşucuyu düşürmez
+        return None
+    return settings.quantity_step * value
 
 
 def step_exceeds_notional(settings, price):
     """Tek adım bile işlem tutarını aşıyorsa tutarı döner (hiç alım yapılamaz); aksi halde None."""
     cost = step_cost(settings, price)
     return cost if cost is not None and cost > settings.notional else None
-

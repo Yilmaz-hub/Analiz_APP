@@ -50,6 +50,7 @@ def build_forward_status(now: datetime) -> list[str]:
 ISTANBUL = ZoneInfo("Europe/Istanbul")
 _MONTHS = ("Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara")
 _MISSING_SETTINGS = "miktar adımı/varsayımlar eksik"
+_STEP_TOO_BIG = "adet adımı × fiyat işlem tutarını aşıyor"
 EXPLAIN = ("Takip bu ekrandan açılıp kapanmaz: GitHub görevi günde 3 kez (kripto 00:17, BIST 15:17, ABD ve altın "
            "21:17 UTC) kendiliğinden çalışır ve her kapanan mumda stratejinin kararını (AL / BEKLE / SAT) kaydeder. "
            "Yeterince gün ve işlem birikince sanal sonuç değerlendirilir. Aşağıdaki düğme yalnız ayrıntıyı gösterir.")
@@ -83,9 +84,9 @@ class StatusView:
     details: list[str]     # "Ayrıntı" bölümünde listelenenler
 
 
-def _split_note(note: str) -> tuple[list[str], list[str]]:
+def _split_note(note: str) -> tuple[list[str], list[str], list[str]]:
     """Koşucu notunu (`;` ile birleşik) iki gruba ayırır: eksik varsayım olan semboller ve diğer notlar."""
-    missing, others = [], []
+    missing, others, blocked = [], [], []
     # Not "SEMBOL: ...; ..." biçiminde birleştirilmiş cümlelerdir; yalnız yeni "SEMBOL:" başında bölünür,
     # böylece bir notun kendi içindeki ";" (… eksik; sanal işlem hesaplanmadı.) parçalanmaz.
     for part in (p.strip() for p in re.split(r";\s+(?=[A-Za-z0-9_.=/\-]+:\s)", note)):
@@ -93,9 +94,11 @@ def _split_note(note: str) -> tuple[list[str], list[str]]:
             continue
         if _MISSING_SETTINGS in part:
             missing.append(part.split(":")[0].strip())
+        elif _STEP_TOO_BIG in part:
+            blocked.append(part.split(":")[0].strip())
         else:
             others.append(part.rstrip("."))
-    return missing, others
+    return missing, others, blocked
 
 
 def build_status_view(now: datetime) -> StatusView:
@@ -112,7 +115,7 @@ def build_status_view(now: datetime) -> StatusView:
     notice, details = "", []
     if runs:
         latest = runs[0]
-        missing, others = _split_note(latest["note"]) if latest["note"] != "tamam" else ([], [])
+        missing, others, blocked = _split_note(latest["note"]) if latest["note"] != "tamam" else ([], [], [])
         if not latest["ok"]:
             when = friendly_time(latest["run_at"], now)
             headline.append(("warn", f"Son çalışma başarısız ({when}): {'; '.join(others) or latest['note']}"))
@@ -121,6 +124,10 @@ def build_status_view(now: datetime) -> StatusView:
             notice = (f"{len(missing)} varlıkta işlem varsayımı (miktar adımı) girilmemiş: bu varlıklar için "
                       "sanal kâr/zarar hesaplanmıyor; kararlar yine kaydediliyor.")
             details.append("Varsayımı eksik: " + ", ".join(missing))
+        if blocked:
+            notice = (notice + " " if notice else "") + (
+                f"{len(blocked)} varlıkta adet/lot adımı işlem tutarını aşıyor ({', '.join(blocked)}): hiç alım "
+                "yapılamaz; adım en küçük alınabilir miktar olmalı (ör. ETH 0.001).")
         details.extend(others)
     return StatusView(headline, notice, details)
 

@@ -49,3 +49,38 @@ def test_ac03_runner_notes_the_mismatch(store):
     report = forward_runner.run(now, real_clock=False, fetch=lambda s: (frame, "Fixture"),
                                 include_ml=False, symbols=["BTC-USD"])
     assert any("adet adımı × fiyat işlem tutarını aşıyor" in n for n in report.notes)
+
+
+def test_ac01_non_finite_price_never_raises_and_gives_no_warning():
+    """AC01 — Fiyat NaN/inf/0 ise uyarı üretilmez ve istisna fırlamaz."""
+    settings = _parsed("0.001").settings
+    for bad in (float("nan"), float("inf"), 0, -1):
+        assert ts.step_exceeds_notional(settings, bad) is None
+
+
+def test_ac03_runner_survives_a_nan_last_close(store):
+    """AC03 — Son mum Close değeri NaN olsa da koşucu çökmez ve çalışma kaydı yazılır."""
+    frame = make_ohlcv()
+    store.write_doc(store.TRADE_SETTINGS_KEY, {"BTC-USD": ts.to_raw({
+        "capital": "10000", "notional": "1000", "quantity_step": "0.001",
+        "spread_bps": "0", "slippage_bps": "0", "commission_pct": "0"})})
+    now = ft.available_at("KRIPTO", frame.index[-1].date()) + timedelta(hours=1)
+    forward_runner.run(now, real_clock=False, fetch=lambda s: (frame, "Fixture"), include_ml=False,
+                       symbols=["BTC-USD"])
+    nan_frame = frame.copy()
+    nan_frame.iloc[-1, nan_frame.columns.get_loc("Close")] = float("nan")
+    forward_runner.run(now, real_clock=False, fetch=lambda s: (nan_frame, "Fixture"), include_ml=False,
+                       symbols=["BTC-USD"])
+    assert ft.recent_runs(1)
+
+
+def test_ac03_status_line_shows_the_mismatch_without_opening_details():
+    """AC03 — Koşucunun "adım × fiyat" notu durum özetinde (kapalı ayrıntıda değil) görünür."""
+    from datetime import datetime, timezone
+
+    import forward_ui
+
+    now = datetime(2026, 10, 5, 12, tzinfo=timezone.utc)
+    ft.record_run(now, True, "ETH-USD: adet adımı × fiyat işlem tutarını aşıyor; hiç alım yapılamaz.")
+    view = forward_ui.build_status_view(now)
+    assert "1 varlıkta adet/lot adımı işlem tutarını aşıyor (ETH-USD)" in view.notice
