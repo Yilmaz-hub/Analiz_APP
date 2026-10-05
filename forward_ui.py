@@ -49,8 +49,9 @@ def build_forward_status(now: datetime) -> list[str]:
 ISTANBUL = ZoneInfo("Europe/Istanbul")
 _MONTHS = ("Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara")
 _MISSING_SETTINGS = "miktar adımı/varsayımlar eksik"
-EXPLAIN = ("Her gün mum kapanınca stratejinin kararı (AL / BEKLE / SAT) kaydedilir; ekran kapalıyken de "
-           "GitHub görevi çalışır. Yeterince gün ve işlem birikince sanal sonuç değerlendirilir.")
+EXPLAIN = ("Takip bu ekrandan açılıp kapanmaz: GitHub görevi günde 3 kez (kripto 00:17, BIST 15:17, ABD ve altın "
+           "21:17 UTC) kendiliğinden çalışır ve her kapanan mumda stratejinin kararını (AL / BEKLE / SAT) kaydeder. "
+           "Yeterince gün ve işlem birikince sanal sonuç değerlendirilir. Aşağıdaki düğme yalnız ayrıntıyı gösterir.")
 DISCLAIMER = "Sanal takip gerçek işlem değildir; geçmiş sonuç gelecekteki kazanç olasılığı değildir."
 
 

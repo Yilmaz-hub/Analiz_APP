@@ -26,5 +26,5 @@ if "seeded" not in st.session_state:
 st.title("Sanal takip — ekran kanıtı")
 with st.expander("📡 İleri Dönem Sanal Takip (ekran kapalıyken)", expanded=True):
     forward_ui.render_forward_status(datetime.now(timezone.utc))
-    if st.toggle("Sanal takip durumunu göster", key="forward_show"):
+    if st.toggle("Ayrıntıları göster (takibi açıp kapatmaz)", key="forward_show"):
         forward_ui.render_forward_panel(datetime.now(timezone.utc))

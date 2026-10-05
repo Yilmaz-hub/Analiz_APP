@@ -12,7 +12,7 @@ try:
         page = b.new_page(viewport={"width": 1100, "height": 1500})
         page.goto("http://localhost:8772")
         page.wait_for_selector("text=Takip çalışıyor", timeout=90000)
-        page.get_by_text("Sanal takip durumunu göster").click()
+        page.get_by_text("Ayrıntıları göster (takibi açıp kapatmaz)").click()
         page.wait_for_selector("text=Ayrıntı için varlık seçin", timeout=60000)
         time.sleep(2)
         page.screenshot(path=os.path.join(HERE, "sanal-takip.png"), full_page=True)

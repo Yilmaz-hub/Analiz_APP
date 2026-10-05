@@ -59,7 +59,7 @@ def test_ac02_app_does_not_query_forward_details_until_asked(store, monkeypatch,
     assert not [s for s in _forward_selects(seen) if "forward_decisions" in s or "forward_trades" in s]
     assert "Sanal takip gerçek işlem değildir" not in texts(at)
     seen.clear()
-    at = next(t for t in at.toggle if t.label == "Sanal takip durumunu göster").set_value(True).run()
+    at = next(t for t in at.toggle if t.label == "Ayrıntıları göster (takibi açıp kapatmaz)").set_value(True).run()
     assert not at.exception
     assert "Sanal takip gerçek işlem değildir" in texts(at)             # panel içeriği görünür
     assert [s for s in seen if "forward_decisions" in s]

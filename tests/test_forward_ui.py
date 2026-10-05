@@ -130,6 +130,6 @@ def test_ac06_screen_is_readable_not_a_wall_of_text(store, monkeypatch, processe
     assert forward_ui.EXPLAIN in shown
     assert "T05:" not in shown and "+00:00" not in shown                       # ham ISO yok
     assert shown.count("miktar adımı/varsayımlar eksik") == 0
-    app = next(t for t in app.toggle if t.label == "Sanal takip durumunu göster").set_value(True).run()
+    app = next(t for t in app.toggle if t.label == "Ayrıntıları göster (takibi açıp kapatmaz)").set_value(True).run()
     table = next(f.value for f in app.dataframe if "Son karar" in f.value.columns)
     assert list(table["Varlık"]) == ["BTC-USD"]
