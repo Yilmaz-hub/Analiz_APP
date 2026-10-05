@@ -59,7 +59,7 @@ def test_ac02_app_does_not_query_forward_details_until_asked(store, monkeypatch,
     assert not [s for s in _forward_selects(seen) if "forward_decisions" in s or "forward_trades" in s]
     assert "Sanal takip gerçek işlem değildir" not in texts(at)
     seen.clear()
-    at = next(t for t in at.toggle if t.label == "Sanal takip durumunu göster").set_value(True).run()
+    at = next(t for t in at.toggle if t.label == "Ayrıntıları göster (takibi açıp kapatmaz)").set_value(True).run()
     assert not at.exception
     assert "Sanal takip gerçek işlem değildir" in texts(at)             # panel içeriği görünür
     assert [s for s in seen if "forward_decisions" in s]
@@ -76,7 +76,7 @@ def test_ac04_failed_last_run_is_visible_without_opening_the_panel(store, monkey
     seen = _record_statements(storage.get_engine())
     at = app.run()
     assert not at.exception
-    assert "Uyarı: Son çalışma başarısız" in texts(at) and "sağlayıcı hatası" in texts(at)
+    assert "Son çalışma başarısız" in texts(at) and "sağlayıcı hatası" in texts(at)
     assert len(_forward_selects(seen)) <= 2
 
 
@@ -100,5 +100,5 @@ def test_ac04_healthy_runner_shows_last_success_and_no_warning(store, monkeypatc
     ft.record_run(datetime.now(timezone.utc), True, "tamam")
     at = _app_with_assets(store, monkeypatch, processed_df).run()
     shown = texts(at)
-    assert "Son başarılı takip çalışması" in shown and "Uyarı: Son çalışma başarısız" not in shown
+    assert "Takip çalışıyor · son başarılı çalışma" in shown and "Son çalışma başarısız" not in shown
     assert "süredir çalışmadı" not in shown

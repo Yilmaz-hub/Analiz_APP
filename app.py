@@ -998,7 +998,7 @@ if is_chart_renderable(df_view):
         # Koşucunun sağlığı (son çalışma, bayatlık) iki ucuz sorguyla her zaman görünür (spec 0008 AC04);
         # ayrıntı, "göster" denmeden hesaplanmaz: uzak veritabanında her ekran çalıştırması gecikir (R02).
         forward_ui.render_forward_status(_dt.now(_tz.utc))
-        if st.toggle("Sanal takip durumunu göster", key="forward_show"):
+        if st.toggle("Ayrıntıları göster (takibi açıp kapatmaz)", key="forward_show"):
             forward_ui.render_forward_panel(_dt.now(_tz.utc))
 
     # --- KAĞIT TİCARET DOĞRULAMASI ---
