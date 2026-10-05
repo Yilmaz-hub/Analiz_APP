@@ -137,7 +137,8 @@ def get_engine():
     except ImportError as exc:  # pragma: no cover - bağımlılık eksikse
         raise StorageAccessError("Kayıt deposu sürücüsü yüklenemedi.") from exc
     try:
-        engine = create_engine(url, future=True)
+        # Neon boşta bağlantıyı kapatır: havuz kullanmadan önce sınar, 5 dakikada bir yeniler (spec 0008 R03).
+        engine = create_engine(url, future=True, pool_pre_ping=True, pool_recycle=300)
         with engine.begin() as conn:
             conn.execute(
                 text(
