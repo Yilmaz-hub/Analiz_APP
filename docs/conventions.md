@@ -4,8 +4,8 @@
 
 ## Para = decimal (mutlak kural)
 
-- Tüm para ve yüzde alanları **`decimal.Decimal`**. `float` **yasak** (aşağıdaki V1 istisnası hariç).
-- `Decimal` değerler `str` olarak saklanır (belge deposunda JSON'a `float` olarak yazılmaz) ve
+- Tüm para ve yüzde alanları **`decimal.Decimal`**. `float` **yasak** (aşağıdaki V1 analitik istisnası ve finansal defter kayıt biçimi istisnası hariç).
+- Yeni alanlarda `Decimal` değerler `str` olarak saklanır (belge deposunda JSON'a `float` olarak yazılmaz; mevcut defter alanları için aşağıdaki istisna geçerlidir) ve
   `Decimal(str(değer))` ile okunur; sabit ölçek gerektiğinde `quantize` kullanılır
   (para için iki ondalık, yüzde için iki ondalık).
 - Para değeri para birimi bilgisiyle taşınır; yuvarlama tek noktada, açıkça yapılır.
