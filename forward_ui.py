@@ -20,7 +20,10 @@ class ForwardView:
     lines: list[str]
 
 
-def build_forward_view(now: datetime) -> ForwardView:
+def build_forward_status(now: datetime) -> list[str]:
+    """Koşucunun sağlığı: yalnız iki ucuz sorgu (son çalışma, son başarılı çalışma).
+
+    Ağır panel kapalıyken de kesinti görünür kalır (spec 0008 AC04; 0005 AC38/AC99)."""
     lines = []
     runs = ft.recent_runs(1)
     last = ft.last_successful_run()
@@ -36,6 +39,25 @@ def build_forward_view(now: datetime) -> ForwardView:
             lines.append(f"Uyarı: Son çalışma başarısız ({latest['run_at'].isoformat()}): {latest['note']}")
         elif latest["note"] and latest["note"] != "tamam":
             lines.append(f"Son çalışma notu ({latest['run_at'].isoformat()}): {latest['note']}")
+    return lines
+
+
+def render_forward_status(now: datetime) -> None:
+    import streamlit as st
+
+    from storage import StorageAccessError
+
+    try:
+        lines = build_forward_status(now)
+    except StorageAccessError:
+        st.warning("İleri takip kayıtları okunamadı; kayıt deposu erişimini kontrol edin.")
+        return
+    for line in lines:
+        (st.warning if line.startswith("Uyarı") else st.caption)(line)
+
+
+def build_forward_view(now: datetime) -> ForwardView:
+    lines = build_forward_status(now)
     for asset, version in ft.tracked_pairs():
         verdict = ft.assess(asset, version)
         status = "yeterli kanıt" if verdict.sufficient else "yetersiz kanıt"

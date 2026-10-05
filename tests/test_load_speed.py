@@ -37,18 +37,68 @@ def test_ac03_connection_pool_checks_and_recycles_connections():
     assert 0 < pool._recycle <= 300
 
 
-def test_ac02_app_does_not_query_forward_tables_until_asked(store, monkeypatch, processed_df):
-    """AC02 — Ana ekran varsayılan açılışta ileri takip tablolarına sorgu yapmaz; "göster" açılınca içerik görünür."""
-    from app_helpers import make_app, texts
+def _forward_selects(seen):
+    return [s for s in seen if s.lstrip().upper().startswith("SELECT") and "forward_" in s]
+
+
+def _app_with_assets(store, monkeypatch, processed_df):
+    from app_helpers import make_app
 
     store.write_doc(store.ASSETS_KEY, {"Bitcoin (BTC)": "BTC-USD"})
-    engine = storage.get_engine()
-    seen = _record_statements(engine)
-    at = make_app(monkeypatch, processed_df).run()
+    return make_app(monkeypatch, processed_df)
+
+
+def test_ac02_app_does_not_query_forward_details_until_asked(store, monkeypatch, processed_df):
+    """AC02 — Varsayılan açılışta ileri takip ayrıntı tablolarına sorgu gitmez; "göster" açılınca panel içeriği görünür."""
+    from app_helpers import texts
+
+    app = _app_with_assets(store, monkeypatch, processed_df)
+    seen = _record_statements(storage.get_engine())
+    at = app.run()
     assert not at.exception
-    assert not [s for s in seen if "forward_" in s]
-    toggle = next(t for t in at.toggle if t.label == "Sanal takip durumunu göster")
+    assert not [s for s in _forward_selects(seen) if "forward_decisions" in s or "forward_trades" in s]
+    assert "Sanal takip gerçek işlem değildir" not in texts(at)
     seen.clear()
-    at = toggle.set_value(True).run()
+    at = next(t for t in at.toggle if t.label == "Sanal takip durumunu göster").set_value(True).run()
     assert not at.exception
-    assert [s for s in seen if "forward_" in s]
+    assert "Sanal takip gerçek işlem değildir" in texts(at)             # panel içeriği görünür
+    assert [s for s in seen if "forward_decisions" in s]
+
+
+def test_ac04_failed_last_run_is_visible_without_opening_the_panel(store, monkeypatch, processed_df):
+    """AC04 — Başarısız son çalışma uyarısı toggle açılmadan, en çok 2 ucuz sorguyla görünür."""
+    from datetime import datetime, timezone
+
+    from app_helpers import texts
+
+    ft.record_run(datetime.now(timezone.utc), False, "sağlayıcı hatası")
+    app = _app_with_assets(store, monkeypatch, processed_df)
+    seen = _record_statements(storage.get_engine())
+    at = app.run()
+    assert not at.exception
+    assert "Uyarı: Son çalışma başarısız" in texts(at) and "sağlayıcı hatası" in texts(at)
+    assert len(_forward_selects(seen)) <= 2
+
+
+def test_ac04_stale_runner_is_visible_without_opening_the_panel(store, monkeypatch, processed_df):
+    """AC04 — Koşucu 2 günden uzun süredir çalışmadıysa uyarı toggle açılmadan görünür."""
+    from datetime import datetime, timedelta, timezone
+
+    from app_helpers import texts
+
+    ft.record_run(datetime.now(timezone.utc) - timedelta(days=5), True, "tamam")
+    at = _app_with_assets(store, monkeypatch, processed_df).run()
+    assert "2 günden uzun süredir çalışmadı" in texts(at)
+
+
+def test_ac04_healthy_runner_shows_last_success_and_no_warning(store, monkeypatch, processed_df):
+    """AC04 — Koşucu düzgün çalışıyorsa son başarılı çalışma görünür, uyarı görünmez."""
+    from datetime import datetime, timezone
+
+    from app_helpers import texts
+
+    ft.record_run(datetime.now(timezone.utc), True, "tamam")
+    at = _app_with_assets(store, monkeypatch, processed_df).run()
+    shown = texts(at)
+    assert "Son başarılı takip çalışması" in shown and "Uyarı: Son çalışma başarısız" not in shown
+    assert "süredir çalışmadı" not in shown

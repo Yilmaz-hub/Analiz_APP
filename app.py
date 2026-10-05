@@ -734,11 +734,11 @@ if is_chart_renderable(df_view):
     with st.expander("📡 İleri Dönem Sanal Takip (ekran kapalıyken)", expanded=False):
         import forward_ui
         from datetime import datetime as _dt, timezone as _tz
-        # Durum, "göster" denmeden hesaplanmaz: uzak veritabanında her ekran çalıştırması gecikir (spec 0008 R02).
+        # Koşucunun sağlığı (son çalışma, bayatlık) iki ucuz sorguyla her zaman görünür (spec 0008 AC04);
+        # ayrıntı, "göster" denmeden hesaplanmaz: uzak veritabanında her ekran çalıştırması gecikir (R02).
+        forward_ui.render_forward_status(_dt.now(_tz.utc))
         if st.toggle("Sanal takip durumunu göster", key="forward_show"):
             forward_ui.render_forward_panel(_dt.now(_tz.utc))
-        else:
-            st.caption("Durum ve son çalışma bilgisi için yukarıdaki anahtarı açın; kapalıyken kayıt deposuna sorgu yapılmaz.")
 
     # --- KAĞIT TİCARET DOĞRULAMASI ---
     with st.expander("🧪 Kağıt Ticaret Doğrulaması (Canlı Sinyal Takibi)", expanded=False):
