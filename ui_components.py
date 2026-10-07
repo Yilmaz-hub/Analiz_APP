@@ -189,6 +189,15 @@ def render_trade_settings(asset_name, symbol, currency, writable=True, price=Non
     except storage.StorageAccessError:
         saved, load_ok = {}, False
 
+    helps = {
+        "capital": "Geçmiş testin başladığı sanal para. Varsayılan 10000.",
+        "notional": "Her alımda harcanacak tutar. Varsayılan 1000.",
+        "quantity_step": "Borsada alınabilen en küçük miktar (ETH 0.001, BTC 0.00001, hisse 1). "
+                         "Kaç adet alınacağı değildir; miktar, işlem tutarından bu adıma yuvarlanarak hesaplanır.",
+        "spread_bps": "Alış-satış fiyat farkı. 1 baz puan = %0,01. Bilmiyorsanız boş bırakın.",
+        "slippage_bps": "Emrin beklenenden kötü fiyattan dolması. 1 baz puan = %0,01. Bilmiyorsanız boş bırakın.",
+        "commission_pct": "Borsanın aldığı işlem ücreti, yüzde olarak (ör. Binance 0.1).",
+    }
     fields = (
         ("capital", f"Başlangıç sermayesi ({currency})", trade_settings.DEFAULT_CAPITAL),
         ("notional", f"İşlem tutarı ({currency})", trade_settings.DEFAULT_NOTIONAL),
@@ -198,14 +207,15 @@ def render_trade_settings(asset_name, symbol, currency, writable=True, price=Non
         ("commission_pct", "Komisyon, % (boş = bilinmiyor, 0 = sıfır)", ""),
     )
     with st.expander("⚙️ İşlem varsayımları (geçmiş test ve sanal takip ortak)", expanded=False):
-        st.caption("Aynı varsayımlar hem geçmiş testte hem sanal takipte kullanılır. "
-                   "Boş bırakılan maliyet *bilinmiyor* sayılır ve sıfır maliyet gibi gösterilmez.")
+        st.caption("Alım için zorunlu tek bilgi **Adet/lot adımı**dır. Sermaye ve işlem tutarı varsayılanla gelir; "
+                   "makas, kayma ve komisyon boşsa sonuç brüt gösterilir. Aynı varsayımlar hem geçmiş testte hem "
+                   "sanal takipte kullanılır. Her alanın yanındaki (?) işareti ne istendiğini açıklar.")
         if not load_ok:
             st.warning("Kayıtlı varsayımlar okunamadı; varsayılanlar gösteriliyor, kaydetme kapalı.")
         values = {}
         for name, label, default in fields:
             values[name] = st.text_input(
-                label, value=str(saved.get(name, default)), key=f"ts:{symbol}:{name}")
+                label, value=str(saved.get(name, default)), key=f"ts:{symbol}:{name}", help=helps[name])
         parsed = trade_settings.parse_settings(values)
         if not load_ok:
             # Okunamayan kayıtla varsayılanlara düşülmez: değerlendirme kapalı (Y6).

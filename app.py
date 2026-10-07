@@ -40,7 +40,7 @@ from trade_decisions import initial_stop
 from trade_confirmation import (confirm_buy, confirm_sell, istanbul_to_utc, quantity_from_percent,
                                 reconcile)
 from trade_settings import known_quantity_step
-from trading_ui import (PanelInput, bars_since_loss_exit, build_decision_panel, describe_code,
+from trading_ui import (PanelInput, bars_since_loss_exit, build_decision_panel, describe_blocked, describe_code,
                         format_decision_time, resolve_decision_time)
 import theme
 
@@ -689,7 +689,7 @@ if is_chart_renderable(df_view):
                             if not bt_results["spread_known"] or not bt_results["slippage_known"]:
                                 st.caption("Makas veya kayma bilinmiyor; ilgili etki hesaplanmadı (sıfır maliyet değildir).")
                             for reason, count in bt_results["blocked"].items():
-                                st.warning(f"{count} alım yapılmadı: {describe_code(reason)}")
+                                st.warning(describe_blocked(reason, count, trade_parsed.settings, paper_currency))
                         if tuned_weights and view_tf != "1d":
                             st.caption("🎯 Bu varlık sınıfı için ayarlanmış ağırlıklar kullanılıyor.")
                             bt_default = run_strategy_backtest(df_view, initial_balance=10000, timeframe=view_tf, weights=None)

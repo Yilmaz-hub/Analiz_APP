@@ -121,6 +121,26 @@ COMPONENT_TEXT = {
 GENERIC_CODE_TEXT = "Durum doğrulanamadı"
 
 
+def describe_blocked(reason, count, settings, currency=""):
+    """Geçmiş testte işleme dönüşmeyen alım sinyallerinin nedeni ve ne yapılacağı (spec 0014).
+
+    Ham kod yerine kullanıcının değiştirebileceği ayar adıyla konuşur: en sık iki neden, adet/lot
+    adımının girilmemesi ve işlem tutarının tek bir adımı almaya yetmemesidir."""
+    head = f"{count} alım sinyali işleme dönüşmedi"
+    unit = f" {currency}" if currency else ""
+    if reason == "MIKTAR_ADIMI_BILINMIYOR":
+        return (f"{head}: Adet/lot adımı girilmemiş. ⚙️ İşlem varsayımları panelinde en küçük alınabilir "
+                "miktarı girin (ör. ETH için 0.001) ve kaydedin.")
+    if reason == "ASGARI_MIKTAR" and settings is not None and settings.quantity_step is not None:
+        step = format(settings.quantity_step.normalize(), "f")
+        return (f"{head}: İşlem tutarı ({settings.notional:,.0f}{unit}) bir adımı ({step} adet) almaya "
+                "yetmiyor. Adet/lot adımı kaç adet alınacağı değil, en küçük alınabilir miktardır "
+                "(ör. ETH için 0.001); adımı küçültün ya da işlem tutarını artırın.")
+    if reason == "YETERSIZ_NAKIT":
+        return f"{head}: Başlangıç sermayesi işlem tutarını ve komisyonu karşılamıyor."
+    return f"{head}: {describe_code(reason)}"
+
+
 def describe_code(code, components=()):
     """Makine kodunu Türkçe metne çevirir; bileşen adları varsa sona eklenir."""
     text = CODE_TEXT.get(str(code), GENERIC_CODE_TEXT)
