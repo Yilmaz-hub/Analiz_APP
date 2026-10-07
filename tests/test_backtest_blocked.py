@@ -14,7 +14,7 @@ def test_ac01_too_large_step_names_the_setting_and_the_fix():
     """AC01 — Adım işlem tutarına sığmıyorsa metin tutarı, adımı ve ne yapılacağını söyler; ham kod yok."""
     text = describe_blocked("ASGARI_MIKTAR", 231, _settings("5"), "USD/USDT")
     assert text.startswith("231 alım sinyali işleme dönüşmedi")
-    assert "1,000 USD/USDT" in text and "5 adet" in text and "0.001" in text
+    assert "1000 USD/USDT" in text and "5 adet" in text and "0.001" in text
     assert "ASGARI_MIKTAR" not in text
 
 
@@ -27,7 +27,8 @@ def test_ac02_missing_step_points_to_the_panel():
 def test_ac03_other_reasons_still_read_as_turkish_text():
     """AC03 — Diğer nedenler mevcut Türkçe kod metniyle yazılır."""
     assert "Nakit yetersiz" not in describe_blocked("YETERSIZ_NAKIT", 1, _settings("0.001"))
-    assert "sermayesi" in describe_blocked("YETERSIZ_NAKIT", 1, _settings("0.001"))
+    cash = describe_blocked("YETERSIZ_NAKIT", 1, _settings("0.001"))
+    assert "önceki zararlar" in cash and "işlem tutarını azaltın" in cash
     assert "İşlem maliyeti geçersiz" in describe_blocked("GECERSIZ_MALIYET", 1, _settings("0.001"))
 
 
@@ -60,3 +61,10 @@ def test_ac05_every_setting_has_a_help_text(store, monkeypatch, processed_df):
     fields = [t for t in at.text_input if t.key and t.key.startswith("ts:BTC-USD:")]
     assert len(fields) == 6 and all(t.help for t in fields)
     assert "zorunlu tek bilgi" in texts(at)
+
+
+def test_ac01_fractional_notional_is_not_rounded_in_the_message():
+    """AC01 — Ondalıklı işlem tutarı mesajda yuvarlanmadan yazılır (0.5 → "0.5", 1000.75 → "1000.75")."""
+    for notional, shown in (("0.5", "(0.5)"), ("1000.75", "(1000.75)")):
+        settings = ts.parse_settings({"notional": notional, "quantity_step": "5"}).settings
+        assert shown in describe_blocked("ASGARI_MIKTAR", 1, settings)

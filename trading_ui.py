@@ -133,11 +133,13 @@ def describe_blocked(reason, count, settings, currency=""):
                 "miktarı girin (ör. ETH için 0.001) ve kaydedin.")
     if reason == "ASGARI_MIKTAR" and settings is not None and settings.quantity_step is not None:
         step = format(settings.quantity_step.normalize(), "f")
-        return (f"{head}: İşlem tutarı ({settings.notional:,.0f}{unit}) bir adımı ({step} adet) almaya "
+        amount = format(settings.notional.normalize(), "f")
+        return (f"{head}: İşlem tutarı ({amount}{unit}) bir adımı ({step} adet) almaya "
                 "yetmiyor. Adet/lot adımı kaç adet alınacağı değil, en küçük alınabilir miktardır "
                 "(ör. ETH için 0.001); adımı küçültün ya da işlem tutarını artırın.")
     if reason == "YETERSIZ_NAKIT":
-        return f"{head}: Başlangıç sermayesi işlem tutarını ve komisyonu karşılamıyor."
+        return (f"{head}: Eldeki nakit (başlangıç sermayesi ya da önceki zararlardan sonra kalan) işlem tutarını "
+                "ve komisyonu karşılamıyor. Başlangıç sermayesini artırın ya da işlem tutarını azaltın.")
     return f"{head}: {describe_code(reason)}"
 
 
