@@ -715,7 +715,8 @@ if is_chart_renderable(df_view):
                         if view_tf == "1d":
                             import performance_ui as _perf
                             _perf.render_hold_comparison(_perf.hold_comparison(
-                                df_view, bt_results, trade_parsed.capital, trade_parsed.settings.notional))
+                                df_view, bt_results, trade_parsed.capital, trade_parsed.settings.notional,
+                                v1_decisions))
                         st.divider()
                         col_det1, col_det2 = st.columns(2)
                         col_det1.write(f"✅ Kazanan İşlem: {bt_results['winning_trades']}")

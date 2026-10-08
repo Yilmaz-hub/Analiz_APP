@@ -55,3 +55,20 @@ def test_ac04_screen_shows_the_comparison_under_backtest_results(store, monkeypa
     labels = [m.label for m in at.metric]
     assert {"Strateji", "Al-tut (aynı tutarla)", "Varlığın fiyat değişimi"} <= set(labels)
     assert "İşlem tutarı / sermaye oranı: %10." in texts(at)
+
+
+def test_ac01_hold_starts_after_the_first_decision_not_during_warm_up():
+    """AC01 — Isınma dönemi olan veride al-tut, ilk karardan sonraki mumun açılışında başlar."""
+    idx = pd.date_range("2026-01-01", periods=5, freq="D")
+    frame = pd.DataFrame({"Open": [10.0, 50.0, 90.0, 100.0, 120.0], "Close": [10.0, 50.0, 95.0, 110.0, 150.0]},
+                         index=idx)
+    c = performance_ui.hold_comparison(frame, {"total_return": Decimal("1")}, 10000, 1000,
+                                       decisions={idx[2]: "AL", idx[3]: "BEKLE"})
+    assert c.start == idx[3].date() and c.price_change_pct == Decimal("50")     # 100 → 150
+    assert performance_ui.hold_comparison(frame, {"total_return": Decimal("1")}, 10000, 1000,
+                                          decisions={idx[4]: "AL"}) is None      # karar sonrası mum yok
+
+
+def test_ac03_notional_above_capital_is_not_compared():
+    """AC03 — İşlem tutarı sermayeden büyükse strateji alım yapamaz; karşılaştırma gösterilmez."""
+    assert performance_ui.hold_comparison(_frame(100.0, 150.0), {"total_return": Decimal("0")}, 1000, 5000) is None
