@@ -713,8 +713,11 @@ if is_chart_renderable(df_view):
                         col3.metric("Toplam İşlem", bt_results['total_trades'])
                         col4.metric("Profit Factor", f"{bt_results['profit_factor']:.2f}")
                         if view_tf == "1d":
-                            import performance_ui as _perf_diag
-                            _perf_diag.render_diagnostics(df_view, bt_results, v1_decisions)
+                            import performance_ui as _perf
+                            _perf.render_hold_comparison(_perf.hold_comparison(
+                                df_view, bt_results, trade_parsed.capital, trade_parsed.settings.notional,
+                                v1_decisions))
+                            _perf.render_diagnostics(df_view, bt_results, v1_decisions)
                         st.divider()
                         col_det1, col_det2 = st.columns(2)
                         col_det1.write(f"✅ Kazanan İşlem: {bt_results['winning_trades']}")
