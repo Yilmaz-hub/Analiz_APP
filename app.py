@@ -717,6 +717,7 @@ if is_chart_renderable(df_view):
                             _perf.render_hold_comparison(_perf.hold_comparison(
                                 df_view, bt_results, trade_parsed.capital, trade_parsed.settings.notional,
                                 v1_decisions))
+                            _perf.render_diagnostics(df_view, bt_results, v1_decisions)
                         st.divider()
                         col_det1, col_det2 = st.columns(2)
                         col_det1.write(f"✅ Kazanan İşlem: {bt_results['winning_trades']}")

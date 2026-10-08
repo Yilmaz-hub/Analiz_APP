@@ -277,6 +277,28 @@ def render_hold_comparison(comparison: HoldComparison | None) -> None:
                "tüm sermayeyle al-tut "
                "sonucudur. Al-tut, stratejinin ilk kararından sonraki açılışta başlar, maliyet hariçtir ve "
                "yaklaşıktır (strateji miktarı adıma yuvarlar); geçmiş sonuç gelecekteki kazanç olasılığı değildir.")
+def render_diagnostics(frame, backtest: dict, decisions=None) -> None:
+    """Giriş / kâr alma / stop / girmeme teşhisi (spec 0016)."""
+    import streamlit as st
+
+    from trade_diagnostics import diagnose, explain
+
+    diag = diagnose(frame, backtest, decisions)
+    st.markdown("**Strateji teşhisi: giriş, kâr alma, stop, girmeme**")
+    if diag is None:
+        st.caption("Teşhis hesaplanamadı (veri yetersiz).")
+        return
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Stop ile çıkış", diag.exits.get("STOP", 0))
+    c2.metric("SAT ile çıkış", diag.exits.get("SAT", 0))
+    c3.metric("Kâra geçip zararla kapanan", f"{diag.went_green_closed_red} / {diag.closed}")
+    c4.metric("Dışarıdayken varlık", NOT_COMPUTABLE if diag.out_market_pct is None
+              else f"%{diag.out_market_pct:.2f}")
+    for line in explain(diag):
+        st.caption(line)
+    st.caption("Günlük kapanışlarla yaklaşık ölçümdür; ısınma dönemi (ilk karardan önceki günler) sayılmaz, "
+               "çıkış günü yalnız çıkış fiyatıyla temsil edilir; maliyet hariçtir. Geçmiş sonuç gelecekteki kazanç "
+               "olasılığı değildir.")
 
 
 def _as_day(value) -> date:
