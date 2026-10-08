@@ -207,13 +207,13 @@ def comparison_from_backtest(symbol: str, frame, decisions: dict, notional: Deci
     return ReportView(blocks=[block], messages=[])
 
 
-def render_diagnostics(frame, backtest: dict) -> None:
+def render_diagnostics(frame, backtest: dict, decisions=None) -> None:
     """Giriş / kâr alma / stop / girmeme teşhisi (spec 0016)."""
     import streamlit as st
 
     from trade_diagnostics import diagnose, explain
 
-    diag = diagnose(frame, backtest)
+    diag = diagnose(frame, backtest, decisions)
     st.markdown("**Strateji teşhisi: giriş, kâr alma, stop, girmeme**")
     if diag is None:
         st.caption("Teşhis hesaplanamadı (veri yetersiz).")
@@ -226,7 +226,8 @@ def render_diagnostics(frame, backtest: dict) -> None:
               else f"%{diag.out_market_pct:.2f}")
     for line in explain(diag):
         st.caption(line)
-    st.caption("Günlük kapanışlarla yaklaşık ölçümdür; maliyet hariçtir. Geçmiş sonuç gelecekteki kazanç "
+    st.caption("Günlük kapanışlarla yaklaşık ölçümdür; ısınma dönemi (ilk karardan önceki günler) sayılmaz, "
+               "çıkış günü yalnız çıkış fiyatıyla temsil edilir; maliyet hariçtir. Geçmiş sonuç gelecekteki kazanç "
                "olasılığı değildir.")
 
 

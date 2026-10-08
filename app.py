@@ -714,7 +714,7 @@ if is_chart_renderable(df_view):
                         col4.metric("Profit Factor", f"{bt_results['profit_factor']:.2f}")
                         if view_tf == "1d":
                             import performance_ui as _perf_diag
-                            _perf_diag.render_diagnostics(df_view, bt_results)
+                            _perf_diag.render_diagnostics(df_view, bt_results, v1_decisions)
                         st.divider()
                         col_det1, col_det2 = st.columns(2)
                         col_det1.write(f"✅ Kazanan İşlem: {bt_results['winning_trades']}")

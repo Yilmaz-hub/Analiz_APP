@@ -36,9 +36,26 @@ def _dec(value) -> Decimal | None:
     return number if number.is_finite() else None
 
 
-def diagnose(frame, backtest: dict) -> Diagnostics | None:
+def first_tradable_pos(frame, decisions) -> int | None:
+    """Stratejinin ilk alım yapabileceği mumun konumu: ilk kararın bir sonraki mumu.
+
+    Isınma döneminde (göstergeler oluşmadan) karar yoktur; bu günler "dışarıda kalma" sayılmaz.
+    Karar verilmemişse 1 (ikinci mum); karar sonrası mum yoksa None."""
+    if not decisions:
+        return 1
+    first = min(decisions)
+    later = [i for i, ts in enumerate(frame.index) if ts > first]
+    return later[0] if later else None
+
+
+def diagnose(frame, backtest: dict, decisions=None) -> Diagnostics | None:
     """Geçmiş test sonucunu dört soruya göre ölçer; veri yetersiz/geçersizse None."""
     if frame is None or len(frame) < 2 or not isinstance(backtest, dict) or "trades" not in backtest:
+        return None
+    if not {"High", "Close"} <= set(frame.columns):
+        return None
+    begin = first_tradable_pos(frame, decisions)
+    if begin is None:
         return None
     days = [_day(ts) for ts in frame.index]
     highs = [_dec(v) for v in frame["High"]]
@@ -55,9 +72,12 @@ def diagnose(frame, backtest: dict) -> Diagnostics | None:
         span = [i for i, d in enumerate(days) if start <= d <= end]
         for i in span:
             held[i] = True
-        window = [highs[i] for i in span if highs[i] is not None]
-        if entry is None or entry <= 0 or exit_ is None or not window:
+        # Çıkış gününün yükseği çıkıştan sonra oluşmuş olabilir (SAT ertesi açılışta, stopta gün içi sıra
+        # bilinmez); o gün yalnız çıkış fiyatıyla temsil edilir.
+        window = [highs[i] for i in span if days[i] < end and highs[i] is not None]
+        if entry is None or entry <= 0 or exit_ is None:
             continue
+        window.append(exit_)
         best_pct = (max(window) / entry - 1) * _HUNDRED
         real_pct = (exit_ / entry - 1) * _HUNDRED
         best.append(best_pct)
@@ -73,7 +93,7 @@ def diagnose(frame, backtest: dict) -> Diagnostics | None:
 
     grow = {True: Decimal("1"), False: Decimal("1")}
     count = {True: 0, False: 0}
-    for i in range(1, len(days)):
+    for i in range(max(begin, 1), len(days)):
         prev, cur = closes[i - 1], closes[i]
         if prev is None or cur is None or prev <= 0:
             continue
@@ -93,11 +113,12 @@ def diagnose(frame, backtest: dict) -> Diagnostics | None:
 def explain(diag: Diagnostics) -> list[str]:
     """Teşhisin düz Türkçe yorumu; sayı yoksa yorum uydurulmaz."""
     lines = []
-    if diag.closed == 0:
-        return ["Kapanmış işlem yok; giriş ve çıkış kalitesi ölçülemedi."]
     stop, sat = diag.exits.get("STOP", 0), diag.exits.get("SAT", 0)
-    lines.append(f"Çıkışlar: {stop} stop, {sat} SAT sinyali"
-                 + (f", {diag.closed - stop - sat} diğer." if diag.closed - stop - sat else "."))
+    if diag.closed == 0:
+        lines.append("Kapanmış işlem yok; giriş ve çıkış kalitesi ölçülemedi.")
+    else:
+        lines.append(f"Çıkışlar: {stop} stop, {sat} SAT sinyali"
+                     + (f", {diag.closed - stop - sat} diğer." if diag.closed - stop - sat else "."))
     if diag.avg_best_pct is not None and diag.avg_realized_pct is not None:
         given = diag.avg_best_pct - diag.avg_realized_pct
         lines.append(f"İşlemler ortalama %{diag.avg_best_pct:.2f} yükseğe çıktı ama ortalama "
@@ -106,7 +127,9 @@ def explain(diag: Diagnostics) -> list[str]:
     if diag.went_green_closed_red:
         lines.append(f"{diag.went_green_closed_red} / {diag.closed} işlem kâra geçtikten sonra zararla kapandı.")
     if diag.out_market_pct is not None:
-        if diag.out_market_pct < 0:
+        if diag.out_market_pct == 0:
+            lines.append(f"Dışarıda kalınan {diag.days_out} günde varlık değişmedi.")
+        elif diag.out_market_pct < 0:
             lines.append(f"Dışarıda kalınan {diag.days_out} günde varlık %{diag.out_market_pct:.2f} değişti: "
                          "girmemek bu düşüşten korudu.")
         else:

@@ -72,3 +72,27 @@ def test_ac05_screen_shows_the_diagnostics_after_a_daily_backtest(store, monkeyp
     assert not at.exception
     assert "Strateji teşhisi" in texts(at)
     assert {"Stop ile çıkış", "SAT ile çıkış", "Kâra geçip zararla kapanan"} <= {m.label for m in at.metric}
+
+
+def test_ac03_warm_up_days_are_not_counted_as_staying_out():
+    """AC03 — İlk karardan önceki ısınma günleri "dışarıda kalma" sayılmaz."""
+    f = _frame([100, 50, 25, 30, 33])          # ısınmada sert düşüş, sonra yükseliş
+    d = diagnose(f, {"trades": []}, decisions={f.index[2]: "BEKLE"})
+    assert d.days_out == 2 and d.out_market_pct == Decimal("32")          # 25 → 33, ısınma hariç
+    assert any("kaçırdı" in line for line in explain(d))
+    assert diagnose(f, {"trades": []}, decisions={f.index[4]: "AL"}) is None
+
+
+def test_ac02_exit_day_high_after_the_exit_is_ignored():
+    """AC02 — SAT ertesi açılışta 95'ten çıkar; o günün sonradan oluşan yükseği (101) "kâra geçti" sayılmaz."""
+    f = _frame([100, 100, 95], highs=[100, 99, 101])
+    d = diagnose(f, {"trades": [_trade(f, 1, 2, 100, 95, "SAT")]})
+    assert d.went_green_closed_red == 0
+    assert d.avg_best_pct == Decimal("-1") and d.avg_realized_pct == Decimal("-5")
+
+
+def test_ac04_missing_high_column_and_flat_market_are_safe():
+    """AC04 — High kolonu yoksa None; dışarıdayken hiç değişim yoksa "değişmedi" yazılır."""
+    f = _frame([100, 100, 100])
+    assert diagnose(f.drop(columns=["High"]), {"trades": []}) is None
+    assert any("değişmedi" in line for line in explain(diagnose(f, {"trades": []})))
