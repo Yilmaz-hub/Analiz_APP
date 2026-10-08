@@ -207,6 +207,64 @@ def comparison_from_backtest(symbol: str, frame, decisions: dict, notional: Deci
     return ReportView(blocks=[block], messages=[])
 
 
+@dataclass(frozen=True)
+class HoldComparison:
+    """Geçmiş test sonucunun yanında gösterilen al-tut karşılaştırması (spec 0015)."""
+    strategy_pct: Decimal          # strateji, sermayeye göre
+    hold_same_pct: Decimal         # aynı işlem tutarı ilk açılışta alınıp tutulsaydı, sermayeye göre
+    price_change_pct: Decimal      # varlığın kendi fiyat değişimi (tüm sermaye al-tut)
+    exposure_pct: Decimal          # işlem tutarının sermayeye oranı
+    verdict: str
+
+
+def hold_comparison(frame, backtest: dict, capital, notional) -> HoldComparison | None:
+    """Strateji ile aynı dönemde al-tut'u eşit para ile karşılaştırır; hesaplanamazsa None.
+
+    Al-tut, stratejinin ilk alım yapabileceği an olan ikinci mumun açılışında alır ve son
+    kapanışta değerlenir. Maliyet hariçtir (yalnız fiyat değişimi). Sonuçlar sermayeye göre
+    yüzde olarak verilir ki stratejinin "Toplam Getiri"si ile aynı ölçekte olsun.
+    """
+    if frame is None or len(frame) < 2:
+        return None
+    try:
+        capital, notional = Decimal(str(capital)), Decimal(str(notional))
+        first_open = Decimal(str(frame["Open"].iloc[1]))
+        last_close = Decimal(str(frame["Close"].iloc[-1]))
+        strategy = Decimal(str(backtest["total_return"]))
+    except (KeyError, ArithmeticError, ValueError):
+        return None
+    if not all(v.is_finite() for v in (capital, notional, first_open, last_close, strategy)) \
+            or capital <= 0 or notional <= 0 or first_open <= 0:
+        return None
+    change = (last_close / first_open - Decimal("1")) * Decimal("100")
+    exposure = min(notional, capital) / capital
+    hold_same = change * exposure
+    if strategy > hold_same:
+        verdict = "Strateji, aynı tutarla al-tut'tan daha iyi sonuç verdi."
+    elif strategy < hold_same:
+        verdict = "Strateji, aynı tutarla al-tut'tan daha kötü sonuç verdi."
+    else:
+        verdict = "Strateji ile aynı tutarla al-tut aynı sonucu verdi."
+    return HoldComparison(strategy, hold_same, change, exposure * Decimal("100"), verdict)
+
+
+def render_hold_comparison(comparison: HoldComparison | None) -> None:
+    import streamlit as st
+
+    if comparison is None:
+        st.caption("Al-tut karşılaştırması hesaplanamadı (fiyat ya da tutar geçersiz).")
+        return
+    st.markdown("**Aynı dönemde al ve tut ile karşılaştırma**")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Strateji", f"%{comparison.strategy_pct:.2f}")
+    c2.metric("Al-tut (aynı tutarla)", f"%{comparison.hold_same_pct:.2f}")
+    c3.metric("Varlığın fiyat değişimi", f"%{comparison.price_change_pct:.2f}")
+    st.caption(f"{comparison.verdict} İşlem tutarı / sermaye oranı: %{comparison.exposure_pct:.0f}. Her alımda "
+               "sermayenin yalnız bu kadarı kullanıldığı için yüzdeler küçük görünür; varlığın fiyat değişimi "
+               "tüm sermayeyle al-tut "
+               "sonucudur. Al-tut maliyet hariçtir; geçmiş sonuç gelecekteki kazanç olasılığı değildir.")
+
+
 def _as_day(value) -> date:
     return value.date() if hasattr(value, "date") else value
 
