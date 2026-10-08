@@ -26,12 +26,11 @@ def test_ac01_exit_reasons_are_counted():
 
 
 def test_ac02_profit_given_back_is_measured():
-    """AC02 — İşlem %20 yükseğe çıkıp %-5 ile kapanırsa: en iyi %20, kapanış %-5, kâra geçip zararla kapanan 1."""
+    """AC02 — İşlem %20 yükseğe çıkıp %-5 ile kapanırsa: en iyi %20, kapanış %-5 (medyan); R bilinmiyorsa 1R sayılmaz."""
     f = _frame([100, 100, 110, 100, 95], highs=[100, 100, 120, 100, 95])
     d = diagnose(f, {"trades": [_trade(f, 1, 4, 100, 95, "STOP")]})
-    assert d.avg_best_pct == Decimal("20") and d.avg_realized_pct == Decimal("-5")
-    assert d.went_green_closed_red == 1
-    assert any("%25.00 geri verildi" in line for line in explain(d))
+    assert d.median_best_pct == Decimal("20") and d.median_realized_pct == Decimal("-5")
+    assert d.r_known == 0 and d.reached_1r_closed_red == 0
 
 
 def test_ac03_staying_out_is_measured():
@@ -71,7 +70,7 @@ def test_ac05_screen_shows_the_diagnostics_after_a_daily_backtest(store, monkeyp
     at = click(at.run(), "🚀 Backtest Başlat")
     assert not at.exception
     assert "Strateji teşhisi" in texts(at)
-    assert {"Stop ile çıkış", "SAT ile çıkış", "Kâra geçip zararla kapanan"} <= {m.label for m in at.metric}
+    assert {"Stop ile çıkış", "SAT ile çıkış", "1R kâr görüp zararla kapanan"} <= {m.label for m in at.metric}
 
 
 def test_ac03_warm_up_days_are_not_counted_as_staying_out():
@@ -87,8 +86,8 @@ def test_ac02_exit_day_high_after_the_exit_is_ignored():
     """AC02 — SAT ertesi açılışta 95'ten çıkar; o günün sonradan oluşan yükseği (101) "kâra geçti" sayılmaz."""
     f = _frame([100, 100, 95], highs=[100, 99, 101])
     d = diagnose(f, {"trades": [_trade(f, 1, 2, 100, 95, "SAT")]})
-    assert d.went_green_closed_red == 0
-    assert d.avg_best_pct == Decimal("-1") and d.avg_realized_pct == Decimal("-5")
+    assert d.reached_1r_closed_red == 0
+    assert d.median_best_pct == Decimal("-1") and d.median_realized_pct == Decimal("-5")
 
 
 def test_ac04_missing_high_column_and_flat_market_are_safe():
@@ -96,3 +95,58 @@ def test_ac04_missing_high_column_and_flat_market_are_safe():
     f = _frame([100, 100, 100])
     assert diagnose(f.drop(columns=["High"]), {"trades": []}) is None
     assert any("değişmedi" in line for line in explain(diagnose(f, {"trades": []})))
+
+
+
+# ---- Spec 0017: dürüst teşhis ----------------------------------------------------------------------
+def _atr_frame(closes, highs, atr):
+    f = _frame(closes, highs)
+    f["ATR"] = atr
+    return f
+
+
+def test_0017_ac01_median_is_not_skewed_by_one_big_winner():
+    """AC01 — Bir büyük kazanç (%+100) ve üç küçük kayıp: medyan en iyi seviye büyük kazancı yansıtmaz."""
+    f = _frame([100] * 10, highs=[100, 101, 100, 101, 100, 101, 200, 100, 100, 100])
+    trades = [_trade(f, 1, 2, 100, 95, "STOP"), _trade(f, 3, 4, 100, 95, "STOP"),
+              _trade(f, 5, 6, 100, 95, "STOP"), _trade(f, 6, 7, 100, 200, "SAT")]
+    d = diagnose(f, {"trades": trades})
+    assert d.median_best_pct == Decimal("1")          # ortalama %25.75 olurdu
+
+
+def test_0017_ac02_green_by_a_cent_is_not_reaching_1r():
+    """AC02 — Girişin hemen üstüne çıkıp stopta kapanan işlem 1R kâr görmüş sayılmaz; 1R üstü görülen sayılır."""
+    # ATR 2 → başlangıç stopu 100 − 2,5×2 = 95, R = 5
+    f = _atr_frame([100, 100, 100, 100, 100, 100], [100, 100.5, 100, 100, 106, 100], 2.0)
+    trades = [_trade(f, 1, 2, 100, 95, "STOP"), _trade(f, 4, 5, 100, 95, "STOP")]
+    d = diagnose(f, {"trades": trades})
+    assert d.r_known == 2
+    assert d.reached_1r_closed_red == 1               # yalnız 106'yı (1,2R) gören
+
+
+def test_0017_ac03_winners_and_losers_are_split_with_entry_regime():
+    """AC03 — Kazanan ve kaybedenler ayrı yazılır; her işlemin giriş koşulu (karar günü verisiyle) görünür."""
+    f = _frame([100, 100, 100, 100, 100, 100])
+    trades = [_trade(f, 1, 2, 100, 95, "STOP"), _trade(f, 3, 4, 100, 120, "SAT")]
+    seen = []
+
+    def classify(part):
+        seen.append(len(part))
+        return ("YATAY" if len(part) == 1 else "YUKSELEN", "R1")
+
+    d = diagnose(f, {"trades": trades}, classify=classify)
+    assert seen == [1, 3]                              # yalnız girişe karar verilen güne kadarki veri
+    text = " ".join(explain(d))
+    assert "Kaybedenler: 1 işlem" in text and "1 Yatay" in text
+    assert "Kazananlar: 1 işlem" in text and "1 Yükselen" in text
+    assert "desen için az" in text
+
+
+def test_0017_ac04_trade_table_has_one_row_per_closed_trade():
+    """AC04 — İşlem tablosu her kapanmış işlem için bir satır verir; R bilinmiyorsa "—"."""
+    from trade_diagnostics import trade_table
+
+    f = _frame([100, 100, 100, 100])
+    d = diagnose(f, {"trades": [_trade(f, 1, 2, 100, 95, "STOP")]})
+    (row,) = trade_table(d)
+    assert row["Sonuç"] == "Kaybetti" and row["En iyi (R)"] == "—" and row["Giriş koşulu"] == "belirsiz"

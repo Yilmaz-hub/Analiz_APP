@@ -278,12 +278,14 @@ def render_hold_comparison(comparison: HoldComparison | None) -> None:
                "sonucudur. Al-tut, stratejinin ilk kararından sonraki açılışta başlar, maliyet hariçtir ve "
                "yaklaşıktır (strateji miktarı adıma yuvarlar); geçmiş sonuç gelecekteki kazanç olasılığı değildir.")
 def render_diagnostics(frame, backtest: dict, decisions=None) -> None:
-    """Giriş / kâr alma / stop / girmeme teşhisi (spec 0016)."""
+    """Giriş / kâr alma / stop / girmeme teşhisi (spec 0016, 0017)."""
+    import pandas as pd
     import streamlit as st
 
-    from trade_diagnostics import diagnose, explain
+    from regime_classifier import classify_latest
+    from trade_diagnostics import diagnose, explain, trade_table
 
-    diag = diagnose(frame, backtest, decisions)
+    diag = diagnose(frame, backtest, decisions, classify=classify_latest)
     st.markdown("**Strateji teşhisi: giriş, kâr alma, stop, girmeme**")
     if diag is None:
         st.caption("Teşhis hesaplanamadı (veri yetersiz).")
@@ -291,13 +293,18 @@ def render_diagnostics(frame, backtest: dict, decisions=None) -> None:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Stop ile çıkış", diag.exits.get("STOP", 0))
     c2.metric("SAT ile çıkış", diag.exits.get("SAT", 0))
-    c3.metric("Kâra geçip zararla kapanan", f"{diag.went_green_closed_red} / {diag.closed}")
+    c3.metric("1R kâr görüp zararla kapanan",
+              NOT_COMPUTABLE if not diag.r_known else f"{diag.reached_1r_closed_red} / {diag.r_known}")
     c4.metric("Dışarıdayken varlık", NOT_COMPUTABLE if diag.out_market_pct is None
               else f"%{diag.out_market_pct:.2f}")
     for line in explain(diag):
         st.caption(line)
-    st.caption("Günlük kapanışlarla yaklaşık ölçümdür; ısınma dönemi (ilk karardan önceki günler) sayılmaz, "
-               "çıkış günü yalnız çıkış fiyatıyla temsil edilir; maliyet hariçtir. Geçmiş sonuç gelecekteki kazanç "
+    if diag.rows:
+        with st.expander("İşlem işlem teşhis"):
+            st.dataframe(pd.DataFrame(trade_table(diag)), width="stretch", hide_index=True)
+    st.caption("Günlük kapanışlarla yaklaşık ölçümdür; değerler medyandır (birkaç büyük işlem ortalamayı "
+               "şişirmesin); ısınma dönemi sayılmaz, çıkış günü yalnız çıkış fiyatıyla temsil edilir; giriş koşulu "
+               "girişe karar verilen günün verisiyle hesaplanır; maliyet hariçtir. Geçmiş sonuç gelecekteki kazanç "
                "olasılığı değildir.")
 
 
