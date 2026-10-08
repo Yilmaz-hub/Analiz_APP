@@ -207,6 +207,78 @@ def comparison_from_backtest(symbol: str, frame, decisions: dict, notional: Deci
     return ReportView(blocks=[block], messages=[])
 
 
+@dataclass(frozen=True)
+class HoldComparison:
+    """Geçmiş test sonucunun yanında gösterilen al-tut karşılaştırması (spec 0015)."""
+    strategy_pct: Decimal          # strateji, sermayeye göre
+    hold_same_pct: Decimal         # aynı işlem tutarı ilk açılışta alınıp tutulsaydı, sermayeye göre
+    price_change_pct: Decimal      # varlığın kendi fiyat değişimi (tüm sermaye al-tut)
+    exposure_pct: Decimal          # işlem tutarının sermayeye oranı
+    verdict: str
+    start: date | None = None      # al-tut'un başladığı gün (ilk karardan sonraki mumun açılışı)
+
+
+def hold_comparison(frame, backtest: dict, capital, notional, decisions=None) -> HoldComparison | None:
+    """Strateji ile aynı dönemde al-tut'u eşit para ile karşılaştırır; hesaplanamazsa None.
+
+    Al-tut, stratejinin ilk alım yapabileceği anda alır: ilk kararın (ısınma dönemi sonrası)
+    bir sonraki mumunun açılışı; karar verilmezse ikinci mumun açılışı. Son kapanışta değerlenir.
+    Maliyet hariçtir. Sonuçlar sermayeye göre yüzde olarak verilir ki stratejinin "Toplam
+    Getiri"si ile aynı ölçekte olsun. İşlem tutarı sermayeden büyükse strateji alım yapamaz;
+    karşılaştırma gösterilmez (None).
+    """
+    if frame is None or len(frame) < 2:
+        return None
+    start_pos = 1
+    if decisions:
+        first_key = min(decisions)
+        later = [i for i, ts in enumerate(frame.index) if ts > first_key]
+        if not later:
+            return None
+        start_pos = later[0]
+    try:
+        capital, notional = Decimal(str(capital)), Decimal(str(notional))
+        first_open = Decimal(str(frame["Open"].iloc[start_pos]))
+        last_close = Decimal(str(frame["Close"].iloc[-1]))
+        strategy = Decimal(str(backtest["total_return"]))
+    except (KeyError, ArithmeticError, ValueError):
+        return None
+    if not all(v.is_finite() for v in (capital, notional, first_open, last_close, strategy)) \
+            or capital <= 0 or notional <= 0 or first_open <= 0 or notional > capital:
+        return None
+    change = (last_close / first_open - Decimal("1")) * Decimal("100")
+    exposure = notional / capital
+    hold_same = change * exposure
+    if strategy > hold_same:
+        verdict = "Strateji, aynı tutarla al-tut'tan daha iyi sonuç verdi."
+    elif strategy < hold_same:
+        verdict = "Strateji, aynı tutarla al-tut'tan daha kötü sonuç verdi."
+    else:
+        verdict = "Strateji ile aynı tutarla al-tut aynı sonucu verdi."
+    return HoldComparison(strategy, hold_same, change, exposure * Decimal("100"), verdict,
+                          _as_day(frame.index[start_pos]))
+
+
+def render_hold_comparison(comparison: HoldComparison | None) -> None:
+    import streamlit as st
+
+    if comparison is None:
+        st.caption("Al-tut karşılaştırması hesaplanamadı (fiyat ya da tutar geçersiz, karar yok ya da işlem "
+                   "tutarı sermayeden büyük).")
+        return
+    since = f" ({comparison.start} açılışından itibaren)" if comparison.start else ""
+    st.markdown(f"**Aynı dönemde al ve tut ile karşılaştırma{since}**")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Strateji", f"%{comparison.strategy_pct:.2f}")
+    c2.metric("Al-tut (aynı tutarla)", f"%{comparison.hold_same_pct:.2f}")
+    c3.metric("Varlığın fiyat değişimi", f"%{comparison.price_change_pct:.2f}")
+    st.caption(f"{comparison.verdict} İşlem tutarı / sermaye oranı: %{comparison.exposure_pct:.0f}. Her alımda "
+               "sermayenin yalnız bu kadarı kullanıldığı için yüzdeler küçük görünür; varlığın fiyat değişimi "
+               "tüm sermayeyle al-tut "
+               "sonucudur. Al-tut, stratejinin ilk kararından sonraki açılışta başlar, maliyet hariçtir ve "
+               "yaklaşıktır (strateji miktarı adıma yuvarlar); geçmiş sonuç gelecekteki kazanç olasılığı değildir.")
+
+
 def _as_day(value) -> date:
     return value.date() if hasattr(value, "date") else value
 
