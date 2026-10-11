@@ -149,6 +149,10 @@ class DecisionEngineConfig:
     VOLUME_WEIGHT = 0.10
     PATTERN_WEIGHT = 0.10
     ML_WEIGHT = 0.10
+    # Spec 0018: AL/SAT kararlarına ML girmez. Deney (8 kripto, 1000 gün): ML açıkken veri penceresi
+    # bir gün kayınca geçmiş kararlar değişiyor (ML'siz 0 fark) ve toplam sonuç 8 varlığın 7'sinde kötüleşiyor.
+    # ML kapalıyken ağırlığı diğer boyutlara dağıtılır (`_compute_bar_score`).
+    V1_INCLUDE_ML = False
     ADVANCED_WEIGHT = 0.25  # Elliott Wave, Ichimoku, Wyckoff, Market Structure
 
     # Verdict thresholds (on -100 to +100 scale)

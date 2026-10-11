@@ -704,7 +704,7 @@ class SignalStateMachine:
 # =============================================
 # COMPOSITE SIGNAL GENERATOR (raw, single-bar)
 # =============================================
-def generate_composite_signal(df, timeframe="1d", supports=None, resistances=None, include_ml=True, weights=None):
+def generate_composite_signal(df, timeframe="1d", supports=None, resistances=None, include_ml=None, weights=None):
     """
     Raw single-bar verdict — scores the latest bar with no persistence.
     Kept for compatibility/diagnostics; the UI should prefer
@@ -714,6 +714,8 @@ def generate_composite_signal(df, timeframe="1d", supports=None, resistances=Non
     """
     signal = CompositeSignal(timeframe=timeframe)
     cfg = DecisionEngineConfig
+    if include_ml is None:      # spec 0018: AL/SAT kararına ML girmez
+        include_ml = cfg.V1_INCLUDE_ML
 
     bar = _compute_bar_score(df, timeframe, include_ml, weights=weights)
     if bar is None:
@@ -851,7 +853,7 @@ def replay_stable_state(scored_bars, cfg=None):
     return machine, bar, raw_dir
 
 
-def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, include_ml=True, weights=None,
+def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, include_ml=None, weights=None,
                            data_is_closed=False, strict_components=False):
     """
     Whipsaw-resistant signal — this is what the UI should display and what
@@ -876,6 +878,8 @@ def generate_stable_signal(df, timeframe="1d", supports=None, resistances=None, 
     ağırlık başkalarına dağıtılıp devam edilmez; sinyal `unavailable_components`
     ile döner ve yeni AL/SAT üretmez.
     """
+    if include_ml is None:      # spec 0018: AL/SAT kararına ML girmez
+        include_ml = DecisionEngineConfig.V1_INCLUDE_ML
     cfg = DecisionEngineConfig
     signal = CompositeSignal(timeframe=timeframe)
 

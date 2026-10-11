@@ -30,7 +30,7 @@ from pathlib import Path
 
 import forward_tracker as ft
 import market_map
-from config import ForwardConfig
+from config import DecisionEngineConfig, ForwardConfig
 
 
 @dataclass
@@ -226,14 +226,15 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="İleri dönem sanal takip koşucusu")
     parser.add_argument("--now", help="Sabit saat (ISO 8601). Verilirse gözlem hızlandırılmış sayılır.")
     parser.add_argument("--fixture", type=Path, help="Ağ yerine <DIR>/<SEMBOL>.csv kullan.")
-    parser.add_argument("--no-ml", action="store_true", help="ML bileşenini kapat.")
+    parser.add_argument("--no-ml", action="store_true",
+                        help="ML bileşenini kapat (spec 0018 sonrası varsayılan zaten kapalı).")
     parser.add_argument("--symbols", help="Virgülle ayrılmış semboller (varsayılan: varlık listesi).")
     args = parser.parse_args(argv)
     now = (datetime.fromisoformat(args.now.replace("Z", "+00:00")) if args.now
            else datetime.now(timezone.utc))
     report = run(now, real_clock=args.now is None,
                  fetch=_fixture_fetch(args.fixture) if args.fixture else _live_fetch,
-                 include_ml=not args.no_ml,
+                 include_ml=DecisionEngineConfig.V1_INCLUDE_ML and not args.no_ml,
                  symbols=args.symbols.split(",") if args.symbols else None)
     for line in report.recorded:
         print(f"kaydedildi: {line}")

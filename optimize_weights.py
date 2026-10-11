@@ -255,7 +255,7 @@ def optimize_class(asset_class, assets, maxiter, popsize, source_pref="Binance")
             end = len(train_df) + len(test_df)
             fold_bt_results.append(run_strategy_backtest(
                 full_df.iloc[:end], initial_balance=10000, timeframe="1d",
-                weights=best_weights, start_index=len(train_df), include_ml=True,
+                weights=best_weights, start_index=len(train_df), include_ml=DecisionEngineConfig.V1_INCLUDE_ML,
             ))
         fold_scores.append(float(_pool_score(fold_bt_results)))
 

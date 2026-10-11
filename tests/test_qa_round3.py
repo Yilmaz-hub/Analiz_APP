@@ -78,7 +78,7 @@ def test_y2_sell_price_follows_the_selected_position(store, monkeypatch, process
 
 # Y4 -----------------------------------------------------------------------------
 def test_y4_paper_runs_the_real_engine_in_strict_mode(tmp_path, monkeypatch):
-    """M12: strict_components kaldırılırsa eksik ML sessizce ağırlık dağıtımına döner."""
+    """M12: strict_components kaldırılırsa eksik bileşen sessizce ağırlık dağıtımına döner (0018: formasyonla)."""
     import ml_models, paper_trading, signal_engine
     from config import FileConfig
     from data_fetchers import process_data
@@ -90,11 +90,11 @@ def test_y4_paper_runs_the_real_engine_in_strict_mode(tmp_path, monkeypatch):
     frame = process_data(raw, "test")[0]
     monkeypatch.setattr(FileConfig, "PAPER_FILE", str(tmp_path / "p.json"))
     monkeypatch.setattr(data_fetchers, "get_market_data", lambda *a, **k: (frame, "T"))
-    monkeypatch.setattr(ml_models, "calculate_ml_direction_signal", lambda _df: None)
+    monkeypatch.setattr(signal_engine, "_score_patterns", lambda _df: (0, [], False))
     signal_engine._stable_cache.clear(); signal_engine._bar_score_cache.clear()
     paper_trading.run_paper_update({"BTC": "BTC-USD"})
     journal = paper_trading._load_state()["journal"]
-    assert journal[0]["verdict"] == "BILESEN_YOK" and journal[0]["unavailable_components"] == ["ml"]
+    assert journal[0]["verdict"] == "BILESEN_YOK" and journal[0]["unavailable_components"] == ["pattern"]
 
 
 def test_y4_app_start_reconciles_a_half_finished_trade(store, monkeypatch, processed_df):

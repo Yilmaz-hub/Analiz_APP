@@ -7,7 +7,7 @@ import traceback
 from datetime import datetime, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
-from config import PATTERN_INFO, UIConfig, FileConfig, DataFetchConfig
+from config import PATTERN_INFO, UIConfig, FileConfig, DataFetchConfig, DecisionEngineConfig
 import storage
 from storage import StorageAccessError
 from assets import load_assets, save_assets, resolve_name
@@ -331,7 +331,8 @@ for tf, label in intervals.items():
         if tf == "1d" and not is_v1_scope(symbol):
             # V1 kapsamı dışı (ör. döviz): bileşen denetimi uygulanmaz, ekranda belirtilir.
             validation_statuses[tf] = "V1_DOGRULANMADI"
-            comp_sig = generate_stable_signal(df, tf, weights=sig_weights)
+            comp_sig = generate_stable_signal(df, tf, weights=sig_weights,
+                                              include_ml=DecisionEngineConfig.V1_INCLUDE_ML)
         elif tf == "1d":
             evaluation_time = datetime.now(timezone.utc)
             policy = policy_for_symbol(symbol, evaluation_time)
@@ -344,7 +345,7 @@ for tf, label in intervals.items():
             comp_sig = generate_validated_signal(
                 df, evaluation_time, policy,
                 provider_open=df.attrs.get("provider_open", set()),
-                timeframe=tf, weights=sig_weights,
+                timeframe=tf, weights=sig_weights, include_ml=DecisionEngineConfig.V1_INCLUDE_ML,
             )
             if comp_sig is None:
                 comp_sig = invalid_data_signal(
@@ -358,7 +359,8 @@ for tf, label in intervals.items():
                 validation_statuses[tf], evaluation_time)
         else:
             validation_statuses[tf] = "V1_DOGRULANMADI"
-            comp_sig = generate_stable_signal(df, tf, weights=sig_weights)
+            comp_sig = generate_stable_signal(df, tf, weights=sig_weights,
+                                              include_ml=DecisionEngineConfig.V1_INCLUDE_ML)
         composite_signals[tf] = comp_sig
 
         st.sidebar.markdown("---")
@@ -656,7 +658,7 @@ if is_chart_renderable(df_view):
     if df_view is not None:
         st.divider()
         with st.expander("📊 Backtest: Strateji Performansı", expanded=False):
-            st.info("Günlük V1 testi; ML dahil kapanmış mum kararını sonraki açılışta uygular, 2,5 ATR başlangıç stopunu sabit tutar ve hedef/otomatik iz süren stopla satış yapmaz.")
+            st.info("Günlük V1 testi; kapanmış mum kararını (ML kararlara girmez) sonraki açılışta uygular, 2,5 ATR başlangıç stopunu sabit tutar ve hedef/otomatik iz süren stopla satış yapmaz.")
             if st.button("🚀 Backtest Başlat", disabled=view_tf == "1d" and not trade_parsed.ok):
                 with st.spinner("Backtest çalışıyor..."):
                     import plotly.graph_objects as go
@@ -664,7 +666,8 @@ if is_chart_renderable(df_view):
 
                     bt_progress = st.progress(0.0)
                     if view_tf == "1d":
-                        v1_decisions = build_v1_decisions(df_view, weights=tuned_weights, include_ml=True)
+                        v1_decisions = build_v1_decisions(df_view, weights=tuned_weights,
+                                                          include_ml=DecisionEngineConfig.V1_INCLUDE_ML)
                         bt_results = run_v1_strategy_backtest(
                             df_view, v1_decisions, initial_cash=trade_parsed.capital,
                             trade_notional=trade_parsed.settings.notional,
@@ -1009,7 +1012,7 @@ if is_chart_renderable(df_view):
 
     # --- KAĞIT TİCARET DOĞRULAMASI ---
     with st.expander("🧪 Kağıt Ticaret Doğrulaması (Canlı Sinyal Takibi)", expanded=False):
-        st.info("Canlı sinyali (ML dahil) her gün kapanan mumda kaydeder ve backtest kurallarıyla "
+        st.info("Canlı sinyali (ML kararlara girmez) her gün kapanan mumda kaydeder ve backtest kurallarıyla "
                 "sanal işlem yapar. Birkaç hafta sonra gerçek davranış ile backtest beklentisi "
                 "karşılaştırılır. Günlük otomatik görev kuruluysa buton sadece kontrol içindir.")
         from paper_trading import run_paper_update, paper_report

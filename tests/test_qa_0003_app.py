@@ -130,15 +130,16 @@ def test_stop_raise_button_is_disabled_when_storage_is_unwritable(store, monkeyp
 
 # Q6 — Hesaplanamayan karar bileşeni nötr sayılmaz; ekranda adıyla görünür.
 def test_q6_sidebar_names_the_unavailable_component(store, monkeypatch, processed_df):
-    import ml_models
-    monkeypatch.setattr(ml_models, "calculate_ml_direction_signal", lambda _df: None)
+    # Spec 0018: ML kararlara girmez; zorunlu bileşen denetimi formasyon bileşeniyle sınanır.
+    import signal_engine
+    monkeypatch.setattr(signal_engine, "_score_patterns", lambda _df: (0, [], False))
     store.write_doc(store.ASSETS_KEY, VARLIKLAR)
 
     at = make_app(monkeypatch, _taze_gunluk(processed_df)).run()
 
     assert not at.exception
     metin = texts(at)
-    assert "Karar bileşeni hazır değil" in metin and "yapay zekâ" in metin
+    assert "Karar bileşeni hazır değil" in metin and "formasyon" in metin
     assert "BILESEN_HAZIR_DEGIL" not in metin
 
 
