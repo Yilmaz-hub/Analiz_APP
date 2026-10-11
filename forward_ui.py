@@ -18,6 +18,9 @@ STALE_AFTER = timedelta(days=2)
 RECENT = 5
 #: Ayrıntısı gösterilen en çok varlık-sürüm çifti (her çift birkaç sorgu; uzak veritabanında saniyeler tutar).
 MAX_PAIRS = 16    # 0019: varlık başına V1 + trend adayı izlenir
+#: Aynı varlığın başka sürümü bundan çok gün ilerideyse bu sürüm artık güncellenmiyordur (ör. 0020 sonrası
+#: altcoinlerin trend sürümü); "durdu" diye işaretlenir.
+STOPPED_AFTER_DAYS = 3
 
 
 @dataclass(frozen=True)
@@ -192,8 +195,13 @@ def build_summary_rows(pairs=None) -> list[dict]:
     """Varlık başına tek satır: son karar, birikim sayaçları ve durum (spec 0012)."""
     rows = []
     shown = (pairs if pairs is not None else ft.tracked_pairs())[:MAX_PAIRS]
+    history = {(asset, version): ft.decisions(asset, version) for asset, version in shown}
+    newest = {}
+    for (asset, _), decided in history.items():
+        if decided:
+            newest[asset] = max(newest.get(asset, decided[-1].candle_day), decided[-1].candle_day)
     for asset, version in shown:
-        decided = ft.decisions(asset, version)
+        decided = history[(asset, version)]
         verdict = ft.assess(asset, version)
         counted = [d for d in decided if d.on_time and d.real_clock]
         regimes = {d.regime for d in counted if d.regime}
@@ -205,7 +213,8 @@ def build_summary_rows(pairs=None) -> list[dict]:
             "Gün": f"{len(counted)} / {ForwardConfig.MIN_TRACKED_DAYS}",
             "İşlem": f"{ft.closed_trades(asset, version)} / {ForwardConfig.MIN_CLOSED_TRADES}",
             "Koşul": f"{len(regimes)} / 3",
-            "Durum": "✅ Yeterli kanıt" if verdict.sufficient else "⏳ Birikiyor",
+            "Durum": ("⏸️ Takip durdu" if last and (newest[asset] - last.candle_day).days > STOPPED_AFTER_DAYS
+                      else "✅ Yeterli kanıt" if verdict.sufficient else "⏳ Birikiyor"),
             "_asset": asset, "_version": version,
         })
     return rows

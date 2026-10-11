@@ -6,6 +6,9 @@ zararlı çıkıştan sonra bekleme, aynı mumda stop, maliyet modeli) işletili
 gelir: girişte o günkü toplam varlığın varlığa ait ağırlığı kadar. Nakit yetmezse mevcut nakitle sınırlanır;
 ağırlığın yarısından azı kalıyorsa o gün giriş yapılmaz.
 
+Tut yöntemi (spec 0021): `hold` içindeki varlıklar karar ve stop kullanmaz; ilk işlem gününde o günkü toplam
+varlığın ağırlığı kadar alınır ve dönem sonuna kadar tutulur (nakit yetmezse ertesi gün yeniden denenir).
+
 Al-tut karşılaştırması: her varlık kendi ilk gününde başlangıç sermayesinin ağırlığı kadar alınır ve tutulur
 (ağırlık toplamı %100'ü aşarsa oranlar küçültülür). Para hesabı Decimal'dir.
 """
@@ -18,7 +21,8 @@ from typing import Mapping
 
 from trade_execution import Bar, BookState, CostAssumptions, TradeSettings, advance_daily_bar
 
-#: Varsayılan ağırlıklar (spec 0019 R04, kullanıcı onayı): BTC/ETH ve ons altın %20, DOGE %5, diğer %10.
+#: Varsayılan ağırlıklar (spec 0019 R04, kullanıcı onayı): BTC/ETH ve ons altın %20, DOGE ve BIST hisseleri %5
+#: (spec 0021), diğer %10.
 MAJOR_BASES = frozenset({"BTC", "ETH", "XAU_GOLD"})
 SMALL_BASES = frozenset({"DOGE"})
 #: Miktar adımı bilinmeyen varlıkta kullanılan adım; sonuç "yaklaşık" etiketlenir.
@@ -30,6 +34,9 @@ def default_weight(symbol: str) -> Decimal:
     """Sembolün varsayılan portföy ağırlığı (yüzde)."""
     import market_map
 
+    info = market_map.market_of(symbol)
+    if info is not None and info[0] == "BIST":           # spec 0021: dolar bazında güvenilir değil, küçük ağırlık
+        return Decimal("5")
     base = market_map.canonical_symbol(symbol).split("-")[0]
     if base in MAJOR_BASES:
         return Decimal("20")
@@ -82,6 +89,31 @@ def _finite(value) -> Decimal | None:
     return number if number.is_finite() else None
 
 
+#: Spec 0021: tek kasa dolardır; USDT dolar sayılır, TL varlıklar günlük USD/TRY kuruyla çevrilir.
+POOL_CURRENCIES = {"USD": "USD", "USDT": "USD", "TRY": "TRY"}
+PRICE_COLUMNS = ("Open", "High", "Low", "Close", "ATR")
+
+
+def to_usd(frame, fx_frame):
+    """TL fiyatlı mum tablosunu dolara çevirir: her gün o günün (yoksa son bilinen) USD/TRY kapanışına bölünür.
+
+    Kur takvim gününe göre eşlenir (saat dilimi farkı eşleşmeyi bozmaz); ilk kurdan önceki günler atılır.
+    ATR de aynı kurla ölçeklenir (yaklaşık; günler arası kur oynaklığı ATR'ye eklenmez)."""
+    import pandas as pd
+
+    rates = pd.Series(fx_frame["Close"].values, index=[_day(ts) for ts in fx_frame.index])
+    rates = rates[~rates.index.duplicated(keep="last")].sort_index()
+    days = [_day(ts) for ts in frame.index]
+    aligned = rates.reindex(sorted(set(days) | set(rates.index))).ffill().reindex(days)
+    keep = aligned.notna().values & (aligned.values > 0)
+    out = frame.loc[keep].copy()
+    rate = aligned.values[keep]
+    for column in PRICE_COLUMNS:
+        if column in out.columns:
+            out[column] = out[column].values / rate
+    return out
+
+
 def first_tradable_day(frame, decided_days):
     """İlk kararın bir sonraki mumu: strateji en erken bu açılışta alım yapabilir (ısınma dönemi hariç)."""
     if not decided_days:
@@ -92,10 +124,12 @@ def first_tradable_day(frame, decided_days):
 
 
 def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capital: Decimal,
-                  costs: CostAssumptions, quantity_steps: Mapping | None = None, start=None) -> PortfolioResult:
+                  costs: CostAssumptions, quantity_steps: Mapping | None = None, start=None,
+                  hold=()) -> PortfolioResult:
     """`frames`: sembol → günlük mum tablosu (ATR dahil); `decisions`: sembol → {gün: AL/SAT/BEKLE};
     `weights`: sembol → yüzde. `start` verilirse sermaye eğrisi ve al-tut bu günden başlar (ısınma dönemi
-    karşılaştırmaya girmez; spec 0019 QA). Döner: `PortfolioResult`."""
+    karşılaştırmaya girmez; spec 0019 QA). `hold`: stopsuz al-tut yöntemiyle tutulan semboller (spec 0021);
+    bunlar için `decisions` gerekmez. Döner: `PortfolioResult`."""
     capital = Decimal(capital)
     quantity_steps = dict(quantity_steps or {})
     result = PortfolioResult()
@@ -108,6 +142,10 @@ def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capi
             step = FALLBACK_STEP
         steps[s] = Decimal(step)
     rate = Decimal("0") if costs.commission_pct is None else Decimal(costs.commission_pct) / 100
+    from trade_execution import commission_fee, fill_price
+
+    hold = {s for s in hold if s in symbols}
+    held, paid = {}, {}                                         # tut: miktar ve toplam maliyet (komisyon dahil)
     states = {s: BookState(_ZERO) for s in symbols}
     positions_close = {s: None for s in symbols}             # son bilinen kapanış (değerleme)
     index = {s: {ts: i for i, ts in enumerate(frames[s].index)} for s in symbols}
@@ -123,8 +161,10 @@ def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capi
             result.contribution[symbol] += item.pnl
 
     def value_of(symbol):
-        position = states[symbol].position
         last = positions_close[symbol]
+        if symbol in hold:
+            return _ZERO if symbol not in held or last is None else held[symbol] * last
+        position = states[symbol].position
         return _ZERO if position is None or last is None else position.quantity * last
 
     for t in days:
@@ -133,7 +173,7 @@ def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capi
         # 1) açık pozisyonlar: çıkışlar (tüm varlıklarda girişlerden önce)
         for s in active:
             state = states[s]
-            if state.position is None:
+            if s in hold or state.position is None:
                 continue
             i = index[s][t]
             frame = frames[s]
@@ -149,10 +189,25 @@ def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capi
             state.cash = _ZERO
         # 2) giriş tutarı için toplam varlık (önceki kapanışlarla)
         equity_prev = cash + sum((value_of(s) for s in symbols), _ZERO)
-        # 3) yeni girişler
+        # 3a) tut yöntemi: henüz alınmadıysa ağırlığı kadar alınır (karar ve stop yok)
+        for s in active:
+            if s not in hold or s in held:
+                continue
+            target = equity_prev * Decimal(weights[s]) / 100
+            notional = min(target, cash / (1 + rate))
+            price = fill_price(Decimal(str(frames[s]["Open"].iloc[index[s][t]])), "BUY", costs)
+            quantity = _ZERO if not price or price <= 0 else \
+                (notional / price / steps[s]).to_integral_value(rounding=ROUND_FLOOR) * steps[s]
+            if notional < target / 2 or quantity <= 0:
+                result.blocked["YETERSIZ_NAKIT"] = result.blocked.get("YETERSIZ_NAKIT", 0) + 1
+                continue
+            cost = quantity * price + commission_fee(quantity * price, costs)
+            cash -= cost
+            held[s], paid[s] = quantity, cost
+        # 3b) yeni girişler
         for s in active:
             state = states[s]
-            if state.position is not None or s in exited_today:
+            if s in hold or state.position is not None or s in exited_today:
                 continue
             i = index[s][t]
             frame = frames[s]
@@ -178,7 +233,9 @@ def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capi
             positions_close[s] = _finite(frames[s]["Close"].iloc[index[s][t]]) or positions_close[s]
         result.equity.append((_day(t), cash + sum((value_of(s) for s in symbols), _ZERO)))
 
-    result.holdings = {s: value_of(s) for s in symbols if states[s].position is not None}
+    result.holdings = {s: value_of(s) for s in symbols if states[s].position is not None or s in held}
+    for s in held:                                              # tut: dönem sonu gerçekleşmemiş net K/Z
+        result.contribution[s] += value_of(s) - paid[s]
     result.cash = cash
     result.hold_equity = _hold(frames, weights, symbols, steps, capital, costs, days)
     return result

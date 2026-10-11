@@ -30,8 +30,15 @@ MIN_CLOSED_TRADES = 30
 
 APPROVED_ENTRY_RULES = frozenset({"V1", "KIRILIM", "GERI_CEKILME", "TREND_SMA", "KANAL"})
 APPROVED_EXIT_RULES = frozenset({"V1", "KANAL"})
-#: Spec 0020 R02: tabanı bunlar olan kriptolar altcoin sayılmaz (yöntemleri C kalır).
-NON_ALTCOIN_BASES = frozenset({"BTC", "ETH"})
+#: Spec 0020 R02 / 0021: tabanı bunlar olan kriptolar altcoin sayılmaz (yöntemleri C kalır): BTC, ETH,
+#: onları izleyen sarılı/stake türevleri ve sabit coinler.
+NON_ALTCOIN_BASES = frozenset({
+    "BTC", "ETH", "WBTC", "BTCB", "CBBTC", "WETH", "STETH", "WSTETH", "CBETH", "RETH",
+    "USDT", "USDC", "DAI", "FDUSD", "TUSD", "BUSD", "USDP", "PYUSD", "USDE", "USDS",
+})
+#: Spec 0021: stopsuz al-tut ile tutulan piyasalar (hisseler); karar ve aday takibi yoktur.
+HOLD_MARKETS = frozenset({"ABD", "BIST"})
+TUT = "TUT"
 
 OLCUTU_KARSILADI = "OLCUTU_KARSILADI"
 OLCUTU_KARSILAMADI = "OLCUTU_KARSILAMADI"
@@ -256,14 +263,31 @@ def is_altcoin(symbol: str) -> bool:
     return info is not None and info[0] == "KRIPTO" and parts is not None and parts[0] not in NON_ALTCOIN_BASES
 
 
-def method_candidate(symbol: str) -> Candidate | None:
-    """Spec 0020 R02: varlığın yöntem adayı — altcoinde kanal kırılımı, diğerlerinde C. Piyasa tanınmıyorsa None."""
+def asset_method(symbol: str, gold_hold: bool = False) -> str | None:
+    """Varlığın yöntemi: altcoin `KANAL` (0020); hisse (ABD, BIST) `TUT` (0021); altın `TREND_SMA`, `gold_hold`
+    ile `TUT`; diğerleri `TREND_SMA`. Piyasa tanınmıyorsa None."""
     import market_map
 
     info = market_map.market_of(symbol)
     if info is None:
         return None
-    return channel_candidate(info[0]) if is_altcoin(symbol) else trend_candidate(info[0])
+    if is_altcoin(symbol):
+        return "KANAL"
+    if info[0] in HOLD_MARKETS or (gold_hold and info[0] == "ALTIN"):
+        return TUT
+    return "TREND_SMA"
+
+
+def method_candidate(symbol: str) -> Candidate | None:
+    """Sanal takipte izlenen yöntem adayı (0020 R02): altcoinde kanal kırılımı, diğerlerinde C. Al-tut yöntemli
+    varlıkta (hisse) izlenecek karar olmadığından None; piyasa tanınmıyorsa None."""
+    import market_map
+
+    method = asset_method(symbol)
+    if method in (None, TUT):
+        return None
+    market = market_map.market_of(symbol)[0]
+    return channel_candidate(market) if method == "KANAL" else trend_candidate(market)
 
 
 def load_candidate(key: str) -> Candidate | None:
@@ -327,11 +351,11 @@ def candidate_decisions(frame, v1_decisions: Mapping, candidate: Candidate, regi
     ema_span = int(settings.get("ema", 20))
     tolerance = Decimal(str(settings.get("tolerance_pct", "1")))
     close = frame["Close"]
+    if candidate.entry_rule == "KANAL":
+        return _channel_decisions(frame, int(settings.get("entry", 50)), int(settings.get("exit", 20)))
     ema = close.ewm(span=ema_span, adjust=False).mean()
     factor = Decimal("1") + tolerance / 100
     sma = close.rolling(int(settings.get("sma", 200))).mean()
-    if candidate.entry_rule == "KANAL":
-        return _channel_decisions(frame, int(settings.get("entry", 50)), int(settings.get("exit", 20)))
     decisions = {}
     for position, day in enumerate(frame.index):
         if v1_decisions.get(day) == "SAT":
@@ -361,7 +385,8 @@ def candidate_decisions(frame, v1_decisions: Mapping, candidate: Candidate, regi
 
 def _channel_decisions(frame, entry_days: int, exit_days: int) -> dict:
     """Spec 0020 R01: kapanış önceki `entry_days` günün en yükseğini aşarsa AL, önceki `exit_days` günün
-    en düşüğünün altına inerse SAT; pencere dolmadan BEKLE. Bugünün mumu kendi penceresine girmez."""
+    en düşüğünün altına inerse SAT; her pencere kendi uzunluğu dolana kadar o kararı vermez (SAT, giriş
+    penceresinden önce oluşabilir; pozisyon yokken etkisizdir). Bugünün mumu kendi penceresine girmez."""
     close = frame["Close"]
     upper = frame["High"].rolling(entry_days).max().shift(1)
     lower = frame["Low"].rolling(exit_days).min().shift(1)
