@@ -464,7 +464,7 @@ def test_ac11_forward_panel_shows_a_bounded_number_of_pairs(monkeypatch):
 
     import forward_ui
 
-    pairs = [(f"Varlık{i}", "V1") for i in range(10)]
+    pairs = [(f"Varlık{i}", "V1") for i in range(forward_ui.MAX_PAIRS + 4)]
     assessed = []
 
     class _Verdict:
@@ -478,5 +478,5 @@ def test_ac11_forward_panel_shows_a_bounded_number_of_pairs(monkeypatch):
     monkeypatch.setattr(ft, "decisions", lambda asset, version: [])
     monkeypatch.setattr(ft, "revisions", lambda asset, version: [])
     view = forward_ui.build_forward_view(datetime.now(timezone.utc))
-    assert len(assessed) == forward_ui.MAX_PAIRS == 6
+    assert len(assessed) == forward_ui.MAX_PAIRS
     assert any("4 çift daha" in line for line in view.lines)

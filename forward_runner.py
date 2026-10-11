@@ -203,7 +203,8 @@ def process_asset(name: str, symbol: str, frame, source: str, *, now: datetime, 
     report.compute_seconds += time.perf_counter() - started
 
 
-def _follow_trend_candidate(name, symbol, frame, source, *, now, real_clock, include_ml, report, clock):
+def _follow_trend_candidate(name, symbol, frame, source, *, now, real_clock, include_ml, report, clock,
+                            registered=None):
     """Spec 0019 R02: trend adayı (V1 + 200 günlük ortalama) aktif stratejinin yanında ayrı sürümle izlenir.
 
     Aday ön kaydı yoksa yapılır (sonuç görülmeden). Aktif strateji zaten bu adaysa ikinci kez kaydedilmez.
@@ -216,7 +217,10 @@ def _follow_trend_candidate(name, symbol, frame, source, *, now, real_clock, inc
     trend = sc.trend_candidate(info[0])
     if sc.active_strategy() == sc.strategy_fingerprint(trend):
         return
-    sc.preregister(trend, clock() if clock else now)
+    if registered is None or info[0] not in registered:      # piyasa başına bir ön kayıt (uzak DB gidiş-dönüşü)
+        sc.preregister(trend, clock() if clock else now)
+        if registered is not None:
+            registered.add(info[0])
     side = RunReport()
     process_asset(name, symbol, frame, source, now=now, real_clock=real_clock, include_ml=include_ml,
                   report=side, clock=clock, follow=trend)
@@ -232,6 +236,7 @@ def run(now: datetime, *, real_clock: bool, fetch, include_ml: bool,
 
     clock = clock or ((lambda: datetime.now(timezone.utc)) if real_clock else (lambda: now))
     report = RunReport()
+    registered: set = set()
     assets = {s: s for s in symbols} if symbols else load_assets()
     for name, symbol in assets.items():
         started = time.perf_counter()
@@ -249,7 +254,7 @@ def run(now: datetime, *, real_clock: bool, fetch, include_ml: bool,
                       include_ml=include_ml, report=report, clock=clock)
         if follow_trend:
             _follow_trend_candidate(name, symbol, frame, source, now=now, real_clock=real_clock,
-                                    include_ml=include_ml, report=report, clock=clock)
+                                    include_ml=include_ml, report=report, clock=clock, registered=registered)
     ft.record_run(clock(), not any("alınamadı" in n for n in report.notes),
                   "; ".join(report.notes) or "tamam")
     return report

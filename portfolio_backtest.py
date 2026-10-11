@@ -82,10 +82,20 @@ def _finite(value) -> Decimal | None:
     return number if number.is_finite() else None
 
 
+def first_tradable_day(frame, decided_days):
+    """İlk kararın bir sonraki mumu: strateji en erken bu açılışta alım yapabilir (ısınma dönemi hariç)."""
+    if not decided_days:
+        return None
+    first = min(decided_days)
+    later = [ts for ts in frame.index if ts > first]
+    return later[0] if later else None
+
+
 def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capital: Decimal,
-                  costs: CostAssumptions, quantity_steps: Mapping | None = None) -> PortfolioResult:
+                  costs: CostAssumptions, quantity_steps: Mapping | None = None, start=None) -> PortfolioResult:
     """`frames`: sembol → günlük mum tablosu (ATR dahil); `decisions`: sembol → {gün: AL/SAT/BEKLE};
-    `weights`: sembol → yüzde. Döner: `PortfolioResult`."""
+    `weights`: sembol → yüzde. `start` verilirse sermaye eğrisi ve al-tut bu günden başlar (ısınma dönemi
+    karşılaştırmaya girmez; spec 0019 QA). Döner: `PortfolioResult`."""
     capital = Decimal(capital)
     quantity_steps = dict(quantity_steps or {})
     result = PortfolioResult()
@@ -102,6 +112,8 @@ def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capi
     positions_close = {s: None for s in symbols}             # son bilinen kapanış (değerleme)
     index = {s: {ts: i for i, ts in enumerate(frames[s].index)} for s in symbols}
     days = sorted(set().union(*[set(frames[s].index) for s in symbols])) if symbols else []
+    if start is not None:
+        days = [t for t in days if t >= start]
     cash = capital
     result.contribution = {s: _ZERO for s in symbols}
 
@@ -117,6 +129,7 @@ def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capi
 
     for t in days:
         active = [s for s in symbols if t in index[s] and index[s][t] >= 1]
+        exited_today = set()
         # 1) açık pozisyonlar: çıkışlar (tüm varlıklarda girişlerden önce)
         for s in active:
             state = states[s]
@@ -130,6 +143,8 @@ def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capi
             step = advance_daily_bar(state, _bar(frame, i), verdict, atr,
                                      TradeSettings(_ZERO, steps[s], costs))
             record(s, step.trades)
+            if step.trades:
+                exited_today.add(s)       # tek varlık motoru gibi: çıkış mumunda başka işlem yok, bekleme ertesi gün başlar
             cash += state.cash
             state.cash = _ZERO
         # 2) giriş tutarı için toplam varlık (önceki kapanışlarla)
@@ -137,7 +152,7 @@ def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capi
         # 3) yeni girişler
         for s in active:
             state = states[s]
-            if state.position is not None:
+            if state.position is not None or s in exited_today:
                 continue
             i = index[s][t]
             frame = frames[s]
@@ -208,5 +223,5 @@ def summary(curve: list) -> dict:
     ratio = end / start
     annual = None
     if years > 0 and ratio > 0:
-        annual = (Decimal(float(ratio) ** (1 / float(years))) - 1) * 100
+        annual = ((ratio.ln() / years).exp() - 1) * 100
     return {"total": (ratio - 1) * 100, "annual": annual, "drawdown": worst * 100, "years": years}

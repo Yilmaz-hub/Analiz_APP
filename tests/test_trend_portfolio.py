@@ -151,3 +151,40 @@ def test_ac06_mixed_currencies_cannot_be_tested_in_one_pool(store, monkeypatch, 
     at = box.select("GRAM ALTIN (TL)").run()
     assert any("farklı para birimlerinde" in w.value for w in at.warning)
     assert next(b for b in at.button if b.label == "📦 Portföy testini başlat").disabled
+
+
+# ---- QA (PR #34): çıkış günü bekleme ve ısınma dönemi ---------------------------------------------
+def test_ac05_loss_stop_then_consecutive_buys_match_the_single_asset_engine():
+    """AC05 — Zararlı stop sonrası art arda AL: portföy, tek varlık motoruyla aynı giriş/çıkış günlerini üretir (çıkış gününde yeniden giriş yok)."""
+    from technical_analysis import run_v1_strategy_backtest
+
+    frame = _flat(n=20)
+    frame.iloc[4, frame.columns.get_loc("Low")] = 90.0                # 2,5 ATR stopun altı: zararlı stop
+    frame.iloc[11, frame.columns.get_loc("Low")] = 90.0
+    dec = {ts: "AL" for ts in frame.index}
+    single = run_v1_strategy_backtest(frame, dec, initial_cash=Decimal("10000"), trade_notional=Decimal("9000"),
+                                      quantity_step=Decimal("0.0001"), costs=COSTS)
+    multi = pb.run_portfolio({"X": frame}, {"X": dec}, {"X": Decimal("90")}, capital=Decimal("10000"),
+                             costs=COSTS, quantity_steps={"X": Decimal("0.0001")})
+    expected = [(t["entry_at"], t["exit_at"], t["reason"]) for t in single["trades"]]
+    assert len(expected) >= 2 and expected[0][2] == "STOP"
+    assert expected == [(t.entry_at, t.exit_at, t.reason) for t in multi.trades]
+
+
+def test_ac07_hold_and_equity_start_after_the_warm_up():
+    """AC07 — Isınmalı veride al-tut ve strateji eğrisi ilk karardan sonraki açılışta birlikte başlar; "Dönem" bu tarihi gösterir."""
+    import portfolio_ui
+
+    frame = _flat(n=60)
+    frame["Open"] = frame["Close"] = [50.0 + i for i in range(60)]     # ısınmada fiyat yükselir
+    frame["High"], frame["Low"] = frame["Close"] + 1, frame["Close"] - 1
+    decided = {ts: "BEKLE" for ts in frame.index[30:]}                  # ilk 30 gün ısınma: karar yok
+    start = pb.first_tradable_day(frame, list(decided))
+    assert start == frame.index[31]
+    result = pb.run_portfolio({"A": frame}, {"A": decided}, {"A": Decimal("100")}, capital=Decimal("10000"),
+                              costs=COSTS, quantity_steps={"A": Decimal("0.0001")}, start=start)
+    assert result.equity[0][0] == result.hold_equity[0][0] == start.date()
+    first_hold = result.hold_equity[0][1]
+    assert Decimal("9980") < first_hold <= Decimal("10000")             # al-tut ısınma yükselişini saymaz
+    view = portfolio_ui.build_portfolio_view(result, {"A": Decimal("100")})
+    assert f"Dönem: {start.date()}" in " ".join(view.notes)

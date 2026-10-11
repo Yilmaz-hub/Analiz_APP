@@ -10,9 +10,9 @@ from decimal import Decimal
 
 import portfolio_backtest as pb
 
-DATA_NOTE = ("Veri, uygulamanın günlük verisidir (son ~1000 gün); ilk 200 gün ortalamanın oluşması için "
-             "kullanıldığından test süresi yaklaşık 2 yıldır. Sonuç geçmiş veridir, gelecekteki kazanç "
-             "olasılığı değildir.")
+DATA_NOTE = ("Veri, uygulamanın günlük verisidir (son ~1000 gün); ilk ~200 gün göstergelerin oluşması için "
+             "kullanılır, strateji ve al-tut ilk karardan sonraki açılışta birlikte başlar. Sonuç geçmiş veridir, "
+             "gelecekteki kazanç olasılığı değildir.")
 
 
 @dataclass(frozen=True)
@@ -107,7 +107,7 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st):
     from storage import StorageAccessError
     import market_map
 
-    frames, decisions, steps, weights_by_symbol, missing = {}, {}, {}, {}, []
+    frames, decisions, steps, weights_by_symbol, missing, v1_days = {}, {}, {}, {}, [], {}
     progress = st.progress(0.0)
     for n, name in enumerate(chosen):
         symbol = coin_map[name]
@@ -117,6 +117,7 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st):
             missing.append(name)
             continue
         v1 = build_v1_decisions(frame)
+        v1_days[name] = list(v1)
         decisions[name] = sc.candidate_decisions(frame, v1, sc.trend_candidate(info[0]), None)
         frames[name] = frame
         weights_by_symbol[name] = weights[name]
@@ -133,8 +134,10 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st):
     if not frames:
         st.warning("Test edilecek varlık kalmadı.")
         return None, {}
+    starts = [day for day in (pb.first_tradable_day(frames[n], v1_days[n]) for n in frames) if day is not None]
     result = pb.run_portfolio(frames, decisions, weights_by_symbol, capital=capital,
-                              costs=CostAssumptions(None, None, commission), quantity_steps=steps)
+                              costs=CostAssumptions(None, None, commission), quantity_steps=steps,
+                              start=min(starts) if starts else None)
     return result, weights_by_symbol
 
 
