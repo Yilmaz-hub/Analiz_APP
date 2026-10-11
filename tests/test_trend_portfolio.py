@@ -139,8 +139,8 @@ def test_ac07_screen_runs_the_portfolio_test(store, monkeypatch, processed_df):
     assert "son ~1000 gün" in texts(at)
 
 
-def test_ac06_mixed_currencies_cannot_be_tested_in_one_pool(store, monkeypatch, processed_df):
-    """AC06 — USD ve TL varlıklar birlikte seçilirse uyarı çıkar ve test başlatılamaz; altın varsayılan seçimdedir."""
+def test_ac06_try_assets_join_the_dollar_pool_and_gold_is_selected_by_default(store, monkeypatch, processed_df):
+    """AC06 — Altın varsayılan seçimdedir; TL varlık eklenince test engellenmez, dolara çevrileceği yazılır (spec 0021 R04, 0019 R07'nin yerine)."""
     from app_helpers import make_app
 
     store.write_doc(store.ASSETS_KEY, {"Bitcoin (BTC)": "BTC-USD", "ONS ALTIN ($)": "XAU_GOLD",
@@ -149,8 +149,9 @@ def test_ac06_mixed_currencies_cannot_be_tested_in_one_pool(store, monkeypatch, 
     box = next(m for m in at.multiselect if m.key == "pf_assets")
     assert set(box.value) == {"Bitcoin (BTC)", "ONS ALTIN ($)"}
     at = box.select("GRAM ALTIN (TL)").run()
-    assert any("farklı para birimlerinde" in w.value for w in at.warning)
-    assert next(b for b in at.button if b.label == "📦 Portföy testini başlat").disabled
+    assert not any("çevrilemiyor" in w.value for w in at.warning)
+    assert any("USD/TRY kuruyla dolara" in c.value for c in at.caption)
+    assert not next(b for b in at.button if b.label == "📦 Portföy testini başlat").disabled
 
 
 # ---- QA (PR #34): çıkış günü bekleme ve ısınma dönemi ---------------------------------------------

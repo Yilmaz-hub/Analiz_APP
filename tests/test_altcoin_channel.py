@@ -37,10 +37,10 @@ def test_ac01_channel_rule_buys_above_the_prior_high_and_sells_below_the_prior_l
 
 
 def test_ac02_method_is_channel_for_altcoins_and_trend_for_others():
-    """AC02 — Altcoinlerde (SOL, XRP, DOGE, PEPE, tiresiz LINKUSD) kanal; BTC, ETH, ons altın ve hissede V1 + 200 günlük ortalama."""
+    """AC02 — Altcoinlerde (SOL, XRP, DOGE, PEPE, tiresiz LINKUSD) kanal; BTC, ETH ve ons altında V1 + 200 günlük ortalama (hisseler spec 0021 ile al-tut)."""
     for symbol in ("SOL-USD", "XRP-USD", "DOGE-USD", "PEPE-USD", "LINKUSD"):
         assert sc.method_candidate(symbol).entry_rule == "KANAL", symbol
-    for symbol in ("BTC-USD", "ETHUSD", "XAU_GOLD", "THYAO.IS", "AAPL"):
+    for symbol in ("BTC-USD", "ETHUSD", "XAU_GOLD"):
         assert sc.method_candidate(symbol).entry_rule == "TREND_SMA", symbol
     assert sc.method_candidate("") is None
 

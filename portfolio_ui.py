@@ -1,8 +1,9 @@
 """Portföy geçmiş testi paneli (spec 0019, P1).
 
 Hesap `portfolio_backtest.py`'dedir; burası girdileri toplar ve sonucu gösterir. Kararlar varlığın yöntem
-adayıdır (spec 0020): altcoinlerde kanal kırılımı 50/20, diğerlerinde trend adayı (V1 AL + kapanış > 200 günlük
-ortalama; çıkış V1). Gösterim yuvarlaması yalnız burada.
+adayıdır (spec 0020): altcoinlerde kanal kırılımı 50/20, hisselerde (ve istenirse altında) stopsuz al-tut
+(spec 0021), diğerlerinde trend adayı (V1 AL + kapanış > 200 günlük ortalama; çıkış V1). Tek kasa dolardır;
+TL varlıklar günlük kurla çevrilir. Gösterim yuvarlaması yalnız burada.
 """
 from __future__ import annotations
 
@@ -27,7 +28,8 @@ def _pct(value) -> str:
     return "hesaplanamıyor" if value is None else f"%{Decimal(value):.1f}"
 
 
-METHOD_TEXT = {"KANAL": "Kanal 50/20", "TREND_SMA": "V1 + 200 gün ort."}
+METHOD_TEXT = {"KANAL": "Kanal 50/20", "TREND_SMA": "V1 + 200 gün ort.", "TUT": "Al-tut (stopsuz)"}
+FX_SYMBOL = "USDTRY=X"
 
 
 def build_portfolio_view(result: pb.PortfolioResult, weights: dict, currency: str = "",
@@ -45,16 +47,21 @@ def build_portfolio_view(result: pb.PortfolioResult, weights: dict, currency: st
         row = {"Varlık": symbol}
         if methods is not None:
             row["Yöntem"] = METHOD_TEXT.get(methods.get(symbol), methods.get(symbol) or "—")
+        hold = methods is not None and methods.get(symbol) == "TUT"
         rows.append({
             **row, "Ağırlık": f"%{Decimal(weights[symbol]):g}",
-            "İşlem": len(trades), "Kazanan": sum(1 for t in trades if t.pnl > 0),
+            "İşlem": "—" if hold else len(trades), "Kazanan": "—" if hold else sum(1 for t in trades if t.pnl > 0),
             "Net K/Z": f"{result.contribution.get(symbol, Decimal('0')):,.2f} {currency}".strip(),
         })
+    used = set(methods.values()) if methods is not None else {"TREND_SMA"}
     notes = [f"Toplam {len(result.trades)} kapanmış işlem, {wins} kazanan.",
-             "Kural: AL sinyali ve fiyat 200 günlük ortalamanın üstündeyse, o günkü toplam varlığın varlık "
-             "ağırlığı kadar alım; çıkış SAT ya da 2,5 ATR stop. Nakit yetmezse giriş küçülür ya da atlanır.",
+             *(["Kural: AL sinyali ve fiyat 200 günlük ortalamanın üstündeyse, o günkü toplam varlığın varlık "
+                "ağırlığı kadar alım; çıkış SAT ya da 2,5 ATR stop. Nakit yetmezse giriş küçülür ya da atlanır."]
+               if "TREND_SMA" in used else []),
              *(["Kanal 50/20: kapanış önceki 50 günün en yükseğini aşınca alım, önceki 20 günün en düşüğünün "
-                "altına inince satış (2,5 ATR stop aynı)."] if methods and "KANAL" in methods.values() else []),
+                "altına inince satış (2,5 ATR stop aynı)."] if "KANAL" in used else []),
+             *(["Al-tut (stopsuz): ilk gün toplam varlığın ağırlığı kadar alınır, dönem sonuna kadar tutulur; "
+                "Net K/Z dönem sonu değerine göredir."] if "TUT" in used else []),
              DATA_NOTE]
     if result.start and strategy["years"]:
         notes.insert(0, f"Dönem: {result.start} – {result.end} ({Decimal(strategy['years']):.1f} yıl).")
@@ -91,19 +98,26 @@ def render_portfolio_panel(coin_map: dict, source_pref: str) -> None:
                                                 step=0.05, key="pf_fee")))
     channel = st.checkbox("Altcoinlerde kanal kırılımı (50/20)", value=True, key="pf_channel",
                           help="Açık: BTC/ETH dışındaki kriptolar kanal kırılımıyla, diğerleri V1 + 200 günlük "
-                               "ortalamayla işlem yapar. Kapalı: hepsi V1 + 200 günlük ortalama.")
-    currencies = sorted({(market_map.market_of(coin_map[name]) or ("", "?"))[1] for name in chosen})
-    mixed = len(currencies) > 1
-    if mixed:
-        st.warning("Seçilen varlıklar farklı para birimlerinde (" + ", ".join(currencies) + "); tek kasada "
-                   "toplanamaz. Aynı para birimindeki varlıkları seçin.")
-    if not st.button("📦 Portföy testini başlat", key="pf_run", disabled=not chosen or mixed):
+                               "ortalamayla işlem yapar. Kapalı: hepsi V1 + 200 günlük ortalama. Hisseler her "
+                               "durumda al-tut (stopsuz) ile tutulur.")
+    gold_hold = st.checkbox("Altını al-tut ile tut (stopsuz)", value=False, key="pf_gold_hold",
+                            help="Kapalı: altın V1 + 200 günlük ortalamayla alınıp satılır; düştüğünde boşalan nakit "
+                                 "kripto fırsatlarına gider (geçmiş testte portföyde daha iyi). Açık: altın ilk gün "
+                                 "alınır ve tutulur.")
+    currencies = sorted({info[1] for info in (market_map.market_of(coin_map[name]) for name in chosen) if info})
+    unsupported = [c for c in currencies if c not in pb.POOL_CURRENCIES]
+    if unsupported:
+        st.warning("Bu para birimleri dolara çevrilemiyor (" + ", ".join(unsupported) + "); bu varlıkları "
+                   "çıkarın. Dolar ve TL varlıklar birlikte test edilebilir.")
+    elif "TRY" in currencies:
+        st.caption("TL varlıklar günlük USD/TRY kuruyla dolara çevrilir; sonuç dolar bazındadır.")
+    if not st.button("📦 Portföy testini başlat", key="pf_run", disabled=not chosen or bool(unsupported)):
         return
     result, weights_by_symbol, methods = _run(chosen, weights, coin_map, source_pref, capital, commission, st,
-                                              channel=channel)
+                                              channel=channel, gold_hold=gold_hold)
     if result is None:
         return
-    view = build_portfolio_view(result, weights_by_symbol, methods=methods)
+    view = build_portfolio_view(result, weights_by_symbol, "USD", methods=methods)
     table = pd.DataFrame([{"": label, "Strateji": s, "Al-tut (aynı ağırlıklar)": h} for label, s, h in view.metrics])
     st.dataframe(table, hide_index=True, width="stretch")
     st.dataframe(pd.DataFrame(view.rows), hide_index=True, width="stretch")
@@ -112,7 +126,21 @@ def render_portfolio_panel(coin_map: dict, source_pref: str) -> None:
         st.caption(note)
 
 
-def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channel=True):
+def to_pool_frame(frame, fx):
+    """TL mum tablosunu dolar kasasına hazırlar: fiyatlar kurla çevrilir, göstergeler (EMA, MACD, RSI, ATR…)
+    dolar fiyatından yeniden hesaplanır. Yalnız fiyatı çevirmek, TL göstergeleri dolar fiyatıyla karıştırıp
+    kararı bozar (spec 0021 QA). Hesaplanamazsa None."""
+    from data_fetchers import process_data
+
+    columns = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in frame.columns]
+    converted = pb.to_usd(frame[columns], fx)
+    if "Volume" not in converted.columns:
+        converted["Volume"] = 0
+    result, _ = process_data(converted, "USD/TRY ile çevrildi")
+    return result
+
+
+def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channel=True, gold_hold=False):
     import strategy_candidates as sc
     from data_fetchers import get_market_data
     from technical_analysis import build_v1_decisions
@@ -122,6 +150,7 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channe
     import market_map
 
     frames, decisions, steps, weights_by_symbol, missing, v1_days, methods = {}, {}, {}, {}, [], {}, {}
+    fx = None
     progress = st.progress(0.0)
     for n, name in enumerate(chosen):
         symbol = coin_map[name]
@@ -130,11 +159,27 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channe
         if frame is None or len(frame) < 260 or info is None:
             missing.append(name)
             continue
-        v1 = build_v1_decisions(frame)
-        v1_days[name] = list(v1)
-        candidate = sc.method_candidate(symbol) if channel else sc.trend_candidate(info[0])
-        decisions[name] = sc.candidate_decisions(frame, v1, candidate, None)
-        methods[name] = candidate.entry_rule
+        if pb.POOL_CURRENCIES.get(info[1]) == "TRY":
+            if fx is None:
+                fx, _ = get_market_data(source_pref, FX_SYMBOL, "1d")
+            if fx is None or len(fx) == 0:
+                missing.append(f"{name} (USD/TRY kuru alınamadı)")
+                continue
+            frame = to_pool_frame(frame, fx)
+            if frame is None or len(frame) < 260:
+                missing.append(f"{name} (dolar verisi yetersiz)")
+                continue
+        method = sc.asset_method(symbol, gold_hold=gold_hold)
+        if not channel and method == "KANAL":
+            method = "TREND_SMA"
+        methods[name] = method
+        if method == sc.TUT:
+            decisions[name] = {}                    # al-tut: karar yok, V1 hesaplanmaz
+        else:
+            v1 = build_v1_decisions(frame)
+            v1_days[name] = list(v1)
+            candidate = sc.channel_candidate(info[0]) if method == "KANAL" else sc.trend_candidate(info[0])
+            decisions[name] = sc.candidate_decisions(frame, v1, candidate, None)
         frames[name] = frame
         weights_by_symbol[name] = weights[name]
         try:
@@ -150,10 +195,12 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channe
     if not frames:
         st.warning("Test edilecek varlık kalmadı.")
         return None, {}, {}
-    starts = [day for day in (pb.first_tradable_day(frames[n], v1_days[n]) for n in frames) if day is not None]
+    starts = [day for day in (pb.first_tradable_day(frames[n], v1_days[n]) for n in v1_days) if day is not None]
+    if not starts:                                  # yalnız al-tut varlıkları: ısınma yine 200 gün sayılır
+        starts = [frames[n].index[min(200, len(frames[n]) - 1)] for n in frames]
     result = pb.run_portfolio(frames, decisions, weights_by_symbol, capital=capital,
                               costs=CostAssumptions(None, None, commission), quantity_steps=steps,
-                              start=min(starts) if starts else None)
+                              start=min(starts), hold={n for n, m in methods.items() if m == sc.TUT})
     return result, weights_by_symbol, methods
 
 
