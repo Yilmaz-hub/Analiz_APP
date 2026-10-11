@@ -419,7 +419,7 @@ DEFAULT_COIN_MAP: dict[str, str] = {
     "Ripple (XRP)": "XRP-USD",
     "Avax (AVAX)": "AVAX-USD",
     "Dogecoin (DOGE)": "DOGE-USD",
-    "Pepe": "PEPE-USD",
+    "Chainlink (LINK)": "LINK-USD",
     "ONS ALTIN ($)": "XAU_GOLD",
     "GRAM ALTIN (TL)": "GRAM_TRY",
     "EUR/USD": "EURUSD=X",

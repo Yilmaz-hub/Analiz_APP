@@ -9,8 +9,8 @@ ağırlığın yarısından azı kalıyorsa o gün giriş yapılmaz.
 Tut yöntemi (spec 0021): `hold` içindeki varlıklar karar ve stop kullanmaz; ilk işlem gününde o günkü toplam
 varlığın ağırlığı kadar alınır ve dönem sonuna kadar tutulur (nakit yetmezse ertesi gün yeniden denenir).
 
-Al-tut karşılaştırması: her varlık kendi ilk gününde başlangıç sermayesinin ağırlığı kadar alınır ve tutulur
-(ağırlık toplamı %100'ü aşarsa oranlar küçültülür). Para hesabı Decimal'dir.
+Al-tut karşılaştırması: her varlık kendi ilk gününde başlangıç sermayesinin ağırlığı kadar alınır ve tutulur.
+Para hesabı Decimal'dir.
 """
 from __future__ import annotations
 
@@ -21,9 +21,8 @@ from typing import Mapping
 
 from trade_execution import Bar, BookState, CostAssumptions, TradeSettings, advance_daily_bar
 
-#: Varsayılan ağırlıklar (spec 0019 R04, kullanıcı onayı): BTC/ETH ve ons altın %20, DOGE ve BIST hisseleri %5
-#: (spec 0021), diğer %10.
-MAJOR_BASES = frozenset({"BTC", "ETH", "XAU_GOLD"})
+#: Varsayılan ağırlıklar (spec 0024): BTC/ETH %20, ons altın %15, DOGE ve BIST hisseleri %5, diğer %10.
+MAJOR_BASES = frozenset({"BTC", "ETH"})
 SMALL_BASES = frozenset({"DOGE"})
 #: Miktar adımı bilinmeyen varlıkta kullanılan adım; sonuç "yaklaşık" etiketlenir.
 FALLBACK_STEP = Decimal("0.00000001")
@@ -38,6 +37,8 @@ def default_weight(symbol: str) -> Decimal:
     if info is not None and info[0] == "BIST":           # spec 0021: dolar bazında güvenilir değil, küçük ağırlık
         return Decimal("5")
     base = market_map.canonical_symbol(symbol).split("-")[0]
+    if base == "XAU_GOLD":
+        return Decimal("15")
     if base in MAJOR_BASES:
         return Decimal("20")
     if base in SMALL_BASES:
@@ -133,6 +134,15 @@ def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capi
     capital = Decimal(capital)
     quantity_steps = dict(quantity_steps or {})
     result = PortfolioResult()
+    for s in frames:
+        w = Decimal(str(weights.get(s, 0)))
+        if w < _ZERO or w > Decimal("100"):
+            raise ValueError(f"Varlık ağırlığı 0 ile 100 arasında olmalıdır: {s}=%{w:g}")
+    total_weight = sum((Decimal(str(weights.get(s, 0))) for s in frames), _ZERO)
+    if total_weight > Decimal("100"):
+        raise ValueError(f"Portföy ağırlıkları toplamı %100'ü aşamaz (girilen: %{total_weight:g}).")
+    if total_weight <= _ZERO:
+        raise ValueError("Portföy ağırlıkları toplamı sıfırdan büyük olmalıdır.")
     symbols = [s for s in frames if Decimal(weights.get(s, 0)) > 0]
     steps = {}
     for s in symbols:
@@ -247,8 +257,6 @@ def _hold(frames, weights, symbols, steps, capital, costs, days):
     """Al-tut: her varlık kendi ilk gününde (başlangıç sermayesi × ağırlık) alınır, tutulur."""
     from trade_execution import commission_fee, fill_price
 
-    total = sum((Decimal(weights[s]) for s in symbols), _ZERO)
-    scale = Decimal("1") if total <= 100 else Decimal("100") / total
     cash, held, last = capital, {}, {}
     curve = []
     for t in days:
@@ -258,7 +266,7 @@ def _hold(frames, weights, symbols, steps, capital, costs, days):
                 continue
             if s not in held:
                 price = fill_price(Decimal(str(frame["Open"].loc[t])), "BUY", costs) or Decimal(str(frame["Open"].loc[t]))
-                budget = capital * Decimal(weights[s]) * scale / 100
+                budget = capital * Decimal(str(weights[s])) / 100
                 rate = Decimal("0") if costs.commission_pct is None else Decimal(costs.commission_pct) / 100
                 quantity = (budget / (1 + rate) / price / steps[s]).to_integral_value(rounding=ROUND_FLOOR) * steps[s]
                 cash -= quantity * price + commission_fee(quantity * price, costs)

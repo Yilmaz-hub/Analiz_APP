@@ -83,27 +83,6 @@ def render_portfolio_panel(coin_map: dict, source_pref: str) -> None:
                 if (market_map.market_of(symbol) or ("", ""))[0] == "KRIPTO"
                 or market_map.market_of(symbol) == ("ALTIN", "USD")]
     chosen = st.multiselect("Varlıklar", list(coin_map), default=defaults, key="pf_assets")
-    weights = {}
-    if chosen:
-        columns = st.columns(min(4, len(chosen)))
-        for n, name in enumerate(chosen):
-            default = float(pb.default_weight(coin_map[name]))
-            weights[name] = Decimal(str(columns[n % len(columns)].number_input(
-                f"{name} ağırlığı (%)", min_value=0.0, max_value=100.0, value=default, step=1.0,
-                key=f"pf_w:{name}")))
-    left, right = st.columns(2)
-    capital = Decimal(str(left.number_input("Başlangıç sermayesi", min_value=100.0, value=10000.0,
-                                            step=1000.0, key="pf_capital")))
-    commission = Decimal(str(right.number_input("Komisyon (%)", min_value=0.0, max_value=5.0, value=0.1,
-                                                step=0.05, key="pf_fee")))
-    channel = st.checkbox("Altcoinlerde kanal kırılımı (50/20)", value=True, key="pf_channel",
-                          help="Açık: BTC/ETH dışındaki kriptolar kanal kırılımıyla, diğerleri V1 + 200 günlük "
-                               "ortalamayla işlem yapar. Kapalı: hepsi V1 + 200 günlük ortalama. Hisseler her "
-                               "durumda al-tut (stopsuz) ile tutulur.")
-    gold_hold = st.checkbox("Altını al-tut ile tut (stopsuz)", value=False, key="pf_gold_hold",
-                            help="Kapalı: altın V1 + 200 günlük ortalamayla alınıp satılır; düştüğünde boşalan nakit "
-                                 "kripto fırsatlarına gider (geçmiş testte portföyde daha iyi). Açık: altın ilk gün "
-                                 "alınır ve tutulur.")
     currencies = sorted({info[1] for info in (market_map.market_of(coin_map[name]) for name in chosen) if info})
     unsupported = [c for c in currencies if c not in pb.POOL_CURRENCIES]
     if unsupported:
@@ -111,13 +90,50 @@ def render_portfolio_panel(coin_map: dict, source_pref: str) -> None:
                    "çıkarın. Dolar ve TL varlıklar birlikte test edilebilir.")
     elif "TRY" in currencies:
         st.caption("TL varlıklar günlük USD/TRY kuruyla dolara çevrilir; sonuç dolar bazındadır.")
-    if not st.button("📦 Portföy testini başlat", key="pf_run", disabled=not chosen or bool(unsupported)):
+    with st.form("pf_settings_form"):
+        weights = {}
+        if chosen:
+            columns = st.columns(min(4, len(chosen)))
+            for n, name in enumerate(chosen):
+                default = float(pb.default_weight(coin_map[name]))
+                weights[name] = Decimal(str(columns[n % len(columns)].number_input(
+                    f"{name} ağırlığı (%)", min_value=0.0, max_value=100.0, value=default, step=1.0,
+                    key=f"pf_w:{name}")))
+        left, right = st.columns(2)
+        capital = Decimal(str(left.number_input("Başlangıç sermayesi", min_value=100.0, value=10000.0,
+                                                step=1000.0, key="pf_capital")))
+        commission = Decimal(str(right.number_input("Komisyon (%)", min_value=0.0, max_value=5.0, value=0.1,
+                                                    step=0.05, key="pf_fee")))
+        channel = st.checkbox("Altcoinlerde kanal kırılımı (50/20)", value=True, key="pf_channel",
+                              help="Açık: BTC/ETH dışındaki kriptolar kanal kırılımıyla, diğerleri V1 + 200 günlük "
+                                   "ortalamayla işlem yapar. Kapalı: hepsi V1 + 200 günlük ortalama. Hisseler her "
+                                   "durumda al-tut (stopsuz) ile tutulur.")
+        gold_hold = st.checkbox("Altını al-tut ile tut (stopsuz)", value=False, key="pf_gold_hold",
+                                help="Kapalı: altın V1 + 200 günlük ortalamayla alınıp satılır; düştüğünde boşalan nakit "
+                                     "kripto fırsatlarına gider (geçmiş testte portföyde daha iyi). Açık: altın ilk gün "
+                                     "alınır ve tutulur.")
+        st.caption("Ağırlıklar toplamı en fazla %100 olmalıdır. Kalan pay boşta nakit olarak kasada kalır.")
+        submitted = st.form_submit_button("📦 Portföy testini başlat", disabled=not chosen or bool(unsupported))
+
+    if not submitted:
         return
+
+    total_weight = sum((weights[n] for n in weights), Decimal("0"))
+    if total_weight > Decimal("100"):
+        st.error(f"Ağırlıklar toplamı %100'ü geçemez (girilen: %{total_weight:g}). Lütfen ağırlıkları toplamı en fazla %100 olacak şekilde ayarlayın.")
+        return
+    if total_weight <= Decimal("0"):
+        st.warning("Ağırlıklar toplamı sıfırdan büyük olmalıdır. En az bir varlığa %0'dan büyük ağırlık verilmelidir.")
+        return
+
     result, weights_by_symbol, methods = _run(chosen, weights, coin_map, source_pref, capital, commission, st,
                                               channel=channel, gold_hold=gold_hold)
     if result is None:
         return
     view = build_portfolio_view(result, weights_by_symbol, "USD", methods=methods)
+    cash_reserve = Decimal("100") - total_weight
+    st.info(f"Portföy ağırlık toplamı: %{total_weight:g}" +
+            (f" | Boşta nakit: %{cash_reserve:g}" if cash_reserve > 0 else ""))
     table = pd.DataFrame([{"": label, "Strateji": s, "Al-tut (aynı ağırlıklar)": h} for label, s, h in view.metrics])
     st.dataframe(table, hide_index=True, width="stretch")
     st.dataframe(pd.DataFrame(view.rows), hide_index=True, width="stretch")

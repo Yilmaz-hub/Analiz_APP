@@ -153,7 +153,7 @@ def test_ac03_converted_try_frame_recomputes_indicators_so_decisions_survive():
 def test_ac01_hold_purchase_without_cash_is_counted_once():
     """AC01 — Nakit yetmediği için yapılamayan tut alımı, gün sayısı kadar değil bir kez sayılır."""
     a, b = _flat(), _flat()
-    result = pb.run_portfolio({"A": a, "B": b}, {"A": {}, "B": {}}, {"A": Decimal("90"), "B": Decimal("90")},
+    result = pb.run_portfolio({"A": a, "B": b}, {"A": {}, "B": {}}, {"A": Decimal("90"), "B": Decimal("10")},
                               capital=Decimal("10000"), costs=COSTS,
-                              quantity_steps={"A": Decimal("0.0001"), "B": Decimal("0.0001")}, hold={"A", "B"})
+                              quantity_steps={"A": Decimal("0.0001"), "B": Decimal("20")}, hold={"A", "B"})
     assert result.blocked == {"YETERSIZ_NAKIT": 1}

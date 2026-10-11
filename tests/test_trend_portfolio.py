@@ -78,8 +78,9 @@ def test_ac04_assets_share_one_cash_pool_by_weight():
 def test_ac04_entry_is_skipped_when_less_than_half_the_weight_is_left_in_cash():
     """AC04 — Nakit, ağırlığın yarısından azını karşılıyorsa giriş yapılmaz ve "nakit yetersiz" sayılır."""
     a, b = _flat(), _flat()
+    a.iloc[1:, a.columns.get_loc("Close")] = 300.0
     dec = {"A": {a.index[0]: "AL"}, "B": {b.index[2]: "AL", b.index[3]: "AL"}}
-    result = pb.run_portfolio({"A": a, "B": b}, dec, {"A": Decimal("80"), "B": Decimal("80")},
+    result = pb.run_portfolio({"A": a, "B": b}, dec, {"A": Decimal("90"), "B": Decimal("10")},
                               capital=Decimal("10000"), costs=COSTS,
                               quantity_steps={"A": Decimal("0.0001"), "B": Decimal("0.0001")})
     assert result.blocked.get("YETERSIZ_NAKIT", 0) >= 1
@@ -104,10 +105,10 @@ def test_ac05_single_asset_portfolio_matches_the_single_asset_engine(processed_d
 
 # ---- AC06 / AC07 -------------------------------------------------------------------------------
 def test_ac06_default_weights():
-    """AC06 — Varsayılan ağırlıklar: BTC/ETH %20, DOGE %5, diğer kriptolar %10."""
+    """AC06 — Varsayılan ağırlıklar: BTC/ETH %20, DOGE %5, ons altın %15, diğer kriptolar %10 (spec 0024)."""
     assert pb.default_weight("BTC-USD") == 20 and pb.default_weight("ETHUSD") == 20
     assert pb.default_weight("DOGE-USD") == 5 and pb.default_weight("SOL-USD") == 10
-    assert pb.default_weight("XAU_GOLD") == 20
+    assert pb.default_weight("XAU_GOLD") == 15
 
 
 def test_ac07_report_has_returns_drawdown_trades_hold_and_contribution():
