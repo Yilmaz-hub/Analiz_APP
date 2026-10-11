@@ -84,12 +84,14 @@ def test_ac95_view_lists_every_rule_and_labels_unknown_costs_as_upper_bound():
 
 def test_ac95_screen_shows_the_comparison_under_the_backtest(store, monkeypatch, processed_df):
     """AC95 — Backtest ekranında kâr koruma karşılaştırması görünür."""
+    import signal_rules
     import technical_analysis
     from app_helpers import click, make_app, texts
 
     monkeypatch.setattr(technical_analysis, "build_v1_decisions",
                         lambda df, **k: {df.index[199]: "AL", df.index[230]: "SAT"})
     store.write_doc(store.ASSETS_KEY, {"Bitcoin (BTC)": "BTC-USD"})
+    signal_rules.choose_signal_mode(signal_rules.V1)   # sahte V1 kararları V1 ile test edilir (spec 0023: varsayılan BTC kuralı C)
     at = make_app(monkeypatch, processed_df).run()
     for box in at.selectbox:
         if box.label == "Periyot:":

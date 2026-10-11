@@ -169,12 +169,14 @@ def test_report_from_backtest_unrecognised_symbol_is_rejected_politely():
 
 def test_smoke_backtest_screen_shows_reliable_performance_report(store, monkeypatch, processed_df):
     """AC07 — Uygulamada backtest sonrası rapor bölümü, eksik maliyet uyarısıyla ana görünümde çıkar."""
+    import signal_rules
     import technical_analysis
     from app_helpers import click, make_app, texts
 
     monkeypatch.setattr(technical_analysis, "build_v1_decisions",
                         lambda df, **k: {df.index[199]: "AL", df.index[210]: "SAT"})
     store.write_doc(store.ASSETS_KEY, {"Bitcoin (BTC)": "BTC-USD"})
+    signal_rules.choose_signal_mode(signal_rules.V1)   # sahte V1 kararları V1 ile test edilir (spec 0023: varsayılan BTC kuralı C)
     at = make_app(monkeypatch, processed_df).run()
     for box in at.selectbox:
         if box.label == "Periyot:":

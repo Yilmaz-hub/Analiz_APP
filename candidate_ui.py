@@ -188,7 +188,8 @@ def _render_candidate_panel(st, source: dict) -> None:
     st.markdown("**🧪 Aday Stratejiler (kırılım / geri çekilme)**")
     if st.button("Adayları değerlendir", key=f"cand_eval:{source['symbol']}"):
         outcome = evaluate_candidates(
-            source["symbol"], source["frame"], source["decisions"], notional=source["notional"],
+            source["symbol"], source["frame"], source.get("v1_decisions", source["decisions"]),
+            notional=source["notional"],
             capital=Decimal(source["backtest"]["initial_cash"]),
             quantity_step=source["quantity_step"], costs=source["costs"],
             now=datetime.now(timezone.utc))
@@ -201,7 +202,8 @@ def _render_candidate_panel(st, source: dict) -> None:
     trial["tolerance_pct"] = c.text_input("Deneme: tolerans (%)", key="cand_try_tol")
     if st.button("Denemeyi değerlendir", key=f"cand_try:{source['symbol']}"):
         outcome = evaluate_candidates(
-            source["symbol"], source["frame"], source["decisions"], notional=source["notional"],
+            source["symbol"], source["frame"], source.get("v1_decisions", source["decisions"]),
+            notional=source["notional"],
             capital=Decimal(source["backtest"]["initial_cash"]),
             quantity_step=source["quantity_step"], costs=source["costs"],
             now=datetime.now(timezone.utc), trial_settings=trial)

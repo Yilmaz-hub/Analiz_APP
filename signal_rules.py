@@ -67,6 +67,42 @@ def rule_signal(symbol: str, closed, v1_signal: Signal) -> RuleSignal:
                       f"Sinyal kuralı: {RULE_TEXT[method]} → {_SIGNAL_TEXT[signal]} (V1 kararı: {v1_text}).")
 
 
+def backtest_method(symbol: str) -> str | None:
+    """Günlük backtest'te test edilen kural; "V1" modunda ya da kuralı olmayan varlıkta None (V1)."""
+    return sc.asset_method(symbol) if signal_mode() == VARLIK else None
+
+
+def backtest_label(method: str | None) -> str:
+    """Backtest bilgi kutusu metni (spec 0023 R02); eski V1 metni yalnız V1 kullanıldığında."""
+    if method == sc.TUT:
+        return "Günlük test — kural: Al-tut; bu varlıkta zamanlama testi yapılmaz, yalnız al-tut sonucu gösterilir."
+    rule = "Günlük V1 testi" if method is None else f"Günlük test — kural: {RULE_TEXT[method]}"
+    return (f"{rule}; kapanmış mum kararını (ML kararlara girmez) sonraki açılışta uygular, 2,5 ATR başlangıç "
+            "stopunu sabit tutar ve hedef/otomatik iz süren stopla satış yapmaz.")
+
+
+def rule_decisions(symbol: str, frame, v1_decisions: dict) -> tuple[dict, str | None]:
+    """Günlük backtest'in karar sözlüğü (spec 0023 R01). "V1" modunda ya da kuralı olmayan varlıkta V1 kararları
+    aynen; `TUT` (hisse) için boş sözlük — zamanlama testi yapılmaz. C ve kanal kararları yalnız ilk V1 karar
+    gününden itibaren tutulur (portföy testiyle aynı ısınma; al-tut karşılaştırması ve teşhis ısınmayı saymaz)."""
+    method = backtest_method(symbol)
+    if method is None:
+        return v1_decisions, None
+    if method == sc.TUT:
+        return {}, method
+    import market_map
+
+    market = market_map.market_of(symbol)[0]
+    if method == "KANAL":
+        decisions = sc.candidate_decisions(frame, {}, sc.channel_candidate(market), None)
+    else:
+        decisions = sc.candidate_decisions(frame, v1_decisions, sc.trend_candidate(market), None)
+    if not v1_decisions:
+        return {}, method
+    first = min(v1_decisions)
+    return {day: verdict for day, verdict in decisions.items() if day >= first}, method
+
+
 def render_mode_switch(st) -> str:
     """Karar panelindeki kural seçimi; değişince kaydedilir (tüm varlıklar için geçerli)."""
     current = signal_mode()

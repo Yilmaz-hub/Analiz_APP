@@ -675,7 +675,9 @@ if is_chart_renderable(df_view):
     if df_view is not None:
         st.divider()
         with st.expander("📊 Backtest: Strateji Performansı", expanded=False):
-            st.info("Günlük V1 testi; kapanmış mum kararını (ML kararlara girmez) sonraki açılışta uygular, 2,5 ATR başlangıç stopunu sabit tutar ve hedef/otomatik iz süren stopla satış yapmaz.")
+            import signal_rules
+            bt_method = signal_rules.backtest_method(symbol) if view_tf == "1d" else None
+            st.info(signal_rules.backtest_label(bt_method))
             if st.button("🚀 Backtest Başlat", disabled=view_tf == "1d" and not trade_parsed.ok):
                 with st.spinner("Backtest çalışıyor..."):
                     import plotly.graph_objects as go
@@ -685,8 +687,9 @@ if is_chart_renderable(df_view):
                     if view_tf == "1d":
                         v1_decisions = build_v1_decisions(df_view, weights=tuned_weights,
                                                           include_ml=DecisionEngineConfig.V1_INCLUDE_ML)
-                        bt_results = run_v1_strategy_backtest(
-                            df_view, v1_decisions, initial_cash=trade_parsed.capital,
+                        bt_decisions, bt_method = signal_rules.rule_decisions(symbol, df_view, v1_decisions)
+                        bt_results = None if bt_method == "TUT" else run_v1_strategy_backtest(
+                            df_view, bt_decisions, initial_cash=trade_parsed.capital,
                             trade_notional=trade_parsed.settings.notional,
                             quantity_step=trade_parsed.settings.quantity_step,
                             costs=trade_parsed.settings.costs,
@@ -700,7 +703,12 @@ if is_chart_renderable(df_view):
                         )
                     bt_progress.empty()
 
-                    if bt_results is None:
+                    if bt_method == "TUT":
+                        import performance_ui as _perf
+                        st.session_state.pop("perf_report_source", None)
+                        _perf.render_hold_only(_perf.hold_only(df_view, trade_parsed.capital, v1_decisions),
+                                               paper_currency)
+                    elif bt_results is None:
                         st.warning("Yeterli işlem oluşmadı. Daha uzun veri gerekebilir.")
                     else:
                         if view_tf == "1d":
@@ -736,8 +744,8 @@ if is_chart_renderable(df_view):
                             import performance_ui as _perf
                             _perf.render_hold_comparison(_perf.hold_comparison(
                                 df_view, bt_results, trade_parsed.capital, trade_parsed.settings.notional,
-                                v1_decisions))
-                            _perf.render_diagnostics(df_view, bt_results, v1_decisions)
+                                bt_decisions))
+                            _perf.render_diagnostics(df_view, bt_results, bt_decisions)
                         st.divider()
                         col_det1, col_det2 = st.columns(2)
                         col_det1.write(f"✅ Kazanan İşlem: {bt_results['winning_trades']}")
@@ -758,7 +766,8 @@ if is_chart_renderable(df_view):
                         if view_tf == "1d":
                             st.session_state["perf_report_source"] = {
                                 "symbol": symbol, "asset": sel_c, "backtest": bt_results, "frame": df_view,
-                                "decisions": v1_decisions, "notional": trade_parsed.settings.notional,
+                                "decisions": bt_decisions, "v1_decisions": v1_decisions,
+                                "notional": trade_parsed.settings.notional,
                                 "quantity_step": trade_parsed.settings.quantity_step,
                                 "costs": trade_parsed.settings.costs,
                             }
