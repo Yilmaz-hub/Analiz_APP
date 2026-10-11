@@ -34,12 +34,14 @@ def test_ac03_other_reasons_still_read_as_turkish_text():
 
 def test_ac04_backtest_screen_explains_why_no_purchase_happened(store, monkeypatch, processed_df):
     """AC04 — Ekranda: büyük adımla geçmiş test, alımların neden yapılmadığını ayar adıyla açıklar."""
+    import signal_rules
     import technical_analysis
     from app_helpers import click, make_app
 
     monkeypatch.setattr(technical_analysis, "build_v1_decisions",
                         lambda df, **k: {df.index[199]: "AL", df.index[205]: "AL"})
     store.write_doc(store.ASSETS_KEY, {"Bitcoin (BTC)": "BTC-USD"})
+    signal_rules.choose_signal_mode(signal_rules.V1)   # sahte V1 kararları V1 ile test edilir (spec 0023: varsayılan BTC kuralı C)
     at = make_app(monkeypatch, processed_df).run()
     for box in at.selectbox:
         if box.label == "Periyot:":
