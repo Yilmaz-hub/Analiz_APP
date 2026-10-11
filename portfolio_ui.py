@@ -126,6 +126,20 @@ def render_portfolio_panel(coin_map: dict, source_pref: str) -> None:
         st.caption(note)
 
 
+def to_pool_frame(frame, fx):
+    """TL mum tablosunu dolar kasasına hazırlar: fiyatlar kurla çevrilir, göstergeler (EMA, MACD, RSI, ATR…)
+    dolar fiyatından yeniden hesaplanır. Yalnız fiyatı çevirmek, TL göstergeleri dolar fiyatıyla karıştırıp
+    kararı bozar (spec 0021 QA). Hesaplanamazsa None."""
+    from data_fetchers import process_data
+
+    columns = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in frame.columns]
+    converted = pb.to_usd(frame[columns], fx)
+    if "Volume" not in converted.columns:
+        converted["Volume"] = 0
+    result, _ = process_data(converted, "USD/TRY ile çevrildi")
+    return result
+
+
 def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channel=True, gold_hold=False):
     import strategy_candidates as sc
     from data_fetchers import get_market_data
@@ -151,7 +165,10 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channe
             if fx is None or len(fx) == 0:
                 missing.append(f"{name} (USD/TRY kuru alınamadı)")
                 continue
-            frame = pb.to_usd(frame, fx)
+            frame = to_pool_frame(frame, fx)
+            if frame is None or len(frame) < 260:
+                missing.append(f"{name} (dolar verisi yetersiz)")
+                continue
         method = sc.asset_method(symbol, gold_hold=gold_hold)
         if not channel and method == "KANAL":
             method = "TREND_SMA"

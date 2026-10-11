@@ -145,7 +145,7 @@ def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capi
     from trade_execution import commission_fee, fill_price
 
     hold = {s for s in hold if s in symbols}
-    held, paid = {}, {}                                         # tut: miktar ve toplam maliyet (komisyon dahil)
+    held, paid, hold_blocked = {}, {}, set()                    # tut: miktar ve toplam maliyet (komisyon dahil)
     states = {s: BookState(_ZERO) for s in symbols}
     positions_close = {s: None for s in symbols}             # son bilinen kapanış (değerleme)
     index = {s: {ts: i for i, ts in enumerate(frames[s].index)} for s in symbols}
@@ -199,7 +199,9 @@ def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capi
             quantity = _ZERO if not price or price <= 0 else \
                 (notional / price / steps[s]).to_integral_value(rounding=ROUND_FLOOR) * steps[s]
             if notional < target / 2 or quantity <= 0:
-                result.blocked["YETERSIZ_NAKIT"] = result.blocked.get("YETERSIZ_NAKIT", 0) + 1
+                if s not in hold_blocked:              # her tut varlığı için bir kez sayılır (her gün değil)
+                    hold_blocked.add(s)
+                    result.blocked["YETERSIZ_NAKIT"] = result.blocked.get("YETERSIZ_NAKIT", 0) + 1
                 continue
             cost = quantity * price + commission_fee(quantity * price, costs)
             cash -= cost

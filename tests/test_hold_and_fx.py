@@ -130,3 +130,30 @@ def test_ac07_rule_note_matches_the_methods_in_use():
     assert "Kanal 50/20" in text and "200 günlük ortalamanın" not in text
     text = " ".join(portfolio_ui.build_portfolio_view(result, {"A": Decimal("50")}, methods={"A": "TUT"}).notes)
     assert "Al-tut (stopsuz)" in text and "Kanal 50/20" not in text and "200 günlük ortalamanın" not in text
+
+
+def test_ac03_converted_try_frame_recomputes_indicators_so_decisions_survive():
+    """AC03 — TL varlık dolara çevrilince göstergeler dolar fiyatından yeniden hesaplanır: sabit kurla çevrilen TL serisi, dolar serisiyle aynı V1 kararlarını (AL dahil) üretir (spec 0021 QA)."""
+    import portfolio_ui
+    from technical_analysis import build_v1_decisions
+
+    raw = make_ohlcv()
+    usd, _ = process_data(raw.copy(), "fixture")
+    tl_raw = raw.copy()
+    tl_raw[["Open", "High", "Low", "Close"]] = tl_raw[["Open", "High", "Low", "Close"]] * 30
+    tl, _ = process_data(tl_raw, "fixture")
+    fx = pd.DataFrame({"Close": 30.0}, index=raw.index)
+    pooled = portfolio_ui.to_pool_frame(tl, fx)
+    expected = build_v1_decisions(usd, include_ml=False)
+    got = build_v1_decisions(pooled, include_ml=False)
+    assert "AL" in expected.values() and got == expected
+    assert abs(float(pooled["EMA_20"].iloc[-1]) - float(usd["EMA_20"].iloc[-1])) < 1e-6
+
+
+def test_ac01_hold_purchase_without_cash_is_counted_once():
+    """AC01 — Nakit yetmediği için yapılamayan tut alımı, gün sayısı kadar değil bir kez sayılır."""
+    a, b = _flat(), _flat()
+    result = pb.run_portfolio({"A": a, "B": b}, {"A": {}, "B": {}}, {"A": Decimal("90"), "B": Decimal("90")},
+                              capital=Decimal("10000"), costs=COSTS,
+                              quantity_steps={"A": Decimal("0.0001"), "B": Decimal("0.0001")}, hold={"A", "B"})
+    assert result.blocked == {"YETERSIZ_NAKIT": 1}
