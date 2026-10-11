@@ -1,7 +1,8 @@
 """Portföy geçmiş testi paneli (spec 0019, P1).
 
-Hesap `portfolio_backtest.py`'dedir; burası girdileri toplar ve sonucu gösterir. Kararlar her varlıkta
-trend adayıdır (V1 AL + kapanış > 200 günlük ortalama; çıkış V1). Gösterim yuvarlaması yalnız burada.
+Hesap `portfolio_backtest.py`'dedir; burası girdileri toplar ve sonucu gösterir. Kararlar varlığın yöntem
+adayıdır (spec 0020): altcoinlerde kanal kırılımı 50/20, diğerlerinde trend adayı (V1 AL + kapanış > 200 günlük
+ortalama; çıkış V1). Gösterim yuvarlaması yalnız burada.
 """
 from __future__ import annotations
 
@@ -26,7 +27,11 @@ def _pct(value) -> str:
     return "hesaplanamıyor" if value is None else f"%{Decimal(value):.1f}"
 
 
-def build_portfolio_view(result: pb.PortfolioResult, weights: dict, currency: str = "") -> PortfolioView:
+METHOD_TEXT = {"KANAL": "Kanal 50/20", "TREND_SMA": "V1 + 200 gün ort."}
+
+
+def build_portfolio_view(result: pb.PortfolioResult, weights: dict, currency: str = "",
+                         methods: dict | None = None) -> PortfolioView:
     strategy, hold = pb.summary(result.equity), pb.summary(result.hold_equity)
     wins = sum(1 for t in result.trades if t.pnl > 0)
     metrics = [
@@ -37,14 +42,19 @@ def build_portfolio_view(result: pb.PortfolioResult, weights: dict, currency: st
     rows = []
     for symbol in weights:
         trades = [t for t in result.trades if t.symbol == symbol]
+        row = {"Varlık": symbol}
+        if methods is not None:
+            row["Yöntem"] = METHOD_TEXT.get(methods.get(symbol), methods.get(symbol) or "—")
         rows.append({
-            "Varlık": symbol, "Ağırlık": f"%{Decimal(weights[symbol]):g}",
+            **row, "Ağırlık": f"%{Decimal(weights[symbol]):g}",
             "İşlem": len(trades), "Kazanan": sum(1 for t in trades if t.pnl > 0),
             "Net K/Z": f"{result.contribution.get(symbol, Decimal('0')):,.2f} {currency}".strip(),
         })
     notes = [f"Toplam {len(result.trades)} kapanmış işlem, {wins} kazanan.",
              "Kural: AL sinyali ve fiyat 200 günlük ortalamanın üstündeyse, o günkü toplam varlığın varlık "
              "ağırlığı kadar alım; çıkış SAT ya da 2,5 ATR stop. Nakit yetmezse giriş küçülür ya da atlanır.",
+             *(["Kanal 50/20: kapanış önceki 50 günün en yükseğini aşınca alım, önceki 20 günün en düşüğünün "
+                "altına inince satış (2,5 ATR stop aynı)."] if methods and "KANAL" in methods.values() else []),
              DATA_NOTE]
     if result.start and strategy["years"]:
         notes.insert(0, f"Dönem: {result.start} – {result.end} ({Decimal(strategy['years']):.1f} yıl).")
@@ -79,6 +89,9 @@ def render_portfolio_panel(coin_map: dict, source_pref: str) -> None:
                                             step=1000.0, key="pf_capital")))
     commission = Decimal(str(right.number_input("Komisyon (%)", min_value=0.0, max_value=5.0, value=0.1,
                                                 step=0.05, key="pf_fee")))
+    channel = st.checkbox("Altcoinlerde kanal kırılımı (50/20)", value=True, key="pf_channel",
+                          help="Açık: BTC/ETH dışındaki kriptolar kanal kırılımıyla, diğerleri V1 + 200 günlük "
+                               "ortalamayla işlem yapar. Kapalı: hepsi V1 + 200 günlük ortalama.")
     currencies = sorted({(market_map.market_of(coin_map[name]) or ("", "?"))[1] for name in chosen})
     mixed = len(currencies) > 1
     if mixed:
@@ -86,10 +99,11 @@ def render_portfolio_panel(coin_map: dict, source_pref: str) -> None:
                    "toplanamaz. Aynı para birimindeki varlıkları seçin.")
     if not st.button("📦 Portföy testini başlat", key="pf_run", disabled=not chosen or mixed):
         return
-    result, weights_by_symbol = _run(chosen, weights, coin_map, source_pref, capital, commission, st)
+    result, weights_by_symbol, methods = _run(chosen, weights, coin_map, source_pref, capital, commission, st,
+                                              channel=channel)
     if result is None:
         return
-    view = build_portfolio_view(result, weights_by_symbol)
+    view = build_portfolio_view(result, weights_by_symbol, methods=methods)
     table = pd.DataFrame([{"": label, "Strateji": s, "Al-tut (aynı ağırlıklar)": h} for label, s, h in view.metrics])
     st.dataframe(table, hide_index=True, width="stretch")
     st.dataframe(pd.DataFrame(view.rows), hide_index=True, width="stretch")
@@ -98,7 +112,7 @@ def render_portfolio_panel(coin_map: dict, source_pref: str) -> None:
         st.caption(note)
 
 
-def _run(chosen, weights, coin_map, source_pref, capital, commission, st):
+def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channel=True):
     import strategy_candidates as sc
     from data_fetchers import get_market_data
     from technical_analysis import build_v1_decisions
@@ -107,7 +121,7 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st):
     from storage import StorageAccessError
     import market_map
 
-    frames, decisions, steps, weights_by_symbol, missing, v1_days = {}, {}, {}, {}, [], {}
+    frames, decisions, steps, weights_by_symbol, missing, v1_days, methods = {}, {}, {}, {}, [], {}, {}
     progress = st.progress(0.0)
     for n, name in enumerate(chosen):
         symbol = coin_map[name]
@@ -118,7 +132,9 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st):
             continue
         v1 = build_v1_decisions(frame)
         v1_days[name] = list(v1)
-        decisions[name] = sc.candidate_decisions(frame, v1, sc.trend_candidate(info[0]), None)
+        candidate = sc.method_candidate(symbol) if channel else sc.trend_candidate(info[0])
+        decisions[name] = sc.candidate_decisions(frame, v1, candidate, None)
+        methods[name] = candidate.entry_rule
         frames[name] = frame
         weights_by_symbol[name] = weights[name]
         try:
@@ -133,12 +149,12 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st):
         st.warning("Verisi yetersiz ya da piyasası tanınmayan varlıklar teste alınmadı: " + ", ".join(missing))
     if not frames:
         st.warning("Test edilecek varlık kalmadı.")
-        return None, {}
+        return None, {}, {}
     starts = [day for day in (pb.first_tradable_day(frames[n], v1_days[n]) for n in frames) if day is not None]
     result = pb.run_portfolio(frames, decisions, weights_by_symbol, capital=capital,
                               costs=CostAssumptions(None, None, commission), quantity_steps=steps,
                               start=min(starts) if starts else None)
-    return result, weights_by_symbol
+    return result, weights_by_symbol, methods
 
 
 def _chart(st, result):

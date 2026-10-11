@@ -150,12 +150,16 @@ def process_asset(name: str, symbol: str, frame, source: str, *, now: datetime, 
 
     if todo:
         # Yalnız yeni günlerin kararı hesaplanır; kayıtlı günler yeniden üretilmez (AC90).
-        v1 = build_v1_decisions(frame, include_ml=include_ml, only_last=len(frame) - todo[0][0])
-        if candidate is None:
-            decisions = v1
-        else:
+        if candidate is not None and candidate.entry_rule == "KANAL":
             import strategy_candidates as sc
-            decisions = sc.candidate_decisions(frame, v1, candidate, classify_frame(frame))
+            decisions = sc.candidate_decisions(frame, {}, candidate, None)   # V1 ve piyasa koşulu kullanılmaz
+        else:
+            v1 = build_v1_decisions(frame, include_ml=include_ml, only_last=len(frame) - todo[0][0])
+            if candidate is None:
+                decisions = v1
+            else:
+                import strategy_candidates as sc
+                decisions = sc.candidate_decisions(frame, v1, candidate, classify_frame(frame))
         assumptions = _assumptions(name)
         for pos, ts in todo:
             label, regime_version = classify_latest(frame.iloc[:pos + 1])
@@ -205,26 +209,28 @@ def process_asset(name: str, symbol: str, frame, source: str, *, now: datetime, 
 
 def _follow_trend_candidate(name, symbol, frame, source, *, now, real_clock, include_ml, report, clock,
                             registered=None):
-    """Spec 0019 R02: trend adayı (V1 + 200 günlük ortalama) aktif stratejinin yanında ayrı sürümle izlenir.
+    """Spec 0019 R02 / 0020 R03: varlığın yöntem adayı (altcoinde kanal kırılımı, diğerlerinde V1 + 200 günlük
+    ortalama) aktif stratejinin yanında ayrı sürümle izlenir.
 
     Aday ön kaydı yoksa yapılır (sonuç görülmeden). Aktif strateji zaten bu adaysa ikinci kez kaydedilmez.
     Not satırları (eksik varsayım vb.) ana koşuda zaten yazıldığı için tekrarlanmaz."""
     import strategy_candidates as sc
 
-    info = market_map.market_of(symbol)
-    if info is None:
+    candidate = sc.method_candidate(symbol)
+    if candidate is None:
         return
-    trend = sc.trend_candidate(info[0])
-    if sc.active_strategy() == sc.strategy_fingerprint(trend):
+    key = sc.strategy_fingerprint(candidate)
+    if sc.active_strategy() == key:
         return
-    if registered is None or info[0] not in registered:      # piyasa başına bir ön kayıt (uzak DB gidiş-dönüşü)
-        sc.preregister(trend, clock() if clock else now)
+    if registered is None or key not in registered:      # aday başına bir ön kayıt (uzak DB gidiş-dönüşü)
+        sc.preregister(candidate, clock() if clock else now)
         if registered is not None:
-            registered.add(info[0])
+            registered.add(key)
     side = RunReport()
     process_asset(name, symbol, frame, source, now=now, real_clock=real_clock, include_ml=include_ml,
-                  report=side, clock=clock, follow=trend)
-    report.recorded.extend(f"{line} (aday: trend)" for line in side.recorded)
+                  report=side, clock=clock, follow=candidate)
+    label = "kanal" if candidate.entry_rule == "KANAL" else "trend"
+    report.recorded.extend(f"{line} (aday: {label})" for line in side.recorded)
     report.compute_seconds += side.compute_seconds
 
 

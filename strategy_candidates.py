@@ -28,8 +28,10 @@ REFERENCE_STRATEGY = "V1"
 CRITERIA_VERSION = "Q03-1"
 MIN_CLOSED_TRADES = 30
 
-APPROVED_ENTRY_RULES = frozenset({"V1", "KIRILIM", "GERI_CEKILME", "TREND_SMA"})
-APPROVED_EXIT_RULES = frozenset({"V1"})
+APPROVED_ENTRY_RULES = frozenset({"V1", "KIRILIM", "GERI_CEKILME", "TREND_SMA", "KANAL"})
+APPROVED_EXIT_RULES = frozenset({"V1", "KANAL"})
+#: Spec 0020 R02: tabanı bunlar olan kriptolar altcoin sayılmaz (yöntemleri C kalır).
+NON_ALTCOIN_BASES = frozenset({"BTC", "ETH"})
 
 OLCUTU_KARSILADI = "OLCUTU_KARSILADI"
 OLCUTU_KARSILAMADI = "OLCUTU_KARSILAMADI"
@@ -239,6 +241,31 @@ def trend_candidate(market: str, period_start: date | None = None,
                      period_start, period_end)
 
 
+def channel_candidate(market: str, period_start: date | None = None,
+                      period_end: date | None = None) -> Candidate:
+    """Spec 0020: kanal kırılımı (Donchian 50/20); giriş ve çıkış kendi kuralıdır, V1 kullanılmaz."""
+    return Candidate("Kanal kırılımı (50/20)", "KANAL", "KANAL", market, {"entry": "50", "exit": "20"},
+                     period_start, period_end)
+
+
+def is_altcoin(symbol: str) -> bool:
+    import market_map
+
+    info = market_map.market_of(symbol)
+    parts = market_map.crypto_parts(symbol)
+    return info is not None and info[0] == "KRIPTO" and parts is not None and parts[0] not in NON_ALTCOIN_BASES
+
+
+def method_candidate(symbol: str) -> Candidate | None:
+    """Spec 0020 R02: varlığın yöntem adayı — altcoinde kanal kırılımı, diğerlerinde C. Piyasa tanınmıyorsa None."""
+    import market_map
+
+    info = market_map.market_of(symbol)
+    if info is None:
+        return None
+    return channel_candidate(info[0]) if is_altcoin(symbol) else trend_candidate(info[0])
+
+
 def load_candidate(key: str) -> Candidate | None:
     """Ön kayıttaki tanımdan adayı geri kurar."""
     entry = _read(_REGISTRY_KEY, {}).get(key)
@@ -303,6 +330,8 @@ def candidate_decisions(frame, v1_decisions: Mapping, candidate: Candidate, regi
     ema = close.ewm(span=ema_span, adjust=False).mean()
     factor = Decimal("1") + tolerance / 100
     sma = close.rolling(int(settings.get("sma", 200))).mean()
+    if candidate.entry_rule == "KANAL":
+        return _channel_decisions(frame, int(settings.get("entry", 50)), int(settings.get("exit", 20)))
     decisions = {}
     for position, day in enumerate(frame.index):
         if v1_decisions.get(day) == "SAT":
@@ -327,4 +356,23 @@ def candidate_decisions(frame, v1_decisions: Mapping, candidate: Candidate, regi
             elif candidate.entry_rule == "V1":
                 entry = v1_decisions.get(day) == "AL"
         decisions[day] = "AL" if entry else "BEKLE"
+    return decisions
+
+
+def _channel_decisions(frame, entry_days: int, exit_days: int) -> dict:
+    """Spec 0020 R01: kapanış önceki `entry_days` günün en yükseğini aşarsa AL, önceki `exit_days` günün
+    en düşüğünün altına inerse SAT; pencere dolmadan BEKLE. Bugünün mumu kendi penceresine girmez."""
+    close = frame["Close"]
+    upper = frame["High"].rolling(entry_days).max().shift(1)
+    lower = frame["Low"].rolling(exit_days).min().shift(1)
+    decisions = {}
+    for position, day in enumerate(frame.index):
+        top, bottom = upper.iloc[position], lower.iloc[position]
+        today = Decimal(str(close.iloc[position]))
+        if top == top and today > Decimal(str(top)):
+            decisions[day] = "AL"
+        elif bottom == bottom and today < Decimal(str(bottom)):
+            decisions[day] = "SAT"
+        else:
+            decisions[day] = "BEKLE"
     return decisions
