@@ -18,8 +18,8 @@ from typing import Mapping
 
 from trade_execution import Bar, BookState, CostAssumptions, TradeSettings, advance_daily_bar
 
-#: Varsayılan ağırlıklar (spec 0019 R04, kullanıcı onayı): BTC/ETH %20, DOGE %5, diğer kriptolar %10.
-MAJOR_BASES = frozenset({"BTC", "ETH"})
+#: Varsayılan ağırlıklar (spec 0019 R04, kullanıcı onayı): BTC/ETH ve ons altın %20, DOGE %5, diğer %10.
+MAJOR_BASES = frozenset({"BTC", "ETH", "XAU_GOLD"})
 SMALL_BASES = frozenset({"DOGE"})
 #: Miktar adımı bilinmeyen varlıkta kullanılan adım; sonuç "yaklaşık" etiketlenir.
 FALLBACK_STEP = Decimal("0.00000001")

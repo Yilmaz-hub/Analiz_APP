@@ -62,9 +62,10 @@ def render_portfolio_panel(coin_map: dict, source_pref: str) -> None:
 
     st.caption("Seçtiğiniz varlıklar tek kasayı paylaşır: bir varlık alımdayken kalan nakit diğer "
                "varlıklardaki fırsatlar için kullanılır.")
-    crypto = [name for name, symbol in coin_map.items()
-              if (market_map.market_of(symbol) or ("",))[0] == "KRIPTO"]
-    chosen = st.multiselect("Varlıklar", list(coin_map), default=crypto, key="pf_assets")
+    defaults = [name for name, symbol in coin_map.items()
+                if (market_map.market_of(symbol) or ("", ""))[0] == "KRIPTO"
+                or market_map.market_of(symbol) == ("ALTIN", "USD")]
+    chosen = st.multiselect("Varlıklar", list(coin_map), default=defaults, key="pf_assets")
     weights = {}
     if chosen:
         columns = st.columns(min(4, len(chosen)))
@@ -78,7 +79,12 @@ def render_portfolio_panel(coin_map: dict, source_pref: str) -> None:
                                             step=1000.0, key="pf_capital")))
     commission = Decimal(str(right.number_input("Komisyon (%)", min_value=0.0, max_value=5.0, value=0.1,
                                                 step=0.05, key="pf_fee")))
-    if not st.button("📦 Portföy testini başlat", key="pf_run", disabled=not chosen):
+    currencies = sorted({(market_map.market_of(coin_map[name]) or ("", "?"))[1] for name in chosen})
+    mixed = len(currencies) > 1
+    if mixed:
+        st.warning("Seçilen varlıklar farklı para birimlerinde (" + ", ".join(currencies) + "); tek kasada "
+                   "toplanamaz. Aynı para birimindeki varlıkları seçin.")
+    if not st.button("📦 Portföy testini başlat", key="pf_run", disabled=not chosen or mixed):
         return
     result, weights_by_symbol = _run(chosen, weights, coin_map, source_pref, capital, commission, st)
     if result is None:

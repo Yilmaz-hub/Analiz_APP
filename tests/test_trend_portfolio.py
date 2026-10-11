@@ -107,6 +107,7 @@ def test_ac06_default_weights():
     """AC06 — Varsayılan ağırlıklar: BTC/ETH %20, DOGE %5, diğer kriptolar %10."""
     assert pb.default_weight("BTC-USD") == 20 and pb.default_weight("ETHUSD") == 20
     assert pb.default_weight("DOGE-USD") == 5 and pb.default_weight("SOL-USD") == 10
+    assert pb.default_weight("XAU_GOLD") == 20
 
 
 def test_ac07_report_has_returns_drawdown_trades_hold_and_contribution():
@@ -136,3 +137,17 @@ def test_ac07_screen_runs_the_portfolio_test(store, monkeypatch, processed_df):
     assert not at.exception
     assert any("Al-tut (aynı ağırlıklar)" in f.value.columns for f in at.dataframe)
     assert "son ~1000 gün" in texts(at)
+
+
+def test_ac06_mixed_currencies_cannot_be_tested_in_one_pool(store, monkeypatch, processed_df):
+    """AC06 — USD ve TL varlıklar birlikte seçilirse uyarı çıkar ve test başlatılamaz; altın varsayılan seçimdedir."""
+    from app_helpers import make_app
+
+    store.write_doc(store.ASSETS_KEY, {"Bitcoin (BTC)": "BTC-USD", "ONS ALTIN ($)": "XAU_GOLD",
+                                       "GRAM ALTIN (TL)": "GRAM_TRY"})
+    at = make_app(monkeypatch, processed_df).run()
+    box = next(m for m in at.multiselect if m.key == "pf_assets")
+    assert set(box.value) == {"Bitcoin (BTC)", "ONS ALTIN ($)"}
+    at = box.select("GRAM ALTIN (TL)").run()
+    assert any("farklı para birimlerinde" in w.value for w in at.warning)
+    assert next(b for b in at.button if b.label == "📦 Portföy testini başlat").disabled
