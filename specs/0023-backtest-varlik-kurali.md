@@ -1,6 +1,6 @@
 # Spec: 0023 — Tek Varlık Backtest'i Varlığın Kuralıyla
 
-> Şablon: [TEMPLATE.md](TEMPLATE.md). Rol: Analist/Developer. Revizyon 1 (2026-10-11).
+> Şablon: [TEMPLATE.md](TEMPLATE.md). Rol: Analist/Developer. Revizyon 2 (2026-10-11).
 > Durum: **ONAYLANDI — GELİŞTİRİLECEK (devir).** Kaynak: Takım Yöneticisi, 2026-10-11 ("yapılacak spec'i GitHub'a yükle,
 > başka bir developer geliştirmeyi tamamlasın"). Spec 0022 sonrası açık kalan eksik.
 > **Bağımlılık:** spec 0022 ([PR #37](https://github.com/yilmaz-hub/analiz_app/pull/37)) — `main`'e alındı ve bu dala
@@ -15,12 +15,15 @@ backtest, karar panelindeki sinyalle **aynı kuralı** test eder; hangi kuralın
 ## Requirements
 - **R01 — Kural kararları:** Günlük (`1d`) backtest, `signal_rules.signal_mode()` "VARLIK" iken varlığın kuralının
   kararlarıyla çalışır (`strategy_candidates.asset_method(symbol)`):
-  - `TREND_SMA` → `sc.candidate_decisions(df_view, v1_decisions, sc.trend_candidate(market), None)`
+  - `TREND_SMA` → `sc.candidate_decisions(df_view, v1_decisions, sc.trend_candidate(market), None)`; **yalnız ilk V1
+    karar gününden itibaren** kararlar tutulur (Rev. 2 / P1: işlemler değişmez, al-tut karşılaştırması ve teşhis
+    ısınma dönemini saymaz).
   - `KANAL` → `sc.candidate_decisions(df_view, {}, sc.channel_candidate(market), None)`; **yalnız ilk V1 karar
     gününden (bar 199) itibaren** kararlar tutulur (deney ve portföy testiyle aynı ısınma; al-tut karşılaştırması
     ve teşhis aynı başlangıcı kullanır).
   - `TUT` (hisse) → zamanlama backtest'i yapılmaz; "Bu varlıkta yöntem al-tut; zamanlama testi yok" bilgisi ve
-    yalnız al-tut sonucu (mevcut `performance_ui.hold_comparison` ile aynı dönem) gösterilir.
+    yalnız al-tut sonucu (mevcut `performance_ui.hold_comparison` ile aynı dönem) gösterilir. `perf_report_source`
+    yazılmaz, eskisi silinir; rapor/aday/risk/kâr koruma panelleri bu durumda görünmez (Rev. 2 / P2).
   - `None` (ör. döviz) ya da mod "V1" → bugünkü V1 davranışı aynen.
 - **R02 — Etiket:** Backtest bilgi kutusu test edilen kuralı yazar (ör. "Günlük test — kural: Kanal kırılımı
   50/20 …"). Bugünkü sabit "Günlük V1 testi…" metni yalnız V1 kullanıldığında görünür.
@@ -32,6 +35,9 @@ backtest, karar panelindeki sinyalle **aynı kuralı** test eder; hangi kuralın
   `"v1_decisions"` eklenir; aday paneli `source.get("v1_decisions", source["decisions"])` kullanır.
 - **R05 — İşletme kuralları değişmez:** `run_v1_strategy_backtest` motoru (ertesi açılış, 2,5 ATR sabit stop,
   zararlı çıkış sonrası 2 gün bekleme, maliyetler) tüm kurallarda aynen kullanılır; yalnız karar sözlüğü değişir.
+
+- **Rev. 2 kararları (Takım Yöneticisi, 2026-10-11):** P1 TREND_SMA de ilk V1 karar gününden kesilir; P2 hissede
+  (`TUT`) `perf_report_source` yazılmaz; P3 0022 QA düşük bulguları bu spec'in kapsamı dışında (ayrı küçük spec).
 
 ## Constraints
 - Para/yüzde `Decimal` (docs/conventions.md). `app.py` **CRLF** satır sonuyla saklanır; düzenlerken korunmalı
