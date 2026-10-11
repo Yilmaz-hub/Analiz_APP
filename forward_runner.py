@@ -53,18 +53,27 @@ def _fingerprint(asset_name: str) -> str:
     return hashlib.sha256(body.encode("utf-8")).hexdigest()[:8]
 
 
-def _version(asset_name: str, include_ml: bool, real_clock: bool) -> tuple[str, object]:
-    import strategy_candidates as sc
-
-    active = sc.active_strategy()
-    candidate = None if active == sc.REFERENCE_STRATEGY else sc.find_by_strategy(active)
-    label = sc.REFERENCE_STRATEGY if candidate is None else f"ADAY-{active[:12]}"
-    label = f"{label}~{_fingerprint(asset_name)}"
+def _label(base: str, asset_name: str, include_ml: bool, real_clock: bool) -> str:
+    label = f"{base}~{_fingerprint(asset_name)}"
     if not include_ml:
         label += "/ML-YOK"
     if not real_clock:
         label += "/TATBIKAT"   # hızlandırılmış koşu gerçek kayıtla karışmaz (AC87, AC92)
-    return label, candidate
+    return label
+
+
+def _version(asset_name: str, include_ml: bool, real_clock: bool, follow=None) -> tuple[str, object]:
+    """Kaydın sürüm etiketi ve kararları üretecek aday. `follow` verilirse aktif strateji yerine o aday
+    izlenir (spec 0019: trend adayı V1'in yanında ayrı sürümle kaydedilir)."""
+    import strategy_candidates as sc
+
+    if follow is not None:
+        key = sc.strategy_fingerprint(follow)
+        return _label(f"ADAY-{key[:12]}", asset_name, include_ml, real_clock), follow
+    active = sc.active_strategy()
+    candidate = None if active == sc.REFERENCE_STRATEGY else sc.find_by_strategy(active)
+    base = sc.REFERENCE_STRATEGY if candidate is None else f"ADAY-{active[:12]}"
+    return _label(base, asset_name, include_ml, real_clock), candidate
 
 
 def _fixture_fetch(directory: Path):
@@ -113,7 +122,7 @@ def _assumptions(asset_name: str) -> dict:
 
 
 def process_asset(name: str, symbol: str, frame, source: str, *, now: datetime, real_clock: bool,
-                  include_ml: bool, report: RunReport, clock=None) -> None:
+                  include_ml: bool, report: RunReport, clock=None, follow=None) -> None:
     import time
 
     from regime_classifier import classify_frame, classify_latest
@@ -127,7 +136,7 @@ def process_asset(name: str, symbol: str, frame, source: str, *, now: datetime, 
         return
     market = info[0]
     started = time.perf_counter()
-    version, candidate = _version(name, include_ml, real_clock)
+    version, candidate = _version(name, include_ml, real_clock, follow)
 
     closed = [(pos, ts) for pos, ts in enumerate(frame.index)
               if ft.available_at(market, _day(ts)) <= now]
@@ -194,8 +203,29 @@ def process_asset(name: str, symbol: str, frame, source: str, *, now: datetime, 
     report.compute_seconds += time.perf_counter() - started
 
 
+def _follow_trend_candidate(name, symbol, frame, source, *, now, real_clock, include_ml, report, clock):
+    """Spec 0019 R02: trend adayı (V1 + 200 günlük ortalama) aktif stratejinin yanında ayrı sürümle izlenir.
+
+    Aday ön kaydı yoksa yapılır (sonuç görülmeden). Aktif strateji zaten bu adaysa ikinci kez kaydedilmez.
+    Not satırları (eksik varsayım vb.) ana koşuda zaten yazıldığı için tekrarlanmaz."""
+    import strategy_candidates as sc
+
+    info = market_map.market_of(symbol)
+    if info is None:
+        return
+    trend = sc.trend_candidate(info[0])
+    if sc.active_strategy() == sc.strategy_fingerprint(trend):
+        return
+    sc.preregister(trend, clock() if clock else now)
+    side = RunReport()
+    process_asset(name, symbol, frame, source, now=now, real_clock=real_clock, include_ml=include_ml,
+                  report=side, clock=clock, follow=trend)
+    report.recorded.extend(f"{line} (aday: trend)" for line in side.recorded)
+    report.compute_seconds += side.compute_seconds
+
+
 def run(now: datetime, *, real_clock: bool, fetch, include_ml: bool,
-        symbols: list[str] | None = None, clock=None) -> RunReport:
+        symbols: list[str] | None = None, clock=None, follow_trend: bool = True) -> RunReport:
     import time
 
     from assets import load_assets
@@ -217,6 +247,9 @@ def run(now: datetime, *, real_clock: bool, fetch, include_ml: bool,
             continue
         process_asset(name, symbol, frame, source, now=now, real_clock=real_clock,
                       include_ml=include_ml, report=report, clock=clock)
+        if follow_trend:
+            _follow_trend_candidate(name, symbol, frame, source, now=now, real_clock=real_clock,
+                                    include_ml=include_ml, report=report, clock=clock)
     ft.record_run(clock(), not any("alınamadı" in n for n in report.notes),
                   "; ".join(report.notes) or "tamam")
     return report
@@ -229,13 +262,16 @@ def main(argv=None) -> int:
     parser.add_argument("--no-ml", action="store_true",
                         help="ML bileşenini kapat (spec 0018 sonrası varsayılan zaten kapalı).")
     parser.add_argument("--symbols", help="Virgülle ayrılmış semboller (varsayılan: varlık listesi).")
+    parser.add_argument("--no-trend-candidate", action="store_true",
+                        help="Trend adayını (spec 0019) V1'in yanında izleme.")
     args = parser.parse_args(argv)
     now = (datetime.fromisoformat(args.now.replace("Z", "+00:00")) if args.now
            else datetime.now(timezone.utc))
     report = run(now, real_clock=args.now is None,
                  fetch=_fixture_fetch(args.fixture) if args.fixture else _live_fetch,
                  include_ml=DecisionEngineConfig.V1_INCLUDE_ML and not args.no_ml,
-                 symbols=args.symbols.split(",") if args.symbols else None)
+                 symbols=args.symbols.split(",") if args.symbols else None,
+                 follow_trend=not args.no_trend_candidate)
     for line in report.recorded:
         print(f"kaydedildi: {line}")
     for line in report.notes:

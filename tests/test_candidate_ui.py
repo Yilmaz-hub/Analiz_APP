@@ -29,11 +29,11 @@ def test_ac01_panel_shows_v1_as_active_and_no_candidate_selected():
 
 
 def test_ac80_breakout_and_pullback_get_separate_records_and_results(trending_df):
-    """AC80 — Değerlendirme sonrası kırılım ve geri çekilme ayrı kayıt ve ayrı sonuçla listelenir."""
+    """AC80 — Değerlendirme sonrası kırılım, geri çekilme ve trend filtresi (0019) ayrı kayıt ve ayrı sonuçla listelenir."""
     outcome = _run(trending_df)
     assert outcome.ok, outcome.reason
     names = [entry["name"] for entry in sc.history()]
-    assert sorted(names) == ["Geri çekilme (EMA20, %1)", "Kırılım (20 gün)"]
+    assert sorted(names) == ["Geri çekilme (EMA20, %1)", "Kırılım (20 gün)", "V1 + 200 günlük ortalama"]
     text = _text(candidate_ui.build_candidate_view(None))
     assert "Kırılım (20 gün)" in text and "Geri çekilme (EMA20, %1)" in text
 

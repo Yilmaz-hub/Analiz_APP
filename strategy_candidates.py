@@ -28,7 +28,7 @@ REFERENCE_STRATEGY = "V1"
 CRITERIA_VERSION = "Q03-1"
 MIN_CLOSED_TRADES = 30
 
-APPROVED_ENTRY_RULES = frozenset({"V1", "KIRILIM", "GERI_CEKILME"})
+APPROVED_ENTRY_RULES = frozenset({"V1", "KIRILIM", "GERI_CEKILME", "TREND_SMA"})
 APPROVED_EXIT_RULES = frozenset({"V1"})
 
 OLCUTU_KARSILADI = "OLCUTU_KARSILADI"
@@ -228,7 +228,15 @@ def default_candidates(market: str, period_start: date | None,
                   period_start, period_end),
         Candidate("Geri çekilme (EMA20, %1)", "GERI_CEKILME", "V1", market,
                   {"ema": "20", "tolerance_pct": "1"}, period_start, period_end),
+        trend_candidate(market, period_start, period_end),
     ]
+
+
+def trend_candidate(market: str, period_start: date | None = None,
+                    period_end: date | None = None) -> Candidate:
+    """Spec 0019 (C): V1 AL'i yalnız kapanış 200 günlük basit ortalamanın üstündeyken; çıkış V1."""
+    return Candidate("V1 + 200 günlük ortalama", "TREND_SMA", "V1", market, {"sma": "200"},
+                     period_start, period_end)
 
 
 def load_candidate(key: str) -> Candidate | None:
@@ -283,9 +291,10 @@ def _day(value) -> date:
 def candidate_decisions(frame, v1_decisions: Mapping, candidate: Candidate, regimes) -> dict:
     """Aday giriş kararları; çıkış V1 ile aynıdır (V1'in SAT kararları korunur, R06).
 
-    Parametreler adayın `settings` değerlerinden okunur (`lookback`, `ema`, `tolerance_pct`);
+    Parametreler adayın `settings` değerlerinden okunur (`lookback`, `ema`, `tolerance_pct`, `sma`);
     ayar değişince karar da değişir (AC102). Girişler yalnız yükselen piyasa gününde üretilir
-    (Q02). Her gün yalnız o güne kadarki veriyi kullanır."""
+    (Q02); `TREND_SMA` (spec 0019) bunun yerine 200 günlük ortalama filtresini kullanır. Her gün
+    yalnız o güne kadarki veriyi kullanır."""
     settings = dict(candidate.settings)
     lookback = int(settings.get("lookback", 20))
     ema_span = int(settings.get("ema", 20))
@@ -293,10 +302,17 @@ def candidate_decisions(frame, v1_decisions: Mapping, candidate: Candidate, regi
     close = frame["Close"]
     ema = close.ewm(span=ema_span, adjust=False).mean()
     factor = Decimal("1") + tolerance / 100
+    sma = close.rolling(int(settings.get("sma", 200))).mean()
     decisions = {}
     for position, day in enumerate(frame.index):
         if v1_decisions.get(day) == "SAT":
             decisions[day] = "SAT"
+            continue
+        if candidate.entry_rule == "TREND_SMA":
+            # Spec 0019: filtre ortalamanın kendisidir; "yükselen" koşulu aranmaz. Ortalama oluşmadan giriş yok.
+            average = sma.iloc[position]
+            decisions[day] = ("AL" if v1_decisions.get(day) == "AL" and average == average
+                              and Decimal(str(close.iloc[position])) > Decimal(str(average)) else "BEKLE")
             continue
         entry = False
         if regimes.iloc[position] == YUKSELEN:

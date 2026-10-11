@@ -11,7 +11,7 @@ from regime_classifier import DUSEN, YUKSELEN
 from trading_contracts import Signal
 
 NOW = datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc)
-BREAKOUT, PULLBACK = sc.default_candidates("KRIPTO", None, None)
+BREAKOUT, PULLBACK, TREND = sc.default_candidates("KRIPTO", None, None)
 
 
 def _rising(n=40):

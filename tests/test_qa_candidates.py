@@ -13,7 +13,7 @@ from regime_classifier import YUKSELEN
 from trade_execution import CostAssumptions
 
 NOW = datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc)
-BREAKOUT, PULLBACK = sc.default_candidates("KRIPTO", date(2025, 1, 1), date(2026, 1, 1))
+BREAKOUT, PULLBACK, TREND = sc.default_candidates("KRIPTO", date(2025, 1, 1), date(2026, 1, 1))
 REF = sc.Metrics(Decimal("10"), Decimal("20"), Decimal("5"), 40)
 
 
@@ -142,7 +142,7 @@ def test_ac97_evaluation_computes_entry_rules_on_the_full_history(monkeypatch, t
         "BTC-USD", trending_df, {trending_df.index[260]: "AL"}, notional=Decimal("1000"),
         capital=Decimal("10000"), quantity_step=Decimal("0.001"),
         costs=CostAssumptions(Decimal("1"), Decimal("1"), Decimal("0.1")), now=NOW)
-    assert outcome.ok and seen == [len(trending_df)] * 2
+    assert outcome.ok and seen == [len(trending_df)] * 3      # kırılım, geri çekilme, trend (0019)
 
 
 def test_ac96_evaluation_marks_candidates_unverified_when_costs_unknown(trending_df):

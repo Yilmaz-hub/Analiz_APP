@@ -1050,6 +1050,11 @@ if is_chart_renderable(df_view):
         else:
             st.caption("Henüz kayıt yok — ilk kaydı almak için butona basın.")
 
+    # --- PORTFÖY GEÇMİŞ TESTİ (spec 0019): çoklu varlık, tek kasa, ağırlıklı ---
+    with st.expander("📦 Portföy Backtest'i (çoklu varlık, tek kasa)", expanded=False):
+        import portfolio_ui
+        portfolio_ui.render_portfolio_panel(st.session_state.get('coin_map', {}), src_pref)
+
 else:
     # Boş durum (enstrümanda veri yok) ile hata durumu (ağ/işleme hatası)
     # ayrı gösterilir; kopan bağlantı boş enstrüman sanılmasın (spec 0001).
