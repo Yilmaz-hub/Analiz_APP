@@ -218,6 +218,57 @@ class HoldComparison:
     start: date | None = None      # al-tut'un başladığı gün (ilk karardan sonraki mumun açılışı)
 
 
+@dataclass(frozen=True)
+class HoldOnly:
+    """Zamanlama testi yapılmayan (al-tut yöntemli) varlıkta yalnız al-tut sonucu (spec 0023 R01)."""
+    price_change_pct: Decimal      # tüm sermaye al-tut: ilk alım açılışından son kapanışa
+    final_equity: Decimal          # sermaye bu değişimle
+    start: date
+
+
+def _hold_start_pos(frame, decisions) -> int | None:
+    """Al-tut'un başladığı mumun konumu: ilk kararın (ısınma sonrası) bir sonraki mumu; karar yoksa ikinci mum."""
+    if frame is None or len(frame) < 2:
+        return None
+    if not decisions:
+        return 1
+    first_key = min(decisions)
+    later = [i for i, ts in enumerate(frame.index) if ts > first_key]
+    return later[0] if later else None
+
+
+def hold_only(frame, capital, decisions=None) -> HoldOnly | None:
+    """`hold_comparison` ile aynı dönemde tüm sermayeyle al-tut; maliyet hariç. Hesaplanamazsa None."""
+    start_pos = _hold_start_pos(frame, decisions)
+    if start_pos is None:
+        return None
+    try:
+        capital = Decimal(str(capital))
+        first_open = Decimal(str(frame["Open"].iloc[start_pos]))
+        last_close = Decimal(str(frame["Close"].iloc[-1]))
+    except (KeyError, ArithmeticError, ValueError):
+        return None
+    if not all(v.is_finite() for v in (capital, first_open, last_close)) or capital <= 0 or first_open <= 0:
+        return None
+    ratio = last_close / first_open
+    return HoldOnly((ratio - Decimal("1")) * Decimal("100"), capital * ratio, _as_day(frame.index[start_pos]))
+
+
+def render_hold_only(result: HoldOnly | None, currency: str) -> None:
+    import streamlit as st
+
+    st.info("Bu varlıkta yöntem al-tut; zamanlama testi yok.")
+    if result is None:
+        st.caption("Al-tut sonucu hesaplanamadı (fiyat ya da sermaye geçersiz, veri kısa).")
+        return
+    st.markdown(f"**Al-tut sonucu ({result.start} açılışından itibaren)**")
+    c1, c2 = st.columns(2)
+    c1.metric("Varlığın fiyat değişimi", f"%{result.price_change_pct:.2f}")
+    c2.metric("Sermaye son değeri", _money(result.final_equity, currency))
+    st.caption("Tüm sermaye ilk açılışta alınıp son kapanışa kadar tutulmuş sayılır; maliyet, temettü ve stop "
+               "hariçtir. Geçmiş sonuç gelecekteki kazanç olasılığı değildir.")
+
+
 def hold_comparison(frame, backtest: dict, capital, notional, decisions=None) -> HoldComparison | None:
     """Strateji ile aynı dönemde al-tut'u eşit para ile karşılaştırır; hesaplanamazsa None.
 
@@ -227,15 +278,9 @@ def hold_comparison(frame, backtest: dict, capital, notional, decisions=None) ->
     Getiri"si ile aynı ölçekte olsun. İşlem tutarı sermayeden büyükse strateji alım yapamaz;
     karşılaştırma gösterilmez (None).
     """
-    if frame is None or len(frame) < 2:
+    start_pos = _hold_start_pos(frame, decisions)
+    if start_pos is None:
         return None
-    start_pos = 1
-    if decisions:
-        first_key = min(decisions)
-        later = [i for i, ts in enumerate(frame.index) if ts > first_key]
-        if not later:
-            return None
-        start_pos = later[0]
     try:
         capital, notional = Decimal(str(capital)), Decimal(str(notional))
         first_open = Decimal(str(frame["Open"].iloc[start_pos]))
