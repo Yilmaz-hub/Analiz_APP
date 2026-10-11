@@ -3,8 +3,8 @@
 > Şablon: [TEMPLATE.md](TEMPLATE.md). Rol: Analist/Developer. Revizyon 1 (2026-10-11).
 > Durum: **ONAYLANDI — GELİŞTİRİLECEK (devir).** Kaynak: Takım Yöneticisi, 2026-10-11 ("yapılacak spec'i GitHub'a yükle,
 > başka bir developer geliştirmeyi tamamlasın"). Spec 0022 sonrası açık kalan eksik.
-> **Bağımlılık:** spec 0022 ([PR #37](https://github.com/yilmaz-hub/analiz_app/pull/37)) `main`'e alınmış olmalı
-> (`signal_rules.py`, `signal_mode`). Bu dal `main`'den açıldı; #37 birleşince `main` bu dala alınır (merge).
+> **Bağımlılık:** spec 0022 ([PR #37](https://github.com/yilmaz-hub/analiz_app/pull/37)) — `main`'e alındı ve bu dala
+> merge edildi (`signal_rules.py`, `signal_mode` hazır).
 
 ## Intent
 Kullanıcı BTC'ye bakarken ekrandaki sinyal artık varlığın kuralından (0022) geliyor: BTC/ETH/altın C, altcoinler
@@ -66,8 +66,14 @@ backtest, karar panelindeki sinyalle **aynı kuralı** test eder; hangi kuralın
 - [ ] Bağımsız QA kabulü (AGENTS.md: üreten denetlemez), squash-merge (`docs/git.md`).
 
 ## Devir notu (2026-10-11 durumu)
-- **Açık PR:** [#37](https://github.com/yilmaz-hub/analiz_app/pull/37) (0022) bağımsız QA'da; QA KABUL + CI yeşil ise
-  squash-merge edilecek. Bu spec ona bağlı.
+- **Bağımlılık karşılandı:** [#37](https://github.com/yilmaz-hub/analiz_app/pull/37) (0022) QA KABUL + CI yeşil ile
+  2026-10-11'de `main`'e alındı (de57af6) ve `main` bu dala merge edildi.
+- **0022 QA düşük bulguları (engellemez; bu spec'e ya da ayrı küçük spec'e alınabilir):** (1) "Varlığa göre" modda
+  kullanıcı bir aday stratejiyi aktif seçmişse karar paneli onu uygulamaz ama `management_note` aktif stratejiyi yazar
+  → "aktif strateji bu modda uygulanmıyor" notu; (2) yan paneldeki günlük kart ve TP/SL satırı V1'den — kural
+  BEKLE/SAT iken TP/SL satırı yanıltabilir; (3) `portfolio.multi_timeframe_confirmation` (≈ satır 121) 1d için hâlâ
+  V1; (4) `signal_mode` her yeniden çalıştırmada depodan okunuyor → `session_state` önbelleği; (5) `signal_mode`
+  doküman anahtarı `docs/storage.md`'ye eklenmeli.
 - **Çalıştırma:** `pip install -r requirements-dev.txt`; `python -m pytest -q` (≈ 905 test, ~6 dk), `-m browser`, `-m perf`.
 - **Ertelenen düşük öncelikli notlar:** "ML: Devre dışı" neden satırı metni; `paper_trading`/`optimize_weights`
   belge yorumları; teşhiste başa-baş işlemin "kaybeden" sayılması; `trade_diagnostics._regime_before` geniş
