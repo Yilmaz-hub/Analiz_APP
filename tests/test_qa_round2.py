@@ -31,9 +31,10 @@ def _acik(store, fiyat):
         "Gerçekleşme Zamanı": "2026-01-02T10:00:00+00:00", "Tarih": "2026-01-02"}]})
 
 
-def test_b3_missing_ml_with_open_position_shows_no_personal_action(store, monkeypatch, processed_df):
-    import ml_models
-    monkeypatch.setattr(ml_models, "calculate_ml_direction_signal", lambda _df: None)
+def test_b3_missing_component_with_open_position_shows_no_personal_action(store, monkeypatch, processed_df):
+    # Spec 0018: ML kararlara girmez; eksik zorunlu bileşen formasyonla sınanır.
+    import signal_engine
+    monkeypatch.setattr(signal_engine, "_score_patterns", lambda _df: (0, [], False))
     frame = _taze(processed_df)
     _acik(store, float(frame["Close"].iloc[-1]))
     at = _gunluk(make_app(monkeypatch, frame).run())
@@ -41,7 +42,7 @@ def test_b3_missing_ml_with_open_position_shows_no_personal_action(store, monkey
     assert not at.exception
     assert "Pozisyonuna göre eylem:" not in metin
     assert "Güncel risk değerlendirilemiyor" in metin
-    assert "yapay zekâ" in metin
+    assert "formasyon" in metin
 
 
 def test_b4_zero_volume_names_the_component_everywhere_and_panel_gives_no_action(store, monkeypatch, processed_df):

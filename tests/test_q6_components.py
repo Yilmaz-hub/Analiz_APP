@@ -28,14 +28,14 @@ def _patch_ml(monkeypatch, result=None, error=None):
 
 def test_q6_ml_none_marks_ml_unavailable(processed_df, monkeypatch):
     _patch_ml(monkeypatch, result=None)
-    sig = generate_stable_signal(processed_df, "1d", strict_components=True, data_is_closed=True)
+    sig = generate_stable_signal(processed_df, "1d", strict_components=True, data_is_closed=True, include_ml=True)
     assert sig.unavailable_components == ("ml",)
     assert sig.verdict == "BEKLE"
 
 
 def test_q6_ml_exception_marks_ml_unavailable(processed_df, monkeypatch):
     _patch_ml(monkeypatch, error=RuntimeError("model yok"))
-    sig = generate_stable_signal(processed_df, "1d", strict_components=True, data_is_closed=True)
+    sig = generate_stable_signal(processed_df, "1d", strict_components=True, data_is_closed=True, include_ml=True)
     assert sig.unavailable_components == ("ml",)
 
 
