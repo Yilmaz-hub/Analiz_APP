@@ -317,6 +317,7 @@ active_src = ""
 # --- ANA VERİ DÖNGÜSÜ ---
 composite_signals = {}  # Store composite signals per timeframe
 validation_statuses = {}
+rule_signals = {}  # spec 0022: varlığa göre günlük sinyal kuralı
 for tf, label in intervals.items():
     df, src = get_market_data(src_pref, symbol, tf)
     if tf == "1d": active_src = src
@@ -342,6 +343,7 @@ for tf, label in intervals.items():
                 require_components=True,
             )
             validation_statuses[tf] = validation.status
+            closed_daily = validation.usable if validation.is_valid else None
             comp_sig = generate_validated_signal(
                 df, evaluation_time, policy,
                 provider_open=df.attrs.get("provider_open", set()),
@@ -365,6 +367,13 @@ for tf, label in intervals.items():
 
         st.sidebar.markdown("---")
         st.sidebar.markdown(theme.sidebar_signal(label, comp_sig), unsafe_allow_html=True)
+        if tf == "1d" and is_v1_scope(symbol) and closed_daily is not None:
+            import signal_rules
+            v1_daily = Signal.BUY if "AL" in comp_sig.verdict else (
+                Signal.SELL if "SAT" in comp_sig.verdict else Signal.WAIT)
+            rule_signals[tf] = signal_rules.rule_signal(symbol, closed_daily, v1_daily)
+            if rule_signals[tf].text:
+                st.sidebar.caption("📐 " + rule_signals[tf].text)
         if comp_sig.entry_price > 0 and "AL" in comp_sig.verdict:
             st.sidebar.caption(f"🎯 TP: ${comp_sig.take_profit_1:,.2f} | 🛑 SL: ${comp_sig.stop_loss:,.2f}")
         elif "SAT" in comp_sig.verdict:
@@ -507,10 +516,18 @@ if is_chart_renderable(df_view):
     if view_tf == "1d":
         # Kullanıcı bir adayı aktif seçtiyse giriş sinyali onun kuralından gelir (spec 0005 R09, AC104).
         import candidate_ui
+        import signal_rules
         try:
-            market_signal, active_note = candidate_ui.active_entry_signal(df_view, market_signal)
-            if active_note:
-                st.caption(active_note)
+            rule = rule_signals.get("1d")
+            mode = signal_rules.render_mode_switch(st)
+            if rule is not None and rule.method is not None and mode == signal_rules.VARLIK:
+                # Spec 0022: karar paneli varlığın kuralını kullanır (BTC/ETH/altın C, altcoin kanal, hisse al-tut).
+                market_signal = rule.signal
+                st.caption(rule.text)
+            else:
+                market_signal, active_note = candidate_ui.active_entry_signal(df_view, market_signal)
+                if active_note:
+                    st.caption(active_note)
             if verified_position:
                 management_note = candidate_ui.management_note(
                     verified_position, candidate_ui.sc.active_strategy())
