@@ -193,6 +193,8 @@ def test_q4_app_buy_signal_right_after_a_loss_exit_shows_cooldown_not_buy(store,
         return sig
 
     monkeypatch.setattr(signal_engine, "generate_stable_signal", always_buy)
+    import signal_rules
+    signal_rules.choose_signal_mode(signal_rules.V1)   # zorlanan V1 AL'i doğrudan sınar (spec 0022 öncesi akış)
     store.write_doc(store.ASSETS_KEY, {"Bitcoin (BTC)": "BTC-USD"})
     kapanis = (datetime.now(UTC) - timedelta(days=1)).replace(hour=10)
     kayit = {"Coin": "Bitcoin (BTC)", "Giriş": 100.0, "Adet": 0.0, "Yatırım": 0.0, "Realized": -20.0,
