@@ -22,7 +22,7 @@ def _fixture(tmp_path):
 def _run(directory, now):
     return subprocess.run(
         [sys.executable, "-m", "forward_runner", "--now", now.isoformat(), "--fixture",
-         str(directory), "--no-ml", "--symbols", "BTC-USD"],
+         str(directory), "--no-ml", "--symbols", "BTC-USD", "--no-trend-candidate"],
         cwd=ROOT, env=dict(os.environ), capture_output=True, text=True, timeout=300)
 
 

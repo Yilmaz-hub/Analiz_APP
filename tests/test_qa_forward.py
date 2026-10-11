@@ -18,6 +18,8 @@ def _frame(rows=None):
 
 
 def _run(frame, now, *, real_clock=True, symbols=("BTC-USD",), include_ml=False, **kwargs):
+    # Bu dosya V1 sürümünün mekaniğini sınar; trend adayının paralel takibi (spec 0019) ayrı testtedir.
+    kwargs.setdefault("follow_trend", False)
     return forward_runner.run(now, real_clock=real_clock, fetch=lambda s: (frame, "fixture"),
                               include_ml=include_ml, symbols=list(symbols),
                               clock=lambda: now + timedelta(minutes=1), **kwargs)
@@ -66,7 +68,7 @@ def test_ac90_evaluated_at_is_taken_at_write_time_per_asset():
     now = ft.available_at("KRIPTO", _day(frame))
     ticks = iter(range(100))
     forward_runner.run(now, real_clock=True, fetch=lambda s: (frame, "fixture"), include_ml=False,
-                       symbols=["BTC-USD", "ETH-USD"],
+                       symbols=["BTC-USD", "ETH-USD"], follow_trend=False,
                        clock=lambda: now + timedelta(minutes=next(ticks)))
     times = [ft.get_decision(a, v, _day(frame)).evaluated_at
              for a in ("BTC-USD", "ETH-USD") for v in ft.versions(a)]

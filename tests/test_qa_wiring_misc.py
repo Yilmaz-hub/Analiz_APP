@@ -104,7 +104,7 @@ def test_ac57_period_without_asset_data_is_reported_as_insufficient_history():
 
 # ---- AC66: değerlendirme kaydı arama ---------------------------------------------------------
 def _two_records():
-    breakout, pullback = sc.default_candidates("KRIPTO", date(2025, 1, 1), date(2026, 1, 1))
+    breakout, pullback, _trend = sc.default_candidates("KRIPTO", date(2025, 1, 1), date(2026, 1, 1))
     sc.preregister(breakout, NOW)
     sc.record_result(breakout, "KRIPTO", sc.Verdict(sc.OLCUTU_KARSILAMADI, "Getiri düşük."), NOW)
     sc.record_result(pullback, "KRIPTO", sc.Verdict(sc.YETERSIZ_VERI, "Yetersiz."), NOW)
@@ -192,7 +192,7 @@ def test_ac22_each_market_is_judged_on_its_own_data(trending_df, monkeypatch):
         assert candidate_ui.evaluate_candidates(
             symbol, trending_df, {trending_df.index[260]: "AL"}, notional=D("1000"), capital=D("10000"),
             quantity_step=D("0.001"), costs=KNOWN, now=NOW).ok
-    assert calls == [["KRIPTO"], ["KRIPTO"], ["BIST"], ["BIST"]]
+    assert calls == [["KRIPTO"]] * 3 + [["BIST"]] * 3      # üç aday (0019: trend eklendi), piyasa başına ayrı
     assert {e["market"] for e in sc.history()} == {"KRIPTO", "BIST"}
 
 

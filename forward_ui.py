@@ -17,7 +17,7 @@ from config import ForwardConfig
 STALE_AFTER = timedelta(days=2)
 RECENT = 5
 #: Ayrıntısı gösterilen en çok varlık-sürüm çifti (her çift birkaç sorgu; uzak veritabanında saniyeler tutar).
-MAX_PAIRS = 6
+MAX_PAIRS = 16    # 0019: varlık başına V1 + trend adayı izlenir
 
 
 @dataclass(frozen=True)
