@@ -1058,7 +1058,7 @@ def run_v1_strategy_backtest(df, decisions, *, initial_cash, trade_notional,
     }
 
 
-def build_v1_decisions(df, *, weights=None, include_ml=True, only_last=None):
+def build_v1_decisions(df, *, weights=None, include_ml=None, only_last=None):
     """Produce point-in-time daily decisions with every required component.
 
     Her barın kararı, ekranın o barda vereceği kararla aynıdır (R06 / QA Y3):
@@ -1074,6 +1074,9 @@ def build_v1_decisions(df, *, weights=None, include_ml=True, only_last=None):
     kararlar tam hesaptakilerle birebir aynıdır."""
     from signal_engine import _compute_bar_score, replay_stable_state
     from config import DecisionEngineConfig as cfg
+
+    if include_ml is None:      # spec 0018: varsayılan, AL/SAT kararına ML girmez
+        include_ml = cfg.V1_INCLUDE_ML
 
     lookback = cfg.STABILITY_LOOKBACK
     plain = {}

@@ -29,7 +29,7 @@ from copy import deepcopy
 from datetime import datetime
 from decimal import Decimal
 import pandas as pd
-from config import FileConfig
+from config import DecisionEngineConfig, FileConfig
 from logger import logger
 from trade_execution import (
     Bar, BookState, CostAssumptions, OpenPosition, TradeSettings, advance_daily_bar,
@@ -212,7 +212,7 @@ def run_paper_update(coin_map, source_pref="Binance", progress_callback=None, pa
                 slice_df = closed.iloc[:k + 1]
                 sig = generate_stable_signal(
                     slice_df, "1d", weights=get_weights_for_symbol(sym), data_is_closed=True,
-                    strict_components=True,
+                    strict_components=True, include_ml=DecisionEngineConfig.V1_INCLUDE_ML,
                 )
                 # Hesaplanamayan bileşen: yeni AL/SAT yazılmaz (spec 0003 AC120).
                 verdict = BILESEN_YOK if sig.unavailable_components else sig.verdict
