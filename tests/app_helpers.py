@@ -24,6 +24,8 @@ def make_app(monkeypatch, frame, *, live_price=45000.0):
     """
     monkeypatch.setattr(data_fetchers, "get_market_data",
                         lambda *a, **k: (frame, "Binance"))
+    import history     # spec 0026: uzun geçmiş de aynı taklit veriyi döndürür (ağa çıkılmaz)
+    monkeypatch.setattr(history, "_cached_long", lambda symbol: frame)
     monkeypatch.setattr(data_fetchers, "get_fear_greed_index", lambda: (50, "Neutral"))
     monkeypatch.setattr(data_fetchers, "get_live_price_for_portfolio",
                         lambda *a, **k: live_price)

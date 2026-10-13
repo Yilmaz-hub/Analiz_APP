@@ -12,8 +12,9 @@ from decimal import Decimal
 
 import portfolio_backtest as pb
 
-DATA_NOTE = ("Veri, uygulamanın günlük verisidir (son ~1000 gün); ilk ~200 gün göstergelerin oluşması için "
-             "kullanılır, bu sürede işlem yapılmaz. Test BTC/ETH'nin ilk işlem gününden başlar; verisi daha geç "
+DATA_NOTE = ("Veri: seçilen dönem (2018'den uzun geçmiş: kripto Binance, altın/hisse/kur Yahoo; ya da uygulamanın "
+             "son ~1000 günlük verisi); ilk ~200 gün göstergelerin oluşması için kullanılır, bu sürede işlem "
+             "yapılmaz. Test BTC/ETH'nin ilk işlem gününden başlar; verisi daha geç "
              "başlayan varlığın payı o güne kadar nakit sayılır, al-tut da o gün alır. Sonuç geçmiş veridir, "
              "gelecekteki kazanç olasılığı değildir.")
 
@@ -76,6 +77,7 @@ def render_portfolio_panel(coin_map: dict, source_pref: str) -> None:
     import pandas as pd
     import streamlit as st
 
+    import history
     import market_map
 
     st.caption("Seçtiğiniz varlıklar tek kasayı paylaşır: bir varlık alımdayken kalan nakit diğer "
@@ -113,6 +115,10 @@ def render_portfolio_panel(coin_map: dict, source_pref: str) -> None:
                                 help="Kapalı: altın V1 + 200 günlük ortalamayla alınıp satılır; düştüğünde boşalan nakit "
                                      "kripto fırsatlarına gider (geçmiş testte portföyde daha iyi). Açık: altın ilk gün "
                                      "alınır ve tutulur.")
+        period = st.selectbox("Test dönemi", list(history.PERIOD_TEXT), format_func=history.PERIOD_TEXT.get,
+                              key="pf_period",
+                              help="Uzun geçmişte ilk çalıştırma varlık başına 1–2 dakika sürebilir; kararlar "
+                                   "saklanır, sonraki çalıştırmalar hızlıdır.")
         st.caption("Ağırlıklar toplamı en fazla %100 olmalıdır. Kalan pay boşta nakit olarak kasada kalır.")
         submitted = st.form_submit_button("📦 Portföy testini başlat", disabled=not chosen or bool(unsupported))
 
@@ -128,7 +134,7 @@ def render_portfolio_panel(coin_map: dict, source_pref: str) -> None:
         return
 
     result, weights_by_symbol, methods = _run(chosen, weights, coin_map, source_pref, capital, commission, st,
-                                              channel=channel, gold_hold=gold_hold)
+                                              channel=channel, gold_hold=gold_hold, period=period)
     if result is None:
         return
     view = build_portfolio_view(result, weights_by_symbol, "USD", methods=methods)
@@ -157,9 +163,10 @@ def to_pool_frame(frame, fx):
     return result
 
 
-def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channel=True, gold_hold=False):
+def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channel=True, gold_hold=False,
+         period="RECENT"):
+    import history
     import strategy_candidates as sc
-    from data_fetchers import get_market_data
     from technical_analysis import build_v1_decisions
     from trade_execution import CostAssumptions
     from trade_settings import known_quantity_step
@@ -167,19 +174,21 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channe
     import market_map
 
     frames, decisions, steps, weights_by_symbol, missing, v1_days, methods = {}, {}, {}, {}, [], {}, {}
-    ready, reference, crypto = {}, [], []
+    ready, reference, crypto, notes = {}, [], [], []
     fx = None
     progress = st.progress(0.0)
     for n, name in enumerate(chosen):
         symbol = coin_map[name]
-        frame, _ = get_market_data(source_pref, symbol, "1d")
-        info = market_map.market_of(symbol)
+        loaded = history.load_history(source_pref, symbol, period)
+        frame, info = loaded.frame, market_map.market_of(symbol)
+        if loaded.note:
+            notes.append(loaded.note)
         if frame is None or len(frame) < 260 or info is None:
             missing.append(name)
             continue
         if pb.POOL_CURRENCIES.get(info[1]) == "TRY":
             if fx is None:
-                fx, _ = get_market_data(source_pref, FX_SYMBOL, "1d")
+                fx = history.load_history(source_pref, FX_SYMBOL, period).frame
             if fx is None or len(fx) == 0:
                 missing.append(f"{name} (USD/TRY kuru alınamadı)")
                 continue
@@ -195,7 +204,11 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channe
             decisions[name] = {}                    # al-tut: karar yok, V1 hesaplanmaz
             ready[name] = frame.index[0]            # ısınma gerekmez: ilk mumda alınabilir
         else:
-            v1 = build_v1_decisions(frame)
+            if period == history.LONG:
+                v1 = history.cached_v1_decisions(symbol, frame, progress=getattr(st, "caption", None),
+                                                  variant="USD" if pb.POOL_CURRENCIES.get(info[1]) == "TRY" else "")
+            else:
+                v1 = build_v1_decisions(frame)
             v1_days[name] = list(v1)
             first = pb.first_tradable_day(frame, v1_days[name])
             if first is None:
@@ -221,6 +234,8 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channe
             steps[name] = step
         progress.progress((n + 1) / len(chosen))
     progress.empty()
+    for note in notes:
+        st.warning(note)
     if missing:
         st.warning("Verisi yetersiz ya da piyasası tanınmayan varlıklar teste alınmadı: " + ", ".join(missing))
     if not frames:
