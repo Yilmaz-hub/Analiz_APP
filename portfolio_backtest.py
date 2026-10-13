@@ -115,6 +115,15 @@ def to_usd(frame, fx_frame):
     return out
 
 
+def portfolio_start(ready: Mapping, reference) -> tuple:
+    """Spec 0025 R01: test başlangıcı referans varlıkların (BTC/ETH; yoksa kriptolar; yoksa hepsi) en erken işlem
+    günüdür. Döner: (başlangıç, {varlık: ilk işlem günü}) — ikinci sözlük başlangıçtan sonra hazır olan, payı o
+    güne kadar nakit sayılan varlıklardır."""
+    chosen = [ready[name] for name in reference if name in ready] or list(ready.values())
+    start = min(chosen)
+    return start, {name: day for name, day in ready.items() if day > start}
+
+
 def first_tradable_day(frame, decided_days):
     """İlk kararın bir sonraki mumu: strateji en erken bu açılışta alım yapabilir (ısınma dönemi hariç)."""
     if not decided_days:
@@ -126,11 +135,12 @@ def first_tradable_day(frame, decided_days):
 
 def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capital: Decimal,
                   costs: CostAssumptions, quantity_steps: Mapping | None = None, start=None,
-                  hold=()) -> PortfolioResult:
+                  hold=(), available_from: Mapping | None = None) -> PortfolioResult:
     """`frames`: sembol → günlük mum tablosu (ATR dahil); `decisions`: sembol → {gün: AL/SAT/BEKLE};
     `weights`: sembol → yüzde. `start` verilirse sermaye eğrisi ve al-tut bu günden başlar (ısınma dönemi
     karşılaştırmaya girmez; spec 0019 QA). `hold`: stopsuz al-tut yöntemiyle tutulan semboller (spec 0021);
-    bunlar için `decisions` gerekmez. Döner: `PortfolioResult`."""
+    bunlar için `decisions` gerekmez. `available_from`: sembol → varlığın işlem yapabildiği ilk gün (spec 0025);
+    o güne kadar payı nakittir, tut alımı ve al-tut karşılaştırması o gün yapılır. Döner: `PortfolioResult`."""
     capital = Decimal(capital)
     quantity_steps = dict(quantity_steps or {})
     result = PortfolioResult()
@@ -201,7 +211,7 @@ def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capi
         equity_prev = cash + sum((value_of(s) for s in symbols), _ZERO)
         # 3a) tut yöntemi: henüz alınmadıysa ağırlığı kadar alınır (karar ve stop yok)
         for s in active:
-            if s not in hold or s in held:
+            if s not in hold or s in held or (available_from and t < available_from.get(s, t)):
                 continue
             target = equity_prev * Decimal(weights[s]) / 100
             notional = min(target, cash / (1 + rate))
@@ -249,12 +259,13 @@ def run_portfolio(frames: Mapping, decisions: Mapping, weights: Mapping, *, capi
     for s in held:                                              # tut: dönem sonu gerçekleşmemiş net K/Z
         result.contribution[s] += value_of(s) - paid[s]
     result.cash = cash
-    result.hold_equity = _hold(frames, weights, symbols, steps, capital, costs, days)
+    result.hold_equity = _hold(frames, weights, symbols, steps, capital, costs, days, available_from or {})
     return result
 
 
-def _hold(frames, weights, symbols, steps, capital, costs, days):
-    """Al-tut: her varlık kendi ilk gününde (başlangıç sermayesi × ağırlık) alınır, tutulur."""
+def _hold(frames, weights, symbols, steps, capital, costs, days, available_from):
+    """Al-tut: her varlık kendi ilk işlem gününde (`available_from`, yoksa ilk mumu) başlangıç sermayesi × ağırlık
+    kadar alınır, tutulur; o güne kadar payı nakittir (spec 0025)."""
     from trade_execution import commission_fee, fill_price
 
     cash, held, last = capital, {}, {}
@@ -262,7 +273,7 @@ def _hold(frames, weights, symbols, steps, capital, costs, days):
     for t in days:
         for s in symbols:
             frame = frames[s]
-            if t not in frame.index:
+            if t not in frame.index or (s not in held and t < available_from.get(s, t)):
                 continue
             if s not in held:
                 price = fill_price(Decimal(str(frame["Open"].loc[t])), "BUY", costs) or Decimal(str(frame["Open"].loc[t]))
