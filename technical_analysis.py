@@ -979,6 +979,22 @@ def run_strategy_backtest(df, initial_balance=10000, timeframe="1d", progress_ca
     }
 
 
+def _affordable(settings, state, verdict):
+    """Spec 0025 R03: nakit işlem tutarına (komisyon dahil) yetmiyorsa ama tutarın en az yarısını karşılıyorsa
+    alım eldeki nakitle yapılır (portföy testindeki kuralla aynı); yarısından azsa tutar değişmez ve alım
+    "nakit yetersiz" olarak engellenir. Böylece "tüm kasa" ayarı ilk zararlı işlemden sonra durmaz."""
+    if state.position is not None or state.cooldown > 0 or verdict != "AL":
+        return settings
+    from dataclasses import replace
+
+    commission = settings.costs.commission_pct
+    rate = Decimal("0") if commission is None else Decimal(commission) / 100
+    available = state.cash / (1 + rate)
+    if available >= settings.notional or available < settings.notional / 2:
+        return settings
+    return replace(settings, notional=available)
+
+
 def run_v1_strategy_backtest(df, decisions, *, initial_cash, trade_notional,
                              quantity_step=None, costs=None):
     """Daily spot V1: next-open fills, fixed 2.5 ATR stop, no target/trailing.
@@ -1013,7 +1029,8 @@ def run_v1_strategy_backtest(df, decisions, *, initial_cash, trade_notional,
             Decimal(str(row["Low"])), Decimal(str(row["Close"])),
         )
         atr = Decimal(str(decision_row["ATR"]))
-        step = advance_daily_bar(state, bar, verdict, atr if atr.is_finite() else None, settings)
+        step = advance_daily_bar(state, bar, verdict, atr if atr.is_finite() else None,
+                                 _affordable(settings, state, verdict))
         if step.blocked:
             blocked[step.blocked] = blocked.get(step.blocked, 0) + 1
         for item in step.trades:

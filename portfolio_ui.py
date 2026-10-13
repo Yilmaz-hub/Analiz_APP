@@ -13,7 +13,8 @@ from decimal import Decimal
 import portfolio_backtest as pb
 
 DATA_NOTE = ("Veri, uygulamanın günlük verisidir (son ~1000 gün); ilk ~200 gün göstergelerin oluşması için "
-             "kullanılır, strateji ve al-tut ilk karardan sonraki açılışta birlikte başlar. Sonuç geçmiş veridir, "
+             "kullanılır, bu sürede işlem yapılmaz. Test BTC/ETH'nin ilk işlem gününden başlar; verisi daha geç "
+             "başlayan varlığın payı o güne kadar nakit sayılır, al-tut da o gün alır. Sonuç geçmiş veridir, "
              "gelecekteki kazanç olasılığı değildir.")
 
 
@@ -166,6 +167,7 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channe
     import market_map
 
     frames, decisions, steps, weights_by_symbol, missing, v1_days, methods = {}, {}, {}, {}, [], {}, {}
+    ready, reference, crypto = {}, [], []
     fx = None
     progress = st.progress(0.0)
     for n, name in enumerate(chosen):
@@ -191,11 +193,24 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channe
         methods[name] = method
         if method == sc.TUT:
             decisions[name] = {}                    # al-tut: karar yok, V1 hesaplanmaz
+            ready[name] = frame.index[0]            # ısınma gerekmez: ilk mumda alınabilir
         else:
             v1 = build_v1_decisions(frame)
             v1_days[name] = list(v1)
+            first = pb.first_tradable_day(frame, v1_days[name])
+            if first is None:
+                missing.append(f"{name} (gösterge oluşmadı)")
+                continue
             candidate = sc.channel_candidate(info[0]) if method == "KANAL" else sc.trend_candidate(info[0])
-            decisions[name] = sc.candidate_decisions(frame, v1, candidate, None)
+            # Spec 0025 R02: ısınma döneminde karar yok (V1'in ilk karar gününden önce işlem yapılmaz; 0023 ile aynı).
+            decisions[name] = {day: verdict for day, verdict in sc.candidate_decisions(frame, v1, candidate, None).items()
+                               if day >= min(v1)}
+            ready[name] = first
+        if info[0] == "KRIPTO":
+            crypto.append(name)
+            parts = market_map.crypto_parts(symbol)
+            if parts is not None and parts[0] in ("BTC", "ETH"):
+                reference.append(name)
         frames[name] = frame
         weights_by_symbol[name] = weights[name]
         try:
@@ -211,12 +226,14 @@ def _run(chosen, weights, coin_map, source_pref, capital, commission, st, channe
     if not frames:
         st.warning("Test edilecek varlık kalmadı.")
         return None, {}, {}
-    starts = [day for day in (pb.first_tradable_day(frames[n], v1_days[n]) for n in v1_days) if day is not None]
-    if not starts:                                  # yalnız al-tut varlıkları: ısınma yine 200 gün sayılır
-        starts = [frames[n].index[min(200, len(frames[n]) - 1)] for n in frames]
+    start, late = pb.portfolio_start(ready, reference or crypto)
+    for name, day in sorted(late.items(), key=lambda item: item[1]):
+        st.warning(f"{name}: {day.date()} öncesinde verisi ya da göstergesi olmadığı için işlem yapılamadı; "
+                   f"o tarihe kadar payı (%{weights_by_symbol[name]:g}) nakit sayıldı.")
     result = pb.run_portfolio(frames, decisions, weights_by_symbol, capital=capital,
                               costs=CostAssumptions(None, None, commission), quantity_steps=steps,
-                              start=min(starts), hold={n for n, m in methods.items() if m == sc.TUT})
+                              start=start, hold={n for n, m in methods.items() if m == sc.TUT},
+                              available_from=ready)
     return result, weights_by_symbol, methods
 
 
