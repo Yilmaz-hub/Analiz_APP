@@ -24,6 +24,10 @@ ilk çalıştırma kabul edilebilir sürede biter, sonrakiler hızlıdır; grafi
   hesaplanır (`build_v1_decisions(only_last=N)`, tam hesapla birebir aynı). Son mum saklanmaz (sağlayıcıda
   kapanmamış olabilir). Verinin ilk günü değişirse tam hesaplanır. Depo okunamaz/yazılamazsa önbelleksiz hesaplanır.
   İlk hesapta "N günün kararı hesaplanıyor (ilk seferde ~1–2 dakika)" notu çıkar.
+- **R05 — Önceden doldurma:** Zamanlanmış GitHub işi (forward-tracking.yml, `warm-cache` işi; sanal takipten sonra,
+  120 dk sınır, başarısızlığı takibi etkilemez) varlık listesindeki zamanlamalı her varlık için tek varlık backtest'i
+  (ayarlı ağırlık, yerel para) ve portföy testi (varsayılan ağırlık, TL varlıkta dolara çevrilmiş) karar kümelerini
+  `python -m history` ile doldurur; ekranda ilk çalıştırma beklemesi olmaz. Al-tut yöntemli varlık atlanır.
 - **R04 — 0025 kuralları uzun dönemde de geçerli:** başlangıç BTC/ETH'nin ilk işlem günü; geç başlayan varlığın payı
   nakit + uyarı; ısınmada işlem yok.
 
@@ -37,12 +41,17 @@ ilk çalıştırma kabul edilebilir sürede biter, sonrakiler hızlıdır; grafi
   `app.py` (📊 Backtest bloğu), `portfolio_ui.py` (`_run`, form).
 - Ölçüm (2026-10-13): `build_v1_decisions` 1000 gün 15 sn, 3200 gün 84 sn (varlık başına) → önbellek gerekli.
   Veri: BTC 3208 gün (2018-01-01'den), GC=F/hisse/kur ~2460 gün (2017-01'den).
+- Uçtan uca (canlı veri, kullanıcının ağırlıkları BTC/ETH 20, SOL/XRP 10, AVAX 2, altın 20, HBAR/LINK/ADA 5, RENDER 3;
+  "2018'den"): dönem 2018-07-20 → 2026-10-13, strateji yıllık %44,4 (toplam %1961, düşüş −%35,8), al-tut yıllık
+  %23,7 (toplam %475, düşüş −%80,7); geç başlayanlar (ADA, XRP, LINK, HBAR, SOL, AVAX, RENDER) için uyarı.
+  Süre: önbellek boşken 837 sn, doluyken 33 sn → R05.
 
 ## Acceptance Criteria
 - [ ] **AC01 — Binance sayfalama (R01):** 2018-01-01'den 1000'lik sayfalar birleşir; ilk adres hata verirse sıradaki denenir; kripto olmayanda None.
 - [ ] **AC02 — Dönem ve geri dönüş (R01/R02):** "2018'den" uzun veriyi, "son ~2 yıl" uygulama verisini kullanır; uzun veri yoksa uygulama verisi + not.
 - [ ] **AC03 — Gram altın (R01):** uzun geçmişte gram altın = ons × kur ÷ 31,1035; ons GC=F; hisse kendi kodu.
 - [ ] **AC04 — Önbellek (R03):** ikinci çalıştırmada yalnız yeni günler hesaplanır, sonuç tam hesapla aynı; farklı ağırlık ayrı kayıt; ilk gün değişince tam hesap; depo hatasında önbelleksiz.
+- [ ] **AC06 — Önceden doldurma (R05):** her zamanlamalı varlık için iki karar kümesi (TL varlıkta biri dolara çevrilmiş); al-tut ve uzun verisi olmayan atlanır.
 - [ ] **AC05 — Ekran (R02):** günlük backtest'te dönem seçimi (varsayılan 2018'den) kullanılan veriyi ve aralığını belirler.
 
 ## Definition of Done

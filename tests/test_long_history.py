@@ -136,3 +136,18 @@ def test_ac05_screen_backtest_uses_the_selected_period(store, monkeypatch, proce
     assert not at.exception
     shown = [c.value for c in at.caption if c.value.startswith("Test verisi:")]
     assert shown and f"({expected_rows} gün;" in shown[0]
+
+
+def test_ac06_warm_fills_backtest_and_portfolio_caches_and_skips_held_assets(monkeypatch, processed_df):
+    """AC06 — Önceden doldurma: zamanlamalı her varlık için tek varlık (ayarlı ağırlık) ve portföy (varsayılan ağırlık;
+    TL varlıkta dolara çevrilmiş) karar kümeleri hesaplanır; al-tut yöntemli hisse ve uzun verisi olmayan atlanır."""
+    import portfolio_ui
+
+    calls = []
+    monkeypatch.setattr(history, "_cached_long", lambda symbol: None if symbol == "SOL-USD" else processed_df)
+    monkeypatch.setattr(history, "cached_v1_decisions",
+                        lambda symbol, frame, weights=None, variant="", **k: calls.append((symbol, variant)) or {})
+    monkeypatch.setattr(portfolio_ui, "to_pool_frame", lambda frame, fx: frame)
+    done = history.warm(["BTC-USD", "AAPL", "GRAM_TRY", "SOL-USD"], log=lambda *_: None)
+    assert done == {"BTC-USD": 2, "GRAM_TRY": 2}
+    assert sorted(calls) == [("BTC-USD", ""), ("BTC-USD", ""), ("GRAM_TRY", ""), ("GRAM_TRY", "USD")]

@@ -212,3 +212,58 @@ def cached_v1_decisions(symbol: str, frame, *, weights=None, include_ml=None, pr
         except StorageAccessError:
             pass
     return {ts: merged[_day(ts)] for ts in frame.index if _day(ts) in merged}
+
+
+def warm(symbols=None, *, log=print) -> dict:
+    """Spec 0026 R05: uzun geçmiş karar önbelleğini önceden doldurur (zamanlanmış GitHub işi; ekranda ilk çalıştırma
+    beklemesi olmasın). Her zamanlamalı varlık için hem tek varlık backtest'inin (varlığın ayarlı ağırlıkları, yerel
+    para) hem portföy testinin (varsayılan ağırlık, TL varlıkta dolara çevrilmiş veri) kararları hesaplanır; al-tut
+    yöntemli varlık atlanır. Döner: sembol → hesaplanan kullanım sayısı."""
+    import time
+
+    import strategy_candidates as sc
+    from weight_profiles import get_weights_for_symbol
+
+    if symbols is None:
+        from assets import load_assets
+
+        symbols = list(load_assets().values())
+    done, fx = {}, None
+    for symbol in symbols:
+        if sc.asset_method(symbol) in (None, sc.TUT):
+            continue
+        loaded = load_history("Binance", symbol, LONG)
+        if loaded.frame is None or loaded.note:
+            log(f"{symbol}: uzun geçmiş alınamadı, atlandı.")
+            continue
+        started = time.perf_counter()
+        cached_v1_decisions(symbol, loaded.frame, weights=get_weights_for_symbol(symbol))
+        count = 1
+        info = market_map.market_of(symbol)
+        import portfolio_backtest as pb
+
+        if pb.POOL_CURRENCIES.get(info[1]) == "TRY":
+            import portfolio_ui
+
+            fx = fx if fx is not None else load_history("Binance", "USDTRY=X", LONG).frame
+            pooled = None if fx is None else portfolio_ui.to_pool_frame(loaded.frame, fx)
+            if pooled is not None:
+                cached_v1_decisions(symbol, pooled, variant="USD")
+                count += 1
+        else:
+            cached_v1_decisions(symbol, loaded.frame)
+            count += 1
+        done[symbol] = count
+        log(f"{symbol}: {count} karar kümesi güncel ({time.perf_counter() - started:.0f} sn).")
+    return done
+
+
+if __name__ == "__main__":
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(description="Uzun geçmiş karar önbelleğini doldur (spec 0026)")
+    parser.add_argument("--symbols", help="Virgülle ayrılmış semboller (varsayılan: varlık listesi).")
+    args = parser.parse_args()
+    warm(args.symbols.split(",") if args.symbols else None)
+    sys.exit(0)
