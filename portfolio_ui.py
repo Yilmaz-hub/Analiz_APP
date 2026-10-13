@@ -13,7 +13,8 @@ from decimal import Decimal
 import portfolio_backtest as pb
 
 DATA_NOTE = ("Veri: seçilen dönem (2018'den uzun geçmiş: kripto Binance, altın/hisse/kur Yahoo; ya da uygulamanın "
-             "son ~1000 günlük verisi); ilk ~200 gün göstergelerin oluşması için kullanılır, bu sürede işlem yapılmaz. Test BTC/ETH'nin ilk işlem gününden başlar; verisi daha geç "
+             "son ~1000 günlük verisi); ilk ~200 gün göstergelerin oluşması için kullanılır, bu sürede işlem "
+             "yapılmaz. Test BTC/ETH'nin ilk işlem gününden başlar; verisi daha geç "
              "başlayan varlığın payı o güne kadar nakit sayılır, al-tut da o gün alır. Sonuç geçmiş veridir, "
              "gelecekteki kazanç olasılığı değildir.")
 
