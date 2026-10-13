@@ -678,18 +678,37 @@ if is_chart_renderable(df_view):
             import signal_rules
             bt_method = signal_rules.backtest_method(symbol) if view_tf == "1d" else None
             st.info(signal_rules.backtest_label(bt_method))
+            import history
+            bt_period = st.selectbox("Test dönemi", list(history.PERIOD_TEXT), format_func=history.PERIOD_TEXT.get,
+                                     key="bt_period", help="Uzun geçmişte ilk çalıştırma 1–2 dakika sürebilir; "
+                                                           "kararlar saklanır, sonraki çalıştırmalar hızlıdır.") \
+                if view_tf == "1d" else history.RECENT
             if st.button("🚀 Backtest Başlat", disabled=view_tf == "1d" and not trade_parsed.ok):
                 with st.spinner("Backtest çalışıyor..."):
                     import plotly.graph_objects as go
                     tuned_weights = get_weights_for_symbol(symbol) if view_tf == "1d" else None
 
                     bt_progress = st.progress(0.0)
+                    bt_frame = df_view
                     if view_tf == "1d":
-                        v1_decisions = build_v1_decisions(df_view, weights=tuned_weights,
-                                                          include_ml=DecisionEngineConfig.V1_INCLUDE_ML)
-                        bt_decisions, bt_method = signal_rules.rule_decisions(symbol, df_view, v1_decisions)
+                        # Spec 0026: uzun geçmiş (kripto 2018'den) ve depoda saklanan V1 kararları; grafik 1000 günde kalır.
+                        bt_loaded = history.load_history(src_pref, symbol, bt_period)
+                        if bt_loaded.frame is not None:
+                            bt_frame = bt_loaded.frame
+                        if bt_loaded.note:
+                            st.warning(bt_loaded.note)
+                        if bt_period == history.LONG:
+                            v1_decisions = history.cached_v1_decisions(symbol, bt_frame, weights=tuned_weights,
+                                                                       progress=st.caption)
+                        else:
+                            v1_decisions = build_v1_decisions(bt_frame, weights=tuned_weights,
+                                                              include_ml=DecisionEngineConfig.V1_INCLUDE_ML)
+                        if len(bt_frame):
+                            st.caption(f"Test verisi: {bt_frame.index[0].date()} – {bt_frame.index[-1].date()} "
+                                       f"({len(bt_frame)} gün; ilk ~200 gün göstergeler için).")
+                        bt_decisions, bt_method = signal_rules.rule_decisions(symbol, bt_frame, v1_decisions)
                         bt_results = None if bt_method == "TUT" else run_v1_strategy_backtest(
-                            df_view, bt_decisions, initial_cash=trade_parsed.capital,
+                            bt_frame, bt_decisions, initial_cash=trade_parsed.capital,
                             trade_notional=trade_parsed.settings.notional,
                             quantity_step=trade_parsed.settings.quantity_step,
                             costs=trade_parsed.settings.costs,
@@ -697,7 +716,7 @@ if is_chart_renderable(df_view):
                     else:
                         st.warning("Bu zaman aralığı V1 kapsamı dışında; sonuç araştırma amaçlıdır.")
                         bt_results = run_strategy_backtest(
-                            df_view, initial_balance=10000, timeframe=view_tf,
+                            bt_frame, initial_balance=10000, timeframe=view_tf,
                             weights=tuned_weights,
                             progress_callback=lambda p: bt_progress.progress(min(1.0, p)),
                         )
@@ -706,7 +725,7 @@ if is_chart_renderable(df_view):
                     if bt_method == "TUT":
                         import performance_ui as _perf
                         st.session_state.pop("perf_report_source", None)
-                        _perf.render_hold_only(_perf.hold_only(df_view, trade_parsed.capital, v1_decisions),
+                        _perf.render_hold_only(_perf.hold_only(bt_frame, trade_parsed.capital, v1_decisions),
                                                paper_currency)
                     elif bt_results is None:
                         st.warning("Yeterli işlem oluşmadı. Daha uzun veri gerekebilir.")
@@ -720,7 +739,7 @@ if is_chart_renderable(df_view):
                                 st.warning(describe_blocked(reason, count, trade_parsed.settings, paper_currency))
                         if tuned_weights and view_tf != "1d":
                             st.caption("🎯 Bu varlık sınıfı için ayarlanmış ağırlıklar kullanılıyor.")
-                            bt_default = run_strategy_backtest(df_view, initial_balance=10000, timeframe=view_tf, weights=None)
+                            bt_default = run_strategy_backtest(bt_frame, initial_balance=10000, timeframe=view_tf, weights=None)
                             if bt_default is not None:
                                 comp_col1, comp_col2 = st.columns(2)
                                 with comp_col1:
@@ -743,9 +762,9 @@ if is_chart_renderable(df_view):
                         if view_tf == "1d":
                             import performance_ui as _perf
                             _perf.render_hold_comparison(_perf.hold_comparison(
-                                df_view, bt_results, trade_parsed.capital, trade_parsed.settings.notional,
+                                bt_frame, bt_results, trade_parsed.capital, trade_parsed.settings.notional,
                                 bt_decisions))
-                            _perf.render_diagnostics(df_view, bt_results, bt_decisions)
+                            _perf.render_diagnostics(bt_frame, bt_results, bt_decisions)
                         st.divider()
                         col_det1, col_det2 = st.columns(2)
                         col_det1.write(f"✅ Kazanan İşlem: {bt_results['winning_trades']}")
@@ -765,7 +784,7 @@ if is_chart_renderable(df_view):
                             st.dataframe(trades_df, width="stretch")
                         if view_tf == "1d":
                             st.session_state["perf_report_source"] = {
-                                "symbol": symbol, "asset": sel_c, "backtest": bt_results, "frame": df_view,
+                                "symbol": symbol, "asset": sel_c, "backtest": bt_results, "frame": bt_frame,
                                 "decisions": bt_decisions, "v1_decisions": v1_decisions,
                                 "notional": trade_parsed.settings.notional,
                                 "quantity_step": trade_parsed.settings.quantity_step,

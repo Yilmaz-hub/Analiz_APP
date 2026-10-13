@@ -89,3 +89,18 @@ def store(tmp_path, monkeypatch):
 def legacy_dir(store, tmp_path):
     """Eski kayıt dosyalarının konacağı klasör."""
     return tmp_path / "legacy"
+
+
+@pytest.fixture(autouse=True)
+def offline_history(monkeypatch):
+    """Spec 0026: testler ağa çıkmaz — uzun geçmiş, (taklit edilmiş olabilen) uygulama verisini döndürür.
+    Uzun geçmişin kendisini sınayan testler `history.fetch_binance_daily` / `_long_raw`'ı doğrudan çağırır."""
+    import history
+
+    def short(symbol):
+        import data_fetchers
+
+        frame, _ = data_fetchers.get_market_data("Binance", symbol, "1d")
+        return frame
+
+    monkeypatch.setattr(history, "_cached_long", short)
