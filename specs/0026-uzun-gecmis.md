@@ -20,12 +20,14 @@ ilk çalıştırma kabul edilebilir sürede biter, sonrakiler hızlıdır; grafi
   (varsayılan) / "Son ~2 yıl (uygulamanın günlük verisi)". Backtest kullanılan veri aralığını yazar.
   Grafik, sinyal, sanal takip ve diğer paneller 1000 günlük veride kalır.
 - **R03 — Karar önbelleği:** Uzun dönemde V1 kararları depoda saklanır (anahtar: sembol + veri türü [dolara
-  çevrilmiş] + parmak izi [ağırlıklar, ML, kararlılık penceresi]); sonraki çalıştırmalarda yalnız yeni günler
-  hesaplanır (`build_v1_decisions(only_last=N)`, tam hesapla birebir aynı). Son mum saklanmaz (sağlayıcıda
-  kapanmamış olabilir). Verinin ilk günü değişirse tam hesaplanır. Depo okunamaz/yazılamazsa önbelleksiz hesaplanır.
-  İlk hesapta "N günün kararı hesaplanıyor (ilk seferde ~1–2 dakika)" notu çıkar.
-- **R05 — Önceden doldurma:** Zamanlanmış GitHub işi (forward-tracking.yml, `warm-cache` işi; sanal takipten sonra,
-  120 dk sınır, başarısızlığı takibi etkilemez) varlık listesindeki zamanlamalı her varlık için tek varlık backtest'i
+  çevrilmiş] + parmak izi [karar kuralının tamamı — `DecisionEngineConfig`'in tüm büyük harfli alanları, sanal takip
+  sürümüyle aynı yöntem —, ağırlıklar, ML, elle artırılan `CODE_VERSION`]); sonraki çalışmalarda yalnız yeni günler
+  hesaplanır (`build_v1_decisions(only_last=N)`, tam hesapla birebir aynı). Saklanan son güne kadarki fiyat verisinin
+  özeti de saklanır; ilk gün kayarsa ya da sağlayıcı geçmişi düzeltirse tam hesaplanır. Son mum saklanmaz; Binance'in
+  kapanmamış mumu uzun veriye girmez. Uzun veri alınamazsa sonuç önbelleğe yazılmaz. Depo okunamaz/yazılamazsa
+  önbelleksiz hesaplanır. İlk hesapta "N günün kararı hesaplanıyor (ilk seferde ~1–2 dakika)" notu çıkar.
+- **R05 — Önceden doldurma:** Ayrı GitHub iş akışı (`warm-cache.yml`; "Forward tracking" bitince `workflow_run` ile,
+  ayrı eşzamanlılık grubu, 120 dk sınır; başarısızlığı ve süresi takibi etkilemez) varlık listesindeki zamanlamalı her varlık için tek varlık backtest'i
   (ayarlı ağırlık, yerel para) ve portföy testi (varsayılan ağırlık, TL varlıkta dolara çevrilmiş) karar kümelerini
   `python -m history` ile doldurur; ekranda ilk çalıştırma beklemesi olmaz. Al-tut yöntemli varlık atlanır.
 - **R04 — 0025 kuralları uzun dönemde de geçerli:** başlangıç BTC/ETH'nin ilk işlem günü; geç başlayan varlığın payı

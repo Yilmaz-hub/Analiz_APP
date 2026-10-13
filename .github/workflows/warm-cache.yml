@@ -1,0 +1,36 @@
+name: Warm long-history cache
+
+# Spec 0026: uzun geçmiş (2018'den) V1 karar önbelleği. Sanal takip bittikten sonra ayrı iş akışında çalışır (ayrı
+# eşzamanlılık grubu: uzun ilk doldurma sonraki takibi bekletmez). İlk doldurma ~30 dk, sonra yalnız yeni günler.
+on:
+  workflow_run:
+    workflows: ["Forward tracking"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warm-cache
+  cancel-in-progress: false
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Warm long-history decision cache
+        env:
+          ANALIZ_APP_DB_URL: ${{ secrets.ANALIZ_APP_DB_URL }}
+        run: python -m history

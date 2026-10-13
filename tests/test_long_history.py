@@ -151,3 +151,46 @@ def test_ac06_warm_fills_backtest_and_portfolio_caches_and_skips_held_assets(mon
     done = history.warm(["BTC-USD", "AAPL", "GRAM_TRY", "SOL-USD"], log=lambda *_: None)
     assert done == {"BTC-USD": 2, "GRAM_TRY": 2}
     assert sorted(calls) == [("BTC-USD", ""), ("BTC-USD", ""), ("GRAM_TRY", ""), ("GRAM_TRY", "USD")]
+
+
+def test_ac04_rule_change_or_revised_history_forces_a_full_recomputation(monkeypatch, processed_df):
+    """AC04 — Karar kuralı ayarı değişince ya da sağlayıcı geçmiş fiyatları düzeltince (ilk gün aynı) saklanan kararlar
+    kullanılmaz; sonuç taze hesapla aynıdır (0026 QA)."""
+    import technical_analysis
+    from config import DecisionEngineConfig
+
+    real = technical_analysis.build_v1_decisions
+    calls = []
+    monkeypatch.setattr(technical_analysis, "build_v1_decisions",
+                        lambda df, **k: calls.append(k.get("only_last")) or real(df, **k))
+    history.cached_v1_decisions("ETH-USD", processed_df)
+    history.cached_v1_decisions("ETH-USD", processed_df)
+    assert calls == [None, 1]                                  # önbellek dolu: yalnız son mum
+    monkeypatch.setattr(DecisionEngineConfig, "TREND_WEIGHT", DecisionEngineConfig.TREND_WEIGHT + 0.1)
+    history.cached_v1_decisions("ETH-USD", processed_df)
+    assert calls[-1] is None                                   # kural ayarı değişti: tam hesap
+    monkeypatch.undo()
+    monkeypatch.setattr(technical_analysis, "build_v1_decisions",
+                        lambda df, **k: calls.append(k.get("only_last")) or real(df, **k))
+    history.cached_v1_decisions("ETH-USD", processed_df)
+    revised = processed_df.copy()
+    revised.iloc[:100, revised.columns.get_loc("Close")] *= 0.8   # geçmiş düzeltildi, ilk gün aynı
+    result = history.cached_v1_decisions("ETH-USD", revised)
+    assert calls[-1] is None and result == real(revised, include_ml=False)
+
+
+def test_ac02_failed_long_fetch_is_not_cached_and_open_candle_is_dropped(monkeypatch):
+    """AC02 — Uzun veri alınamazsa sonuç önbelleğe yazılmaz (sağlayıcı dönünce hemen alınır); Binance'in kapanmamış
+    son mumu teste girmez."""
+    from conftest import make_ohlcv
+
+    raw = make_ohlcv(seed=4, segments=[(300, 0.002)])
+    raw.attrs["provider_open"] = {raw.index[-1]}
+    if hasattr(history._fetch_long, "clear"):
+        history._fetch_long.clear()
+    monkeypatch.setattr(history, "_long_raw", lambda symbol: None)
+    with pytest.raises(history._NoLongData):
+        history._fetch_long("QA-USD")
+    monkeypatch.setattr(history, "_long_raw", lambda symbol: raw)
+    frame = history._fetch_long("QA-USD")
+    assert len(frame) == 299 and frame.index[-1] == raw.index[-2]

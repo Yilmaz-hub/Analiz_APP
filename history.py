@@ -24,6 +24,8 @@ LONG = "LONG"            # dönem seçimi: 2018'den
 RECENT = "RECENT"        # dönem seçimi: uygulamanın günlük verisi (~1000 gün)
 PERIOD_TEXT = {LONG: "2018'den (uzun geçmiş)", RECENT: "Son ~2 yıl (uygulamanın günlük verisi)"}
 _CACHE_PREFIX = "v1_cache:"
+#: Karar hesaplayan kod (skorlama, kararlılık makinesi) değişince elle artırılır; eski önbellek kullanılmaz.
+CODE_VERSION = 1
 _KLINES_URLS = ("https://data-api.binance.vision/api/v3/klines", "https://api.binance.com/api/v3/klines")
 _DAY_MS = 86_400_000
 
@@ -87,7 +89,8 @@ def fetch_yahoo_daily(ticker: str, start: date = YAHOO_LONG_START):
     try:
         import yfinance as yf
 
-        frame = yf.download(ticker, start=start.isoformat(), interval="1d", progress=False, auto_adjust=True)
+        frame = yf.download(ticker, start=start.isoformat(), interval="1d", progress=False, auto_adjust=True,
+                            timeout=30)
     except Exception as exc:  # sağlayıcı hatası: 1000 günlük veriye dönüş
         logger.debug(f"Yahoo uzun geçmiş alınamadı ({ticker}): {exc}")
         return None
@@ -140,30 +143,60 @@ def load_history(source_pref: str, symbol: str, period: str = LONG) -> History:
     return History(frame, source, None)
 
 
+class _NoLongData(Exception):
+    """Uzun veri alınamadı; istisna olduğu için Streamlit önbelleğine yazılmaz (sağlayıcı geri gelince yeniden denenir)."""
+
+
 def _long_processed(symbol: str):
     from data_fetchers import process_data
 
     raw = _long_raw(symbol)
+    if raw is not None:
+        # Sağlayıcıda henüz kapanmamış mum (Binance) teste girmez: dönem sonu anlık fiyata bağlı olmasın.
+        raw = raw[~raw.index.isin(raw.attrs.get("provider_open", set()))]
     if raw is None or len(raw) < 260:
-        return None
+        raise _NoLongData(symbol)
     frame, _ = process_data(raw, "Uzun geçmiş")
+    if frame is None:
+        raise _NoLongData(symbol)
     return frame
 
 
 try:  # Streamlit varsa uzun veri saatlik önbelleklenir (her yeniden çalıştırmada yeniden indirilmez)
     import streamlit as _st
 
-    _cached_long = _st.cache_data(ttl=3600, show_spinner=False)(_long_processed)
+    _fetch_long = _st.cache_data(ttl=3600, show_spinner=False)(_long_processed)
 except Exception:  # pragma: no cover - streamlit yoksa önbelleksiz
-    _cached_long = _long_processed
+    _fetch_long = _long_processed
+
+
+def _cached_long(symbol: str):
+    """Uzun veri ya da None; başarısız alım önbelleğe girmez."""
+    try:
+        return _fetch_long(symbol)
+    except _NoLongData:
+        return None
 
 
 def _fingerprint(weights, include_ml) -> str:
+    """Karar kuralının tamamı (sanal takip sürümüyle aynı yöntem: `DecisionEngineConfig`'in tüm büyük harfli
+    alanları), ağırlıklar, ML bayrağı ve `CODE_VERSION`. Biri değişirse eski kararlar kullanılmaz (0026 QA)."""
     from config import DecisionEngineConfig as cfg
 
+    rules = {key: getattr(cfg, key) for key in sorted(vars(cfg)) if key.isupper()}
     body = {"weights": sorted((str(k), str(v)) for k, v in (weights or {}).items()), "ml": bool(include_ml),
-            "lookback": cfg.STABILITY_LOOKBACK, "v": 1}
-    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
+            "rules": rules, "code": CODE_VERSION}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
+def _data_hash(frame, upto: str) -> str:
+    """`upto` gününe kadarki fiyat verisinin özeti (6 anlamlı basamak). Sağlayıcı geçmişi düzeltirse değişir."""
+    digest = hashlib.sha256()
+    for ts, row in frame[["Open", "High", "Low", "Close"]].iterrows():
+        if _day(ts) > upto:
+            break
+        digest.update(f"{_day(ts)}|{row['Open']:.6g}|{row['High']:.6g}|{row['Low']:.6g}|{row['Close']:.6g};".encode())
+    return digest.hexdigest()[:16]
 
 
 def _day(ts) -> str:
@@ -173,9 +206,10 @@ def _day(ts) -> str:
 def cached_v1_decisions(symbol: str, frame, *, weights=None, include_ml=None, progress=None, variant="") -> dict:
     """V1 kararları; depodaki önbellekten, yalnız yeni günler hesaplanarak.
 
-    Önbellek anahtarı sembol + `variant` (ör. dolara çevrilmiş veri "USD") + parmak izi (ağırlıklar, ML,
-    kararlılık penceresi); farklı kullanımlar birbirinin kaydını ezmez. Verinin ilk günü değişmişse tam hesaplanır. Son mum (sağlayıcıda kapanmamış olabilir) önbelleğe yazılmaz, her seferinde
-    yeniden hesaplanır. Depo okunamaz/yazılamazsa sessizce önbelleksiz hesaplanır."""
+    Önbellek anahtarı sembol + `variant` (ör. dolara çevrilmiş veri "USD") + parmak izi (karar kuralının tamamı,
+    ağırlıklar, ML, kod sürümü); farklı kullanımlar birbirinin kaydını ezmez. Saklanan son güne kadarki fiyat
+    verisi (özet) değişmişse — ilk gün kayması ya da sağlayıcının geçmiş düzeltmesi — tam hesaplanır. Son mum
+    önbelleğe yazılmaz, her seferinde yeniden hesaplanır. Depo okunamaz/yazılamazsa önbelleksiz hesaplanır."""
     from config import DecisionEngineConfig
     from storage import StorageAccessError, read_doc, write_doc
     from technical_analysis import build_v1_decisions
@@ -192,9 +226,11 @@ def cached_v1_decisions(symbol: str, frame, *, weights=None, include_ml=None, pr
     except StorageAccessError:
         stored = {}
     known = {}
-    if stored.get("first") == first and stored.get("fp") == fingerprint:
-        known = dict(stored.get("decisions") or {})
     days = [_day(ts) for ts in frame.index]
+    if stored.get("first") == first and stored.get("fp") == fingerprint and stored.get("decisions"):
+        last_stored = max(stored["decisions"])
+        if last_stored in set(days) and stored.get("data") == _data_hash(frame, last_stored):
+            known = dict(stored["decisions"])
     last_known = max(known) if known else None
     todo = len(frame) if last_known is None else sum(1 for d in days if d > last_known)
     if progress is not None and todo > 400:
@@ -206,9 +242,10 @@ def cached_v1_decisions(symbol: str, frame, *, weights=None, include_ml=None, pr
     merged = {d: v for d, v in known.items() if d in present}
     merged.update(by_day)
     to_store = {d: v for d, v in merged.items() if d < days[-1]}     # son mum yazılmaz
-    if to_store != known:
+    if to_store and to_store != known:
         try:
-            write_doc(key, {"first": first, "fp": fingerprint, "decisions": to_store})
+            write_doc(key, {"first": first, "fp": fingerprint, "decisions": to_store,
+                            "data": _data_hash(frame, max(to_store))})
         except StorageAccessError:
             pass
     return {ts: merged[_day(ts)] for ts in frame.index if _day(ts) in merged}

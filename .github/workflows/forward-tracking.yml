@@ -46,26 +46,3 @@ jobs:
         env:
           ANALIZ_APP_DB_URL: ${{ secrets.ANALIZ_APP_DB_URL }}
         run: python -m forward_runner
-
-  # Spec 0026: uzun geçmiş (2018'den) V1 karar önbelleği. İlk doldurma ~30 dk sürebilir, sonra yalnız yeni günler
-  # hesaplanır (saniyeler). Başarısız olursa sanal takibi etkilemez; ekran önbelleksiz (yavaş) hesaplar.
-  warm-cache:
-    needs: track
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-          cache: pip
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Warm long-history decision cache
-        env:
-          ANALIZ_APP_DB_URL: ${{ secrets.ANALIZ_APP_DB_URL }}
-        run: python -m history
